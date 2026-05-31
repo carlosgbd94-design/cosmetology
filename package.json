@@ -1,0 +1,17 @@
+{
+  "name": "selector-de-cosmeticos",
+  "version": "1.0.0",
+  "description": "Cosmetic selector and treatment sheet generator with intelligent active ingredient matching.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.6.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  }
+}
