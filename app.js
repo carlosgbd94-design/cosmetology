@@ -1259,25 +1259,42 @@ window.exportToPDF = function() {
   // Sync the hidden print template first
   syncPrintView();
   
-  const element = document.getElementById('clinical-print-template');
+  const original = document.getElementById('clinical-print-template');
   
-  // Temporarily show and style the element for precise PDF capture
+  // Clone the element to isolate it from responsive parent wrappers (like max-w-7xl)
+  const element = original.cloneNode(true);
+  element.id = 'clinical-print-template-pdf-clone';
   element.classList.remove('hidden');
+  
+  // Style the cloned element for exact Letter page capture (800px width, 1035px height for 8.5x11 aspect ratio)
   element.style.display = 'flex';
   element.style.flexDirection = 'column';
   element.style.justifyContent = 'space-between';
-  element.style.width = '215.9mm';
-  element.style.height = '279.4mm';
-  element.style.minHeight = '279.4mm';
+  element.style.position = 'fixed';
+  element.style.left = '0';
+  element.style.top = '0';
+  element.style.width = '800px';
+  element.style.height = '1035px';
+  element.style.minHeight = '1035px';
   element.style.boxSizing = 'border-box';
-  element.style.padding = '15mm';
+  element.style.padding = '40px';
+  element.style.backgroundColor = '#ffffff';
+  element.style.zIndex = '-9999'; // Render in viewport but behind active page content
+  
+  document.body.appendChild(element);
   
   const opt = {
     margin:       0,
     filename:     filename,
     image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { scale: 2, useCORS: true, logging: false },
-    jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
+    html2canvas:  { 
+      scale: 2.5, 
+      useCORS: true, 
+      logging: false,
+      width: 800,
+      height: 1035
+    },
+    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
   };
   
   html2pdf().set(opt).from(element).save().then(() => {
@@ -1286,16 +1303,8 @@ window.exportToPDF = function() {
     console.error(err);
     showToast('Error al generar PDF.', 'error');
   }).finally(() => {
-    // Reset and hide the print template
-    element.classList.add('hidden');
-    element.style.display = '';
-    element.style.flexDirection = '';
-    element.style.justifyContent = '';
-    element.style.width = '';
-    element.style.height = '';
-    element.style.minHeight = '';
-    element.style.boxSizing = '';
-    element.style.padding = '';
+    // Remove the cloned element from DOM
+    element.remove();
   });
 };
 
