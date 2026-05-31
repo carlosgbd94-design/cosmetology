@@ -1144,3 +1144,23 @@ function normalizeText(text) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+// Automatically sync the interactive form values into the high-contrast clean printable template before print dialog launches.
+window.addEventListener('beforeprint', () => {
+  document.getElementById('print-val-nombre').textContent = document.getElementById('nombre').value || '__________________________________';
+  document.getElementById('print-val-fecha').textContent = document.getElementById('fecha').value || '__________________';
+  document.getElementById('print-val-biotipo').textContent = document.getElementById('biotipo').value || '__________________';
+  
+  document.getElementById('print-val-diagnostico').textContent = document.getElementById('diagnostico').value || 'No especificado.';
+  document.getElementById('print-val-condicion').textContent = document.getElementById('condicion').value || 'Ninguna.';
+  
+  const currentDocText = document.getElementById('current-doc-id').textContent;
+  document.getElementById('print-doc-id').textContent = currentDocText || 'Prescripción de Activos';
+
+  const mainTableBody = document.getElementById('results-table-body');
+  const printTableBody = document.getElementById('print-results-body');
+  
+  if (mainTableBody && printTableBody) {
+    printTableBody.innerHTML = mainTableBody.innerHTML;
+  }
+});
