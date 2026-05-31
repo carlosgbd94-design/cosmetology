@@ -1,8 +1,0 @@
-{
-  "version": 2,
-  "rewrites": [
-    { "source": "/api/products", "destination": "/api/products.js" },
-    { "source": "/api/upload", "destination": "/api/upload.js" },
-    { "source": "/(.*)", "destination": "/public/$1" }
-  ]
-}

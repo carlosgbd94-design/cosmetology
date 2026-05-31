@@ -1,9 +1,12 @@
-// Application State
+// Turso Database Credentials (Direct Client-Side Connection)
+const TURSO_URL = 'https://cosmetics-prodcts-carlos-becerra.aws-us-west-2.turso.io';
+const TURSO_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODAyNTc5MzEsImlkIjoiMDE5ZTdmOWUtMmEwMS03OWMxLTg3N2YtN2RkY2FkZjg1ZDk5IiwicmlkIjoiM2VhNTAwMzUtMjIwZS00MWM2LWI3NjItNTM2NjQ1NzJhM2EzIn0.7-B8dPeRempyRbJBif_dZYDmoKizAwHz9F9RTv-WGNmpniIRicU3GkcENXOi2k0n1_rKfDuL69f1cLAOyeFnBg';
+
+// Mappings and State
 let allProducts = [];
 let allIngredientsList = [];
 let uploadDataPreview = [];
 
-// Mapping Dictionary for Excel / CSV Catalog Ingestion
 const productMapping = {
   "ID / Clave": "id",
   "Marca": "brand",
@@ -16,7 +19,115 @@ const productMapping = {
   "Biotipo / Indicación": "skin_indication"
 };
 
-// Pricing Sanitization Rule: remove $, spaces, commas, parse to float or null
+// --- Turso Hrana-over-HTTP Decoder & Encoder ---
+function encodeValue(v) {
+  if (v === null || v === undefined) return { type: "null" };
+  if (typeof v === 'number') {
+    if (Number.isInteger(v)) {
+      return { type: "integer", value: String(v) };
+    }
+    return { type: "float", value: v };
+  }
+  return { type: "text", value: String(v) };
+}
+
+function decodeValue(v) {
+  if (!v || v.type === 'null') return null;
+  if (v.type === 'integer') return Number(v.value);
+  if (v.type === 'float') return Number(v.value);
+  return v.value;
+}
+
+function decodeResultSet(result) {
+  const columns = result.cols.map(c => c.name);
+  return result.rows.map(row => {
+    const obj = {};
+    row.forEach((val, idx) => {
+      obj[columns[idx]] = decodeValue(val);
+    });
+    return obj;
+  });
+}
+
+// Executes a single SQL statement directly via Turso HTTP API
+async function executeQuery(sql, args = []) {
+  const hranaArgs = args.map(encodeValue);
+  
+  const response = await fetch(`${TURSO_URL}/v2/pipeline`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${TURSO_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      requests: [
+        {
+          type: "execute",
+          stmt: { sql, args: hranaArgs }
+        },
+        {
+          type: "close"
+        }
+      ]
+    })
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Turso HTTP Error: ${response.status} - ${errorText}`);
+  }
+  
+  const data = await response.json();
+  const res = data.results[0];
+  
+  if (res.type === 'error') {
+    throw new Error(res.error.message);
+  }
+  
+  const execResult = res.response.result;
+  
+  return {
+    rows: decodeResultSet(execResult),
+    lastInsertRowid: execResult.last_insert_rowid || null
+  };
+}
+
+// Executes a batch transaction directly via Turso HTTP API
+async function executeBatch(statements) {
+  const requests = statements.map(stmt => ({
+    type: "execute",
+    stmt: {
+      sql: stmt.sql,
+      args: (stmt.args || []).map(encodeValue)
+    }
+  }));
+  requests.push({ type: "close" });
+
+  const response = await fetch(`${TURSO_URL}/v2/pipeline`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${TURSO_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ requests })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Turso HTTP Batch Error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  
+  for (const res of data.results) {
+    if (res.type === 'error') {
+      throw new Error(res.error.message);
+    }
+  }
+  return data.results;
+}
+
+// Pricing Sanitizer
 function sanitizePrice(value) {
   if (value === undefined || value === null || String(value).trim() === '') {
     return null;
@@ -26,34 +137,31 @@ function sanitizePrice(value) {
   return isNaN(parsed) ? null : parsed;
 }
 
-// Format prices for screen display
 function formatCurrency(val) {
   if (val === null || val === undefined || val === '') return '-';
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
 }
 
-// Initial Bootstrap
+// Bootstrapper
 document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
-  
-  // Set default patient date
   document.getElementById('fecha').value = new Date().toISOString().substring(0, 10);
 
-  // Setup Event Listeners
+  // Initialize features
   initCascadingDropdowns();
   initCheckerTool();
   initDragAndDrop();
   initPatientForm();
   initProductForm();
 
-  // Load Initial Catalog details
+  // Load database entities
   loadBrands();
   loadCatalogList();
   loadIngredientsList();
   loadHistory();
 });
 
-// Tab switching manager
+// View Tabs Selector
 window.switchTab = function(tabName) {
   const tabGen = document.getElementById('tab-generator');
   const tabInv = document.getElementById('tab-inventory');
@@ -70,11 +178,10 @@ window.switchTab = function(tabName) {
     tabInv.classList.remove('hidden');
     btnInv.className = "px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-white text-slate-900 shadow-sm";
     btnGen.className = "px-4 py-2 rounded-lg text-sm font-semibold transition-all text-slate-600 hover:text-slate-900";
-    loadCatalogList(); // refresh list on tab select
+    loadCatalogList();
   }
 };
 
-// Toast notification displayer
 function showToast(message, type = 'success') {
   const toast = document.getElementById('toast');
   const toastMsg = document.getElementById('toast-message');
@@ -106,7 +213,7 @@ function scrollToSection(id) {
   if (el) el.scrollIntoView({ behavior: 'smooth' });
 }
 
-// --- Cascading Dropdowns (Brand -> Category -> Product) ---
+// --- Cascading Dropdowns ---
 function initCascadingDropdowns() {
   const selMarca = document.getElementById('sel-marca');
   const selCategoria = document.getElementById('sel-categoria');
@@ -127,20 +234,22 @@ function initCascadingDropdowns() {
     }
 
     try {
-      const res = await fetch(`/api/products?action=categories&brand=${encodeURIComponent(brandVal)}`);
-      const cats = await res.json();
-
+      const res = await executeQuery(
+        "SELECT DISTINCT category FROM products WHERE brand = ? AND category IS NOT NULL AND category != '' ORDER BY category ASC",
+        [brandVal]
+      );
+      
       selCategoria.innerHTML = '<option value="">Seleccionar categoría...</option>';
-      cats.forEach(cat => {
+      res.rows.forEach(row => {
         const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
+        opt.value = row.category;
+        opt.textContent = row.category;
         selCategoria.appendChild(opt);
       });
       selCategoria.disabled = false;
     } catch (err) {
       console.error(err);
-      showToast('Error al cargar categorías de la marca.', 'error');
+      showToast('Error al cargar categorías de la base de datos.', 'error');
     }
   });
 
@@ -158,14 +267,16 @@ function initCascadingDropdowns() {
     }
 
     try {
-      const res = await fetch(`/api/products?action=products&brand=${encodeURIComponent(brandVal)}&category=${encodeURIComponent(catVal)}`);
-      const prods = await res.json();
+      const res = await executeQuery(
+        "SELECT id, name FROM products WHERE brand = ? AND category = ? ORDER BY name ASC",
+        [brandVal, catVal]
+      );
 
       selProducto.innerHTML = '<option value="">Seleccionar producto...</option>';
-      prods.forEach(p => {
+      res.rows.forEach(row => {
         const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = p.name;
+        opt.value = row.id;
+        opt.textContent = row.name;
         selProducto.appendChild(opt);
       });
       selProducto.disabled = false;
@@ -184,9 +295,8 @@ function initCascadingDropdowns() {
     }
 
     try {
-      const res = await fetch(`/api/products?action=detalles&id=${encodeURIComponent(prodId)}`);
-      const prod = await res.json();
-      renderResultsTable(prod);
+      const res = await executeQuery("SELECT * FROM products WHERE id = ?", [prodId]);
+      renderResultsTable(res.rows[0]);
     } catch (err) {
       console.error(err);
       showToast('Error al cargar detalles del producto.', 'error');
@@ -197,18 +307,17 @@ function initCascadingDropdowns() {
 async function loadBrands() {
   const selMarca = document.getElementById('sel-marca');
   try {
-    const res = await fetch('/api/products?action=brands');
-    const brands = await res.json();
-    
+    const res = await executeQuery("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand != '' ORDER BY brand ASC");
     selMarca.innerHTML = '<option value="">Seleccionar marca...</option>';
-    brands.forEach(b => {
+    res.rows.forEach(row => {
       const opt = document.createElement('option');
-      opt.value = b;
-      opt.textContent = b;
+      opt.value = row.brand;
+      opt.textContent = row.brand;
       selMarca.appendChild(opt);
     });
   } catch (err) {
     console.error(err);
+    showToast('Error al conectar a Turso desde el navegador.', 'error');
   }
 }
 
@@ -261,7 +370,7 @@ function renderResultsTable(p) {
   `;
 }
 
-// --- Levenshtein Correction Engine ---
+// --- Levenshtein Correction Tool ---
 function getLevenshteinDistance(a, b) {
   const matrix = [];
   for (let i = 0; i <= b.length; i++) matrix[i] = [i];
@@ -287,8 +396,17 @@ function getLevenshteinDistance(a, b) {
 
 async function loadIngredientsList() {
   try {
-    const res = await fetch('/api/products?action=ingredientes');
-    allIngredientsList = await res.json();
+    const res = await executeQuery("SELECT DISTINCT active_ingredients FROM products WHERE active_ingredients IS NOT NULL AND active_ingredients != ''");
+    const allActives = new Set();
+    
+    res.rows.forEach(row => {
+      row.active_ingredients.split(',').forEach(act => {
+        const trimmed = act.trim();
+        if (trimmed) allActives.add(trimmed);
+      });
+    });
+    
+    allIngredientsList = Array.from(allActives).map(act => ({ activo: act }));
   } catch (err) {
     console.error(err);
   }
@@ -375,7 +493,7 @@ function initCheckerTool() {
   btn.addEventListener('click', check);
 }
 
-// --- Patient Sheet Ingestion & History ---
+// --- Patient Form ---
 function initPatientForm() {
   const form = document.getElementById('patient-form');
   const btnReset = document.getElementById('btn-reset');
@@ -394,7 +512,7 @@ function initPatientForm() {
     selProd.disabled = true;
 
     clearResultsTable();
-    showToast('Ficha paciente limpia.', 'success');
+    showToast('Ficha limpia.', 'success');
   });
 
   form.addEventListener('submit', async (e) => {
@@ -408,39 +526,22 @@ function initPatientForm() {
     const prodId = document.getElementById('sel-producto').value;
 
     if (!prodId) {
-      showToast('Debe asignar un producto del catálogo para guardar la ficha.', 'error');
+      showToast('Debe asignar un producto para guardar la ficha.', 'error');
       return;
     }
 
     try {
-      const payload = {
-        action: 'save_ficha',
-        nombre,
-        fecha,
-        biotipo,
-        diagnostico,
-        condicion,
-        protocolo_id: prodId
-      };
+      await executeQuery(
+        'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [nombre, fecha, biotipo, diagnostico, condicion, prodId]
+      );
 
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const result = await res.json();
-
-      if (res.ok && result.success) {
-        showToast(result.message, 'success');
-        loadHistory();
-        scrollToSection('history-section');
-      } else {
-        showToast(result.error || 'Error al guardar ficha.', 'error');
-      }
+      showToast('Ficha guardada con éxito.', 'success');
+      loadHistory();
+      scrollToSection('history-section');
     } catch (err) {
       console.error(err);
-      showToast('Error de red al guardar la ficha.', 'error');
+      showToast('Error al guardar la ficha de paciente.', 'error');
     }
   });
 }
@@ -448,10 +549,11 @@ function initPatientForm() {
 async function loadHistory() {
   const tbody = document.getElementById('history-table-body');
   try {
-    const res = await fetch('/api/products?action=fichas');
-    const fichas = await res.json();
+    const res = await executeQuery(
+      "SELECT f.*, p.name as producto, p.brand as linea, p.category as protocolo FROM fichas_pacientes f LEFT JOIN products p ON f.protocolo_id = p.id ORDER BY f.id DESC"
+    );
 
-    if (!fichas || fichas.length === 0) {
+    if (!res.rows || res.rows.length === 0) {
       tbody.innerHTML = `
         <tr>
           <td colspan="6" class="py-8 px-6 text-center text-slate-400 text-sm">
@@ -463,7 +565,7 @@ async function loadHistory() {
     }
 
     tbody.innerHTML = '';
-    fichas.forEach(f => {
+    res.rows.forEach(f => {
       const tr = document.createElement('tr');
       tr.className = 'border-b border-slate-200/60 hover:bg-slate-50/50 transition-colors text-sm';
       
@@ -525,7 +627,7 @@ window.loadFichaToForm = function(f) {
   }
 };
 
-// --- Admin Catalog View Operations (CRUD) ---
+// --- Catalog Operations (CRUD) ---
 window.toggleProductForm = function() {
   const formCard = document.getElementById('product-mutation-card');
   const isHidden = formCard.classList.contains('hidden');
@@ -544,9 +646,8 @@ window.toggleProductForm = function() {
 async function loadCatalogList() {
   const tbody = document.getElementById('catalog-table-body');
   try {
-    const res = await fetch('/api/products?action=list');
-    allProducts = await res.json();
-    
+    const res = await executeQuery("SELECT * FROM products ORDER BY name ASC");
+    allProducts = res.rows;
     renderCatalogTable(allProducts);
     populateFilterSelects(allProducts);
   } catch (err) {
@@ -592,7 +693,7 @@ function populateFilterSelects(products) {
 function renderCatalogTable(products) {
   const tbody = document.getElementById('catalog-table-body');
   if (!products || products.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="py-8 px-4 text-center text-slate-400">No se encontraron productos coincidentes.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="py-8 px-4 text-center text-slate-400">No se encontraron productos.</td></tr>';
     return;
   }
 
@@ -654,7 +755,7 @@ window.editProduct = function(p) {
   document.getElementById('is_edit').value = 'true';
   
   document.getElementById('prod-id').value = p.id;
-  document.getElementById('prod-id').disabled = true; // Key cannot be edited
+  document.getElementById('prod-id').disabled = true;
   
   document.getElementById('prod-name').value = p.name;
   document.getElementById('prod-brand').value = p.brand;
@@ -669,22 +770,16 @@ window.editProduct = function(p) {
 };
 
 window.deleteProduct = async function(id) {
-  if (!confirm(`¿Está seguro de eliminar el producto con clave '${id}' del catálogo?`)) return;
+  if (!confirm(`¿Está seguro de eliminar el producto '${id}'?`)) return;
 
   try {
-    const res = await fetch(`/api/products?action=delete_product&id=${encodeURIComponent(id)}`);
-    const result = await res.json();
-
-    if (res.ok && result.success) {
-      showToast(result.message, 'success');
-      loadCatalogList();
-      loadBrands(); // refresh cascades
-    } else {
-      showToast(result.error || 'Error al eliminar producto.', 'error');
-    }
+    await executeQuery("DELETE FROM products WHERE id = ?", [id]);
+    showToast('Producto eliminado.', 'success');
+    loadCatalogList();
+    loadBrands();
   } catch (err) {
     console.error(err);
-    showToast('Error de red al eliminar producto.', 'error');
+    showToast('Error al eliminar producto.', 'error');
   }
 };
 
@@ -705,44 +800,44 @@ function initProductForm() {
     const is_edit = document.getElementById('is_edit').value === 'true';
 
     try {
-      const payload = {
-        action: 'save_product',
-        id,
-        name,
-        brand,
-        category,
-        capacity,
-        price_aesthetic,
-        price_public,
-        active_ingredients,
-        skin_indication,
-        is_edit
-      };
+      const priceAes = sanitizePrice(price_aesthetic);
+      const pricePub = sanitizePrice(price_public);
 
-      const res = await fetch('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const result = await res.json();
-
-      if (res.ok && result.success) {
-        showToast(result.message, 'success');
-        document.getElementById('product-mutation-card').classList.add('hidden');
-        loadCatalogList();
-        loadBrands();
+      if (is_edit) {
+        await executeQuery(
+          `UPDATE products SET brand = ?, name = ?, category = ?, capacity = ?, 
+           price_aesthetic = ?, price_public = ?, active_ingredients = ?, skin_indication = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [brand, name, category, capacity || null, priceAes, pricePub, active_ingredients || null, skin_indication || null, id]
+        );
+        showToast('Producto actualizado.', 'success');
       } else {
-        showToast(result.error || 'Error al guardar producto.', 'error');
+        const check = await executeQuery("SELECT id FROM products WHERE id = ?", [id]);
+        if (check.rows.length > 0) {
+          showToast(`El ID/Clave '${id}' ya está registrado.`, 'error');
+          return;
+        }
+
+        await executeQuery(
+          `INSERT INTO products (id, brand, name, category, capacity, price_aesthetic, price_public, active_ingredients, skin_indication) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, brand, name, category, capacity || null, priceAes, pricePub, active_ingredients || null, skin_indication || null]
+        );
+        showToast('Producto creado.', 'success');
       }
+
+      document.getElementById('product-mutation-card').classList.add('hidden');
+      loadCatalogList();
+      loadBrands();
+      loadIngredientsList();
     } catch (err) {
       console.error(err);
-      showToast('Error al enviar producto a catálogo.', 'error');
+      showToast('Error al guardar producto.', 'error');
     }
   });
 }
 
-// --- Drag & Drop Excel Ingestion Utility ---
+// --- Excel Bulk Loader ---
 function initDragAndDrop() {
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('file-input');
@@ -805,7 +900,7 @@ function initDragAndDrop() {
       reader.onload = (e) => {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
-        const json = XLSX.utils.sheet_to_json(workbook[workbook.Workbook ? 'Sheets' : 'Sheets'][workbook.SheetNames[0]]);
+        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
         processParsedData(json);
       };
       reader.readAsArrayBuffer(file);
@@ -818,7 +913,6 @@ function initDragAndDrop() {
       return;
     }
 
-    // Standardize keys based on columns upper/lower
     const mappedRows = [];
     
     for (const rawRow of data) {
@@ -828,7 +922,6 @@ function initDragAndDrop() {
         rowNormalized[k.trim().toUpperCase()] = rawRow[k];
       });
 
-      // Map row to database column formats using productMapping translation
       const dbRow = {};
       let hasKeys = false;
 
@@ -843,7 +936,6 @@ function initDragAndDrop() {
       });
 
       if (hasKeys && dbRow.id && dbRow.brand && dbRow.name && dbRow.category) {
-        // Apply pricing sanitization rules immediately
         dbRow.price_aesthetic = sanitizePrice(dbRow.price_aesthetic);
         dbRow.price_public = sanitizePrice(dbRow.price_public);
         mappedRows.push(dbRow);
@@ -851,7 +943,7 @@ function initDragAndDrop() {
     }
 
     if (mappedRows.length === 0) {
-      showToast('No se encontraron filas con el formato de catálogo requerido.', 'error');
+      showToast('No se encontraron productos válidos en el archivo.', 'error');
       return;
     }
 
@@ -879,7 +971,7 @@ function initDragAndDrop() {
     if (mappedRows.length > 10) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td colspan="6" class="py-2.5 text-center text-slate-400 bg-slate-50 italic">
+        <td colspan="6" class="py-2.5 text-center text-slate-400 bg-slate-50 italic font-medium">
           ... y ${mappedRows.length - 10} productos más.
         </td>
       `;
@@ -901,30 +993,54 @@ function initDragAndDrop() {
     btnConfirm.textContent = 'Procesando catálogo...';
 
     try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ products: uploadDataPreview })
-      });
+      const insertStatements = [];
 
-      const result = await res.json();
-
-      if (res.ok && result.success) {
-        showToast(result.message, 'success');
-        previewContainer.classList.add('hidden');
-        uploadDataPreview = [];
-        fileInput.value = '';
-        
-        // Refresh catalog and dropdown lists
-        loadBrands();
-        loadCatalogList();
-        loadIngredientsList();
-      } else {
-        showToast(result.error || 'Error al procesar el catálogo.', 'error');
+      for (const r of uploadDataPreview) {
+        insertStatements.push({
+          sql: `
+            INSERT INTO products (id, brand, name, category, capacity, price_aesthetic, price_public, active_ingredients, skin_indication)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              brand = excluded.brand,
+              name = excluded.name,
+              category = excluded.category,
+              capacity = excluded.capacity,
+              price_aesthetic = excluded.price_aesthetic,
+              price_public = excluded.price_public,
+              active_ingredients = excluded.active_ingredients,
+              skin_indication = excluded.skin_indication,
+              updated_at = CURRENT_TIMESTAMP
+          `,
+          args: [
+            r.id,
+            r.brand,
+            r.name,
+            r.category,
+            r.capacity || null,
+            r.price_aesthetic,
+            r.price_public,
+            r.active_ingredients || null,
+            r.skin_indication || null
+          ]
+        });
       }
+
+      // Execute batch query transaction directly from browser over HTTP
+      if (insertStatements.length > 0) {
+        await executeBatch(insertStatements);
+      }
+
+      showToast(`Catálogo cargado con éxito. Se importaron ${uploadDataPreview.length} registros.`, 'success');
+      previewContainer.classList.add('hidden');
+      uploadDataPreview = [];
+      fileInput.value = '';
+
+      loadBrands();
+      loadCatalogList();
+      loadIngredientsList();
     } catch (err) {
       console.error(err);
-      showToast('Error de conexión con la API de carga.', 'error');
+      showToast('Error al guardar catálogo en Turso.', 'error');
     } finally {
       btnConfirm.disabled = false;
       btnConfirm.textContent = 'Confirmar e Importar Catálogo';
