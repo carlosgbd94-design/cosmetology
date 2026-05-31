@@ -151,6 +151,36 @@ function sanitizePrice(value) {
   return isNaN(parsed) ? null : parsed;
 }
 
+const cleanPrice = val => parseFloat(String(val).replace(/[^0-9.-]/g, '')) || 0;
+
+async function updateSyncBadge(status) {
+  const badge = document.getElementById('sync-status-badge');
+  if (!badge) return;
+
+  const dot = badge.querySelector('.w-1.5');
+  const text = badge.querySelector('.badge-text');
+  if (!dot || !text) return;
+
+  // Reset classes
+  badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase backdrop-blur-md shadow-sm ml-2 transition-all";
+  dot.className = "w-1.5 h-1.5 rounded-full";
+
+  if (status === 'syncing') {
+    badge.classList.add('border-amber-500/20', 'bg-amber-500/5', 'dark:bg-amber-500/10', 'text-amber-600', 'dark:text-amber-400');
+    dot.classList.add('bg-[#D4AF37]', 'animate-pulse');
+    text.textContent = 'Sincronizando...';
+  } else if (!navigator.onLine) {
+    const unsyncedCount = await db.fichas_pacientes.where('synced').equals(0).count();
+    badge.classList.add('border-yellow-500/20', 'bg-yellow-500/5', 'dark:bg-yellow-500/10', 'text-yellow-600', 'dark:text-yellow-500');
+    dot.classList.add('bg-yellow-500');
+    text.textContent = `Modo Local (${unsyncedCount} pendientes)`;
+  } else {
+    badge.classList.add('border-emerald-500/20', 'bg-emerald-500/5', 'dark:bg-emerald-500/10', 'text-emerald-600', 'dark:text-emerald-400');
+    dot.classList.add('bg-emerald-500');
+    text.textContent = 'En línea';
+  }
+}
+
 function formatCurrency(val) {
   if (val === null || val === undefined || val === '') return '-';
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
@@ -176,6 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initProductForm();
   initSignatures();
   initFacialCanvas();
+  updateSyncBadge();
 
   // Load database entities
   loadCatalogList();
@@ -411,8 +442,8 @@ function renderResultsTable(p) {
   if (finCard) {
     finCard.classList.remove('hidden');
     
-    const cost = p.price_aesthetic || 0;
-    const publicPrice = p.price_public || 0;
+    const cost = cleanPrice(p.price_aesthetic);
+    const publicPrice = cleanPrice(p.price_public);
     const profit = publicPrice - cost;
     const marginPct = publicPrice > 0 ? Math.round((profit / publicPrice) * 100) : 0;
     
@@ -631,6 +662,7 @@ function initPatientForm() {
       } else {
         showToast('Ficha guardada localmente (pendiente de conexión).', 'warning');
       }
+      updateSyncBadge();
 
       if (signaturePadEspecialista) {
         signaturePadEspecialista.clear();
@@ -836,33 +868,36 @@ function populateFilterSelects(products) {
   filterCat.value = selectedCat;
 }
 
-function renderCatalogTable(products) {
+function renderCatalogTable(products, limit = 15) {
   const tbody = document.getElementById('catalog-table-body');
   if (!products || products.length === 0) {
     tbody.innerHTML = '<tr><td colspan="9" class="py-8 px-4 text-center text-slate-400">No se encontraron productos.</td></tr>';
+    const oldBtn = document.getElementById('catalog-show-more-btn');
+    if (oldBtn) oldBtn.remove();
     return;
   }
 
   tbody.innerHTML = '';
-  products.forEach(p => {
+  const visibleProducts = products.slice(0, limit);
+  visibleProducts.forEach(p => {
     const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-200/60 hover:bg-slate-50/50 transition-colors';
+    tr.className = 'border-b border-slate-200/60 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors';
     tr.innerHTML = `
-      <td class="py-3 px-4 font-bold text-slate-900">${p.id}</td>
-      <td class="py-3 px-4 font-semibold text-slate-800">${p.name}</td>
-      <td class="py-3 px-4 text-slate-600">${p.brand}</td>
-      <td class="py-3 px-4 text-slate-600">${p.category}</td>
-      <td class="py-3 px-4 text-slate-500">${p.capacity || '-'}</td>
-      <td class="py-3 px-4 text-slate-700 font-medium">${formatCurrency(p.price_aesthetic)}</td>
-      <td class="py-3 px-4 text-emerald-700 font-bold">${formatCurrency(p.price_public)}</td>
-      <td class="py-3 px-4 text-slate-500 truncate max-w-xs" title="${p.active_ingredients || ''}">${p.active_ingredients || '-'}</td>
+      <td class="py-3 px-4 font-bold text-slate-900 dark:text-white">${p.id}</td>
+      <td class="py-3 px-4 font-semibold text-slate-800 dark:text-luxe-100">${p.name}</td>
+      <td class="py-3 px-4 text-slate-600 dark:text-luxe-300">${p.brand}</td>
+      <td class="py-3 px-4 text-slate-600 dark:text-luxe-300">${p.category}</td>
+      <td class="py-3 px-4 text-slate-500 dark:text-luxe-400">${p.capacity || '-'}</td>
+      <td class="py-3 px-4 text-slate-700 dark:text-luxe-200 font-medium">${formatCurrency(p.price_aesthetic)}</td>
+      <td class="py-3 px-4 text-emerald-700 dark:text-emerald-400 font-bold">${formatCurrency(p.price_public)}</td>
+      <td class="py-3 px-4 text-slate-500 dark:text-luxe-400 truncate max-w-xs" title="${p.active_ingredients || ''}">${p.active_ingredients || '-'}</td>
       <td class="py-3 px-4 text-right flex justify-end gap-2">
         <button onclick="editProduct(${JSON.stringify(p).replace(/"/g, '&quot;')})" 
-          class="text-medical-600 hover:text-medical-700 font-semibold text-xs flex items-center gap-1">
+          class="text-medical-600 hover:text-medical-700 dark:text-bronze-500 dark:hover:text-bronze-400 font-semibold text-xs flex items-center gap-1">
           <i data-lucide="edit-2" class="w-3.5 h-3.5"></i> Editar
         </button>
         <button onclick="deleteProduct('${p.id}')" 
-          class="text-red-600 hover:text-red-700 font-semibold text-xs flex items-center gap-1 ml-2">
+          class="text-red-600 hover:text-red-700 dark:text-red-500 dark:hover:text-red-400 font-semibold text-xs flex items-center gap-1 ml-2">
           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
         </button>
       </td>
@@ -870,6 +905,22 @@ function renderCatalogTable(products) {
     tbody.appendChild(tr);
   });
   lucide.createIcons();
+
+  const oldBtn = document.getElementById('catalog-show-more-btn');
+  if (oldBtn) oldBtn.remove();
+
+  if (products.length > limit) {
+    const parentContainer = tbody.closest('.border');
+    const btn = document.createElement('button');
+    btn.id = 'catalog-show-more-btn';
+    btn.className = 'w-full py-3 bg-white/40 dark:bg-luxe-900/40 hover:bg-white/60 dark:hover:bg-luxe-900/60 border-t border-slate-200/50 dark:border-white/5 text-xs font-semibold text-slate-600 dark:text-luxe-300 transition-all flex items-center justify-center gap-2';
+    btn.innerHTML = 'Mostrar más resultados <i data-lucide="chevron-down" class="w-4 h-4"></i>';
+    btn.onclick = () => {
+      renderCatalogTable(products, limit + 15);
+    };
+    parentContainer.appendChild(btn);
+    lucide.createIcons();
+  }
 }
 
 window.filterCatalog = function() {
@@ -2473,6 +2524,24 @@ Tu tarea:
 
 Escribe la respuesta directamente.`;
 
+  // Get target containers and render skeleton loader
+  const container = document.getElementById('ai-recommendation-container');
+  const content = document.getElementById('ai-recommendation-content');
+  const printContent = document.getElementById('ai-recommendation-print-content');
+  const printContainer = document.getElementById('ai-recommendation-print');
+
+  if (container) container.classList.remove('hidden');
+  if (content) {
+    content.innerHTML = `
+      <div class="space-y-3 animate-pulse">
+        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-3/4"></div>
+        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-5/6"></div>
+        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-1/2"></div>
+        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-2/3"></div>
+      </div>
+    `;
+  }
+
   try {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyCSHrOfPNKR62SZ7X2TsIvDr1WUFEQ8ySo`, {
       method: 'POST',
@@ -2498,14 +2567,7 @@ Escribe la respuesta directamente.`;
     const data = await response.json();
     const resultText = data.candidates[0].content.parts[0].text;
 
-    // Show AI recommendation container
-    const container = document.getElementById('ai-recommendation-container');
-    const content = document.getElementById('ai-recommendation-content');
-    const printContent = document.getElementById('ai-recommendation-print-content');
-    const printContainer = document.getElementById('ai-recommendation-print');
-
     if (content) content.innerText = resultText;
-    if (container) container.classList.remove('hidden');
 
     if (printContent && printContainer) {
       printContent.innerText = resultText;
@@ -2516,6 +2578,20 @@ Escribe la respuesta directamente.`;
   } catch (error) {
     console.error(error);
     showToast('Error al conectar con la IA de Gemini.', 'error');
+    if (content) {
+      content.innerHTML = `
+        <div class="p-4 rounded-xl border border-red-500/20 bg-red-500/5 dark:bg-red-500/10 text-red-600 dark:text-red-400 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div class="flex items-center gap-2 text-xs font-semibold">
+            <i data-lucide="alert-circle" class="w-4 h-4"></i>
+            <span>La conexión con la IA ha fallado o se agotó el tiempo.</span>
+          </div>
+          <button onclick="generarPrescripcionIA()" class="px-4 py-2 bg-red-600 dark:bg-red-500 hover:brightness-110 text-white dark:text-luxe-950 font-bold rounded-lg text-xs transition-all shadow-sm">
+            Reintentar generación
+          </button>
+        </div>
+      `;
+      lucide.createIcons();
+    }
   } finally {
     btn.disabled = false;
     btn.innerHTML = originalHtml;
@@ -2523,6 +2599,7 @@ Escribe la respuesta directamente.`;
 };
 
 window.addEventListener('online', async () => {
+  updateSyncBadge('syncing');
   showToast('Conexión restablecida. Sincronizando datos...', 'success');
   
   // Sync products from Turso to Dexie
@@ -2556,5 +2633,12 @@ window.addEventListener('online', async () => {
   } catch (err) {
     console.error('Error syncing patient sheets: ', err);
     showToast('Error al sincronizar fichas pendientes.', 'error');
+  } finally {
+    updateSyncBadge();
   }
+});
+
+window.addEventListener('offline', () => {
+  showToast('Modo sin conexión activado.', 'warning');
+  updateSyncBadge();
 });
