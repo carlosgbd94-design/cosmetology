@@ -1393,60 +1393,128 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
   ctx.clearRect(0, 0, width, height);
 
   const isDark = document.documentElement.classList.contains('dark');
-  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.75)' : 'rgba(15, 23, 42, 0.45)';
+  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.75)' : 'rgba(15, 23, 42, 0.55)';
+  const gridColor = isDark ? 'rgba(212, 175, 55, 0.15)' : 'rgba(15, 23, 42, 0.1)';
   const accentColor = '#D4AF37';
 
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 2.5;
   ctx.lineCap = 'round';
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const rx = width * 0.31;
+  const ry = height * 0.40;
+
+  // Draw medical grid / clinical alignment guides (dashed lines)
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  
+  // Vertical axis
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - ry * 1.1);
+  ctx.lineTo(cx, cy + ry * 1.1);
+  ctx.stroke();
+
+  // Horizontal guides
+  const browY = cy - ry * 0.35;
+  const eyesY = cy - ry * 0.15;
+  const noseY = cy + ry * 0.15;
+  const mouthY = cy + ry * 0.42;
+
+  // Brow line
+  ctx.beginPath();
+  ctx.moveTo(cx - rx * 0.9, browY);
+  ctx.lineTo(cx + rx * 0.9, browY);
+  ctx.stroke();
+
+  // Nose base line
+  ctx.beginPath();
+  ctx.moveTo(cx - rx * 0.8, noseY);
+  ctx.lineTo(cx + rx * 0.8, noseY);
+  ctx.stroke();
+
+  // Reset line dash for face details
+  ctx.setLineDash([]);
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 2;
 
   // 1. Draw head outline
   ctx.beginPath();
-  const cx = width / 2;
-  const cy = height / 2;
-  const rx = width * 0.33;
-  const ry = height * 0.41;
   ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
   ctx.stroke();
 
-  // 2. Ears
+  // 2. Ears (minimalist curves)
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.ellipse(cx - rx, cy, rx * 0.12, ry * 0.22, -Math.PI / 6, 0, 2 * Math.PI);
-  ctx.ellipse(cx + rx, cy, rx * 0.12, ry * 0.22, Math.PI / 6, 0, 2 * Math.PI);
+  // Left ear
+  ctx.arc(cx - rx - 2, cy - ry * 0.05, rx * 0.18, -Math.PI * 0.6, Math.PI * 0.6);
+  ctx.stroke();
+  // Right ear
+  ctx.beginPath();
+  ctx.arc(cx + rx + 2, cy - ry * 0.05, rx * 0.18, -Math.PI * 0.4, Math.PI * 0.4, true);
   ctx.stroke();
 
-  // 3. Eyes
-  const eyeY = cy - ry * 0.18;
-  const eyeSpacing = rx * 0.38;
+  // 3. Eyebrows (elegant clinical arches)
+  ctx.lineWidth = 2;
+  const browWidth = rx * 0.32;
+  const browOffset = rx * 0.48;
+  // Left brow
   ctx.beginPath();
-  ctx.arc(cx - eyeSpacing, eyeY, rx * 0.1, 0, Math.PI, true);
+  ctx.moveTo(cx - browOffset, browY);
+  ctx.quadraticCurveTo(cx - browOffset + browWidth/2, browY - 6, cx - browOffset + browWidth, browY);
   ctx.stroke();
+  // Right brow
   ctx.beginPath();
-  ctx.arc(cx + eyeSpacing, eyeY, rx * 0.1, 0, Math.PI, true);
-  ctx.stroke();
-
-  // Eyebrows
-  ctx.beginPath();
-  ctx.arc(cx - eyeSpacing, eyeY - 6, rx * 0.12, Math.PI + 0.25, Math.PI * 2 - 0.25);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx + eyeSpacing, eyeY - 6, rx * 0.12, Math.PI + 0.25, Math.PI * 2 - 0.25);
+  ctx.moveTo(cx + browOffset, browY);
+  ctx.quadraticCurveTo(cx + browOffset - browWidth/2, browY - 6, cx + browOffset - browWidth, browY);
   ctx.stroke();
 
-  // 4. Nose
+  // 4. Eyes (elegant minimalist almonds, closed/resting)
+  ctx.lineWidth = 1.5;
+  const eyeOffset = rx * 0.44;
+  const eyeWidth = rx * 0.28;
+  // Left eye
   ctx.beginPath();
-  ctx.moveTo(cx, eyeY - 4);
-  ctx.lineTo(cx, cy + ry * 0.12);
-  ctx.lineTo(cx - rx * 0.08, cy + ry * 0.12);
+  ctx.arc(cx - eyeOffset, eyesY, eyeWidth/2, 0, Math.PI, true);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx - eyeOffset, eyesY, eyeWidth/2, 0.1, Math.PI - 0.1, false);
   ctx.stroke();
 
-  // 5. Mouth
-  const mouthY = cy + ry * 0.38;
+  // Right eye
   ctx.beginPath();
-  ctx.arc(cx, mouthY - 4, rx * 0.18, 0.15, Math.PI - 0.15);
+  ctx.arc(cx + eyeOffset, eyesY, eyeWidth/2, 0, Math.PI, true);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx + eyeOffset, eyesY, eyeWidth/2, 0.1, Math.PI - 0.1, false);
   ctx.stroke();
 
-  // Neck
+  // 5. Nose (refined bridge and nostrils)
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  // Bridge
+  ctx.moveTo(cx, browY + 2);
+  ctx.lineTo(cx, noseY - 4);
+  // Tip and nostrils
+  ctx.quadraticCurveTo(cx, noseY, cx - rx * 0.08, noseY);
+  ctx.moveTo(cx, noseY - 4);
+  ctx.quadraticCurveTo(cx, noseY, cx + rx * 0.08, noseY);
+  ctx.stroke();
+
+  // 6. Lips (structured lips outline)
+  ctx.lineWidth = 1.5;
+  const mouthWidth = rx * 0.35;
+  ctx.beginPath();
+  // Center line of mouth (cupid's bow detail)
+  ctx.moveTo(cx - mouthWidth/2, mouthY);
+  ctx.quadraticCurveTo(cx - mouthWidth/4, mouthY - 2, cx, mouthY + 1);
+  ctx.quadraticCurveTo(cx + mouthWidth/4, mouthY - 2, cx + mouthWidth/2, mouthY);
+  // Bottom lip curve
+  ctx.quadraticCurveTo(cx, mouthY + 8, cx - mouthWidth/2, mouthY);
+  ctx.stroke();
+
+  // Neck and collar lines
+  ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(cx - rx * 0.45, cy + ry * 0.88);
   ctx.quadraticCurveTo(cx - rx * 0.45, cy + ry, cx - rx * 0.6, height);
@@ -1456,11 +1524,11 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
 
   // Hotspots definitions
   const zones = {
-    forehead: { x: cx, y: cy - ry * 0.62 },
-    nose: { x: cx, y: cy + ry * 0.02 },
-    leftCheek: { x: cx - rx * 0.48, y: cy + ry * 0.08 },
-    rightCheek: { x: cx + rx * 0.48, y: cy + ry * 0.08 },
-    chin: { x: cx, y: cy + ry * 0.68 }
+    forehead: { x: cx, y: cy - ry * 0.64 },
+    nose: { x: cx, y: cy + ry * 0.05 },
+    leftCheek: { x: cx - rx * 0.46, y: cy + ry * 0.10 },
+    rightCheek: { x: cx + rx * 0.46, y: cy + ry * 0.10 },
+    chin: { x: cx, y: cy + ry * 0.70 }
   };
 
   // Draw active indicators
@@ -1469,7 +1537,7 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
     ctx.beginPath();
     ctx.arc(val.x, val.y, 8, 0, 2 * Math.PI);
     if (active) {
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 18;
       ctx.shadowColor = accentColor;
       ctx.fillStyle = accentColor;
       ctx.fill();
@@ -1478,13 +1546,13 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
       ctx.strokeStyle = accentColor;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(val.x, val.y, 14, 0, 2 * Math.PI);
+      ctx.arc(val.x, val.y, 15, 0, 2 * Math.PI);
       ctx.stroke();
     } else {
       ctx.shadowBlur = 0;
-      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.06)';
+      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)';
       ctx.fill();
-      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.15)';
+      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(15, 23, 42, 0.25)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
