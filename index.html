@@ -458,32 +458,35 @@
         </div>
 
         <!-- Demographics Form -->
-        <form id="patient-form" class="space-y-8">
-          <div class="print-grid grid grid-cols-1 md:grid-cols-3 gap-8">
+        <form id="patient-form" class="space-y-6">
+          <div class="print-grid grid grid-cols-1 md:grid-cols-3 gap-6">
             
             <!-- Nombre -->
-            <div class="relative floating-group flex flex-col">
-              <input type="text" id="nombre" name="nombre" placeholder=" " required
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="nombre" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+            <div class="flex flex-col gap-2">
+              <label for="nombre" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
                 Nombre del Paciente
               </label>
+              <input type="text" id="nombre" name="nombre" placeholder="Nombre completo..." required
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm">
             </div>
-
+ 
             <!-- Fecha -->
-            <div class="relative floating-group flex flex-col">
-              <input type="date" id="fecha" name="fecha" required
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="fecha" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+            <div class="flex flex-col gap-2">
+              <label for="fecha" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
                 Fecha de Consulta
               </label>
+              <input type="date" id="fecha" name="fecha" required
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm">
             </div>
-
+ 
             <!-- Biotipo Cutaneo -->
-            <div class="relative floating-group flex flex-col">
+            <div class="flex flex-col gap-2">
+              <label for="biotipo" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                Biotipo Cutáneo
+              </label>
               <select id="biotipo" name="biotipo" required
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm appearance-none bg-no-repeat bg-[right_1rem_center]">
-                <option value="" disabled selected hidden></option>
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm appearance-none bg-no-repeat bg-[right_1rem_center]">
+                <option value="" disabled selected hidden>Seleccionar biotipo...</option>
                 <option value="Eudérmica / Normal">Eudérmica / Normal</option>
                 <option value="Seca / Alípica">Seca / Alípica</option>
                 <option value="Grasa deshidratada">Grasa deshidratada</option>
@@ -491,30 +494,27 @@
                 <option value="Mixta">Mixta</option>
                 <option value="Sensible / Rosácea">Sensible / Rosácea</option>
               </select>
-              <label for="biotipo" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Biotipo Cutáneo
-              </label>
             </div>
-
+ 
           </div>
-
-          <div class="print-grid grid grid-cols-1 md:grid-cols-2 gap-8">
+ 
+          <div class="print-grid grid grid-cols-1 md:grid-cols-2 gap-6">
             <!-- Diagnostico -->
-            <div class="relative floating-group flex flex-col">
-              <textarea id="diagnostico" name="diagnostico" rows="3" placeholder=" " required
-                class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="diagnostico" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+            <div class="flex flex-col gap-2">
+              <label for="diagnostico" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
                 Diagnóstico Clínico
               </label>
+              <textarea id="diagnostico" name="diagnostico" rows="3" placeholder="Detalles de la valoración cutánea..." required
+                class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
             </div>
-
+ 
             <!-- Condicion -->
-            <div class="relative floating-group flex flex-col">
-              <textarea id="condicion" name="condicion" rows="3" placeholder=" "
-                class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="condicion" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+            <div class="flex flex-col gap-2">
+              <label for="condicion" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
                 Condición / Contraindicaciones
               </label>
+              <textarea id="condicion" name="condicion" rows="3" placeholder="Alergias o condiciones específicas..."
+                class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
             </div>
           </div>
 
@@ -743,144 +743,119 @@
           <button onclick="toggleProductForm()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-905 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all flex items-center gap-1.5 hover:brightness-110">
             <i data-lucide="plus" class="w-4 h-4" stroke-width="1.5"></i> Crear Producto
           </button>
-        </div>
-      </div>
+            <form id="product-form" class="space-y-6">
+              <input type="hidden" id="is_edit" value="false">
+              
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <!-- ID / Clave -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-id" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">ID / Clave</label>
+                  <input type="text" id="prod-id" placeholder="Ej: CP-001" required
+                    class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+                </div>
 
-      <!-- Interactive Mutation Form (Collapsible Glass Card) -->
-      <div id="product-mutation-card" class="hidden liquid-glass rounded-3xl p-8 relative overflow-hidden transition-all duration-300">
-        <h3 id="mutation-form-title" class="font-outfit text-lg font-bold text-slate-800 dark:text-white mb-6">Crear Nuevo Producto</h3>
-        
-        <form id="product-form" class="space-y-6">
-          <input type="hidden" id="is_edit" value="false">
-          
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <!-- ID / Clave -->
-            <div class="relative floating-group flex flex-col">
-              <input type="text" id="prod-id" placeholder=" " required
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-id" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                ID / Clave
-              </label>
-            </div>
+                <!-- Nombre -->
+                <div class="md:col-span-2 flex flex-col gap-2">
+                  <label for="prod-name" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Nombre del Producto</label>
+                  <input type="text" id="prod-name" placeholder="Nombre del producto..." required
+                    class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+                </div>
 
-            <!-- Nombre -->
-            <div class="md:col-span-2 relative floating-group flex flex-col">
-              <input type="text" id="prod-name" placeholder=" " required
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-name" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Nombre del Producto
-              </label>
-            </div>
+                <!-- Capacidad -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-capacity" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Capacidad (ej: 125 ml)</label>
+                  <input type="text" id="prod-capacity" placeholder="Ej: 125 ml"
+                    class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+                </div>
+              </div>
 
-            <!-- Capacidad -->
-            <div class="relative floating-group flex flex-col">
-              <input type="text" id="prod-capacity" placeholder=" "
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-capacity" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Capacidad (ej: 125 ml)
-              </label>
-            </div>
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <!-- Brand / Marca Select -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-brand" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Marca / Laboratorio</label>
+                  <select id="prod-brand" required class="smart-input w-full px-4 py-3 rounded-xl text-sm appearance-none">
+                    <option value="" disabled selected hidden>Seleccionar marca...</option>
+                    <option value="Cosmedic Peeling">Cosmedic Peeling</option>
+                    <option value="Natural Secret Xpatl">Natural Secret Xpatl</option>
+                    <option value="Miguett">Miguett</option>
+                    <option value="Marant">Marant</option>
+                    <option value="Grande de Leim">Grande de Leim</option>
+                  </select>
+                </div>
+
+                <!-- Category / Categoría Select -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-category" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Categoría</label>
+                  <select id="prod-category" required class="smart-input w-full px-4 py-3 rounded-xl text-sm appearance-none">
+                    <option value="" disabled selected hidden>Seleccionar categoría...</option>
+                    <option value="Limpiador">Limpiador</option>
+                    <option value="Exfoliante">Exfoliante</option>
+                    <option value="Regulador pH">Regulador pH</option>
+                    <option value="Corporal">Corporal</option>
+                    <option value="Serum/Vial">Serum/Vial</option>
+                    <option value="Mascarilla">Mascarilla</option>
+                    <option value="Loción">Loción</option>
+                    <option value="Crema/Gel">Crema/Gel</option>
+                    <option value="Específico">Específico</option>
+                    <option value="Black Allium">Black Allium</option>
+                    <option value="Colágeno">Colágeno</option>
+                    <option value="Venom Ther.">Venom Ther.</option>
+                    <option value="Rosa Negra">Rosa Negra</option>
+                    <option value="Geles/Nuev.">Geles/Nuev.</option>
+                    <option value="Ojos/Labios">Ojos/Labios</option>
+                    <option value="Biotecnopl.">Biotecnopl.</option>
+                    <option value="Alternative">Alternative</option>
+                    <option value="Rosa Mosq.">Rosa Mosq.</option>
+                    <option value="Mulike">Mulike</option>
+                    <option value="Oro">Oro</option>
+                    <option value="Clásica">Clásica</option>
+                    <option value="Diamante">Diamante</option>
+                    <option value="Biohelicina">Biohelicina</option>
+                    <option value="Biobotulina">Biobotulina</option>
+                  </select>
+                </div>
+
+                <!-- Precio Esteticista -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-price-aesthetic" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Precio Esteticista</label>
+                  <input type="text" id="prod-price-aesthetic" placeholder="Ej: 250.00"
+                    class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+                </div>
+
+                <!-- Precio Público -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-price-public" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Precio Público</label>
+                  <input type="text" id="prod-price-public" placeholder="Ej: 399.00"
+                    class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Activos Clave -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-actives" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Activos Clave</label>
+                  <textarea id="prod-actives" rows="3" placeholder="Ingredientes activos clave..."
+                    class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
+                </div>
+
+                <!-- Biotipo / Indicacion -->
+                <div class="flex flex-col gap-2">
+                  <label for="prod-indication" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo / Indicación de Piel</label>
+                  <textarea id="prod-indication" rows="3" placeholder="Indicaciones para biotipos de piel..."
+                    class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-3 pt-4 border-t border-slate-200/50 dark:border-white/5">
+                <button type="button" onclick="toggleProductForm()" class="px-5 py-2.5 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-950 px-6 py-2.5 rounded-xl text-xs font-bold tracking-wide shadow-md shadow-bronze-500/10 transition-all hover:brightness-110">
+                  Guardar en Catálogo
+                </button>
+              </div>
+            </form>
           </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <!-- Brand / Marca Select -->
-            <div class="relative floating-group flex flex-col">
-              <select id="prod-brand" required class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm appearance-none">
-                <option value="" disabled selected hidden></option>
-                <option value="Cosmedic Peeling">Cosmedic Peeling</option>
-                <option value="Natural Secret Xpatl">Natural Secret Xpatl</option>
-                <option value="Miguett">Miguett</option>
-                <option value="Marant">Marant</option>
-                <option value="Grande de Leim">Grande de Leim</option>
-              </select>
-              <label for="prod-brand" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Marca / Laboratorio
-              </label>
-            </div>
-
-            <!-- Category / Categoría Select -->
-            <div class="relative floating-group flex flex-col">
-              <select id="prod-category" required class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm appearance-none">
-                <option value="" disabled selected hidden></option>
-                <option value="Limpiador">Limpiador</option>
-                <option value="Exfoliante">Exfoliante</option>
-                <option value="Regulador pH">Regulador pH</option>
-                <option value="Corporal">Corporal</option>
-                <option value="Serum/Vial">Serum/Vial</option>
-                <option value="Mascarilla">Mascarilla</option>
-                <option value="Loción">Loción</option>
-                <option value="Crema/Gel">Crema/Gel</option>
-                <option value="Específico">Específico</option>
-                <option value="Black Allium">Black Allium</option>
-                <option value="Colágeno">Colágeno</option>
-                <option value="Venom Ther.">Venom Ther.</option>
-                <option value="Rosa Negra">Rosa Negra</option>
-                <option value="Geles/Nuev.">Geles/Nuev.</option>
-                <option value="Ojos/Labios">Ojos/Labios</option>
-                <option value="Biotecnopl.">Biotecnopl.</option>
-                <option value="Alternative">Alternative</option>
-                <option value="Rosa Mosq.">Rosa Mosq.</option>
-                <option value="Mulike">Mulike</option>
-                <option value="Oro">Oro</option>
-                <option value="Clásica">Clásica</option>
-                <option value="Diamante">Diamante</option>
-                <option value="Biohelicina">Biohelicina</option>
-                <option value="Biobotulina">Biobotulina</option>
-              </select>
-              <label for="prod-category" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Categoría
-              </label>
-            </div>
-
-            <!-- Precio Esteticista -->
-            <div class="relative floating-group flex flex-col">
-              <input type="text" id="prod-price-aesthetic" placeholder=" "
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-price-aesthetic" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Precio Esteticista
-              </label>
-            </div>
-
-            <!-- Precio Público -->
-            <div class="relative floating-group flex flex-col">
-              <input type="text" id="prod-price-public" placeholder=" "
-                class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-price-public" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Precio Público
-              </label>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Activos Clave -->
-            <div class="relative floating-group flex flex-col">
-              <textarea id="prod-actives" rows="3" placeholder=" "
-                class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="prod-actives" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Activos Clave
-              </label>
-            </div>
-
-            <!-- Biotipo / Indicacion -->
-            <div class="relative floating-group flex flex-col">
-              <textarea id="prod-indication" rows="3" placeholder=" "
-                class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="prod-indication" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
-                Biotipo / Indicación de Piel
-              </label>
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-3 pt-4 border-t border-slate-200/50 dark:border-white/5">
-            <button type="button" onclick="toggleProductForm()" class="px-5 py-2.5 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
-              Cancelar
-            </button>
-            <button type="submit" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-950 px-6 py-2.5 rounded-xl text-xs font-bold tracking-wide shadow-md shadow-bronze-500/10 transition-all hover:brightness-110">
-              Guardar en Catálogo
-            </button>
-          </div>
-        </form>
-      </div>
 
       <!-- Filters & Catalog List (Liquid Glass) -->
       <div class="liquid-glass rounded-3xl p-8">
@@ -906,31 +881,29 @@
         </div>
 
         <!-- Catalog Items Table (Scrollable Panel with Sticky Headers) -->
-        <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl bg-white/20 dark:bg-luxe-950/20 max-h-[500px] overflow-y-auto shadow-inner relative">
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead class="sticky top-0 z-10 bg-slate-100/95 dark:bg-luxe-900/95 backdrop-blur-md border-b border-slate-200/50 dark:border-white/5 shadow-sm">
-                <tr>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Clave</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Producto</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Marca</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Categoría</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Capacidad</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">P. Esteticista</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">P. Público</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider w-1/5">Activos</th>
-                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="catalog-table-body" class="divide-y divide-slate-200/50 dark:divide-white/5">
-                <tr>
-                  <td colspan="9" class="py-8 px-4 text-center text-slate-400">
-                    Cargando inventario de cosméticos...
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+        <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl bg-white/20 dark:bg-luxe-950/20 max-h-[500px] overflow-y-auto overflow-x-auto shadow-inner relative">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="sticky top-0 z-10 bg-slate-100/95 dark:bg-luxe-900/95 backdrop-blur-md border-b border-slate-200/50 dark:border-white/5 shadow-sm">
+              <tr>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Clave</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Producto</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Marca</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Categoría</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Capacidad</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Precio Esteticista</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Precio Público</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider w-1/5">Activos</th>
+                <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="catalog-table-body" class="divide-y divide-slate-200/50 dark:divide-white/5">
+              <tr>
+                <td colspan="9" class="py-8 px-4 text-center text-slate-400">
+                  Cargando inventario de cosméticos...
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
