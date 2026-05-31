@@ -1381,79 +1381,6 @@ window.clearSignature = function(who) {
 };
 
 // --- Interactive Facial Canvas functions ---
-const faceMeshPoints3D = (() => {
-  const points = [];
-  const rows = 14;
-  const cols = 16;
-  for (let r = 0; r <= rows; r++) {
-    const lat = (r / rows) * Math.PI;
-    const y = -Math.cos(lat);
-    const baseR = Math.sin(lat);
-    const rowPoints = [];
-    for (let c = 0; c < cols; c++) {
-      const lon = (c / cols) * 2 * Math.PI;
-      let x = Math.sin(lon) * baseR;
-      let z = Math.cos(lon) * baseR;
-
-      // Distort front profile to model nose, cheeks, and chin structure in 3D
-      const angleFromFront = Math.abs(lon - Math.PI / 2);
-      const isFront = angleFromFront < 0.6;
-      let rModifier = 1;
-
-      if (isFront) {
-        const frontFactor = Math.cos(angleFromFront * Math.PI / 1.2);
-        
-        // Nose Protrusion
-        if (y > -0.2 && y < 0.25) {
-          const noseFactor = Math.cos((y - 0.0) * Math.PI / 0.45);
-          rModifier += 0.28 * frontFactor * noseFactor;
-        }
-        // Chin Protrusion
-        if (y > 0.45 && y < 0.75) {
-          const chinFactor = Math.cos((y - 0.6) * Math.PI / 0.3);
-          rModifier += 0.14 * frontFactor * chinFactor;
-        }
-        // Brow Protrusion
-        if (y > -0.45 && y < -0.3) {
-          const browFactor = Math.cos((y + 0.37) * Math.PI / 0.15);
-          rModifier += 0.04 * frontFactor * browFactor;
-        }
-      }
-      rowPoints.push({ x, y, z });
-    }
-    points.push(rowPoints);
-  }
-  return points;
-})();
-
-const faceZones3D = {
-  forehead: { x: 0.0, y: -0.62, z: 0.95 },
-  nose: { x: 0.0, y: 0.02, z: 1.25 },
-  leftCheek: { x: -0.42, y: 0.15, z: 0.95 },
-  rightCheek: { x: 0.42, y: 0.15, z: 0.95 },
-  chin: { x: 0.0, y: 0.68, z: 1.10 }
-};
-
-const yawAngle = -0.32;
-const pitchAngle = 0.08;
-
-function project3DPoint(p, width, height, rx, ry) {
-  // Rotate Y (yaw)
-  const x1 = p.x * Math.cos(yawAngle) - p.z * Math.sin(yawAngle);
-  const z1 = p.x * Math.sin(yawAngle) + p.z * Math.cos(yawAngle);
-  // Rotate X (pitch)
-  const y2 = p.y * Math.cos(pitchAngle) - z1 * Math.sin(pitchAngle);
-  const z2 = p.y * Math.sin(pitchAngle) + z1 * Math.cos(pitchAngle);
-  
-  const cx = width / 2;
-  const cy = height / 2;
-  return {
-    x: cx + x1 * rx,
-    y: cy + y2 * ry,
-    depth: z2
-  };
-}
-
 let activeFacialZones = {
   forehead: false,
   nose: false,
@@ -1466,75 +1393,332 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
   ctx.clearRect(0, 0, width, height);
 
   const isDark = document.documentElement.classList.contains('dark');
-  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.4)' : 'rgba(15, 23, 42, 0.3)';
-  const backColor = isDark ? 'rgba(212, 175, 55, 0.1)' : 'rgba(15, 23, 42, 0.06)';
   const accentColor = '#D4AF37';
 
-  const rx = width * 0.32;
-  const ry = height * 0.39;
+  // Adaptive palette
+  const baseGradStart = isDark ? 'rgba(30, 30, 35, 0.95)' : 'rgba(250, 249, 246, 0.95)';
+  const baseGradEnd = isDark ? 'rgba(18, 18, 22, 0.95)' : 'rgba(235, 230, 220, 0.95)';
+  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.85)' : 'rgba(15, 23, 42, 0.75)';
+  const thinColor = isDark ? 'rgba(212, 175, 55, 0.4)' : 'rgba(15, 23, 42, 0.35)';
+  const shadowColor = isDark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(15, 23, 42, 0.08)';
+  const guideColor = isDark ? 'rgba(212, 175, 55, 0.15)' : 'rgba(15, 23, 42, 0.1)';
 
-  // Project points
-  const projected = faceMeshPoints3D.map(row =>
-    row.map(p => project3DPoint(p, width, height, rx, ry))
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const scaleX = width / 250;
+  const scaleY = height / 250;
+
+  const p = (x, y) => ({
+    x: cx + x * scaleX,
+    y: cy + y * scaleY
+  });
+
+  // --- 1. Base 3D Shading (Face Volume) ---
+  const faceGrad = ctx.createRadialGradient(
+    p(0, -10).x, p(0, -10).y, 10 * scaleX,
+    p(0, 0).x, p(0, 0).y, 90 * Math.max(scaleX, scaleY)
   );
+  faceGrad.addColorStop(0, isDark ? 'rgba(45, 42, 38, 1)' : 'rgba(255, 253, 248, 1)');
+  faceGrad.addColorStop(0.5, isDark ? 'rgba(28, 26, 24, 1)' : 'rgba(247, 243, 233, 1)');
+  faceGrad.addColorStop(1, isDark ? 'rgba(16, 16, 18, 1)' : 'rgba(230, 223, 210, 1)');
 
-  const rows = projected.length;
-  const cols = projected[0].length;
+  // Draw Face Base with Shadow
+  ctx.shadowColor = shadowColor;
+  ctx.shadowBlur = 15;
+  ctx.fillStyle = faceGrad;
+  ctx.beginPath();
+  
+  // Head path
+  const start = p(-40, -85);
+  ctx.moveTo(start.x, start.y);
+  const fTopRight = p(40, -85);
+  ctx.bezierCurveTo(p(-15, -95).x, p(-15, -95).y, p(15, -95).x, p(15, -95).y, fTopRight.x, fTopRight.y);
+  const rTemple = p(55, -60);
+  ctx.bezierCurveTo(p(50, -78).x, p(50, -78).y, p(55, -70).x, p(55, -70).y, rTemple.x, rTemple.y);
+  const rCheek = p(62, -10);
+  ctx.bezierCurveTo(p(55, -45).x, p(55, -45).y, p(62, -28).x, p(62, -28).y, rCheek.x, rCheek.y);
+  const rJaw = p(45, 55);
+  ctx.bezierCurveTo(p(62, 15).x, p(62, 15).y, p(58, 38).x, p(58, 38).y, rJaw.x, rJaw.y);
+  const chinRight = p(15, 82);
+  ctx.bezierCurveTo(p(35, 70).x, p(35, 70).y, p(25, 80).x, p(25, 80).y, chinRight.x, chinRight.y);
+  const chinLeft = p(-15, 82);
+  ctx.bezierCurveTo(p(0, 85).x, p(0, 85).y, p(-5, 85).x, p(-5, 85).y, chinLeft.x, chinLeft.y);
+  const lJaw = p(-45, 55);
+  ctx.bezierCurveTo(p(-25, 80).x, p(-25, 80).y, p(-35, 70).x, p(-35, 70).y, lJaw.x, lJaw.y);
+  const lCheek = p(-62, -10);
+  ctx.bezierCurveTo(p(-58, 38).x, p(-58, 38).y, p(-62, 15).x, p(-62, 15).y, lCheek.x, lCheek.y);
+  const lTemple = p(-55, -60);
+  ctx.bezierCurveTo(p(-62, -28).x, p(-62, -28).y, p(-55, -45).x, p(-55, -45).y, lTemple.x, lTemple.y);
+  ctx.bezierCurveTo(p(-55, -70).x, p(-55, -70).y, p(-50, -78).x, p(-50, -78).y, start.x, start.y);
+  ctx.closePath();
+  ctx.fill();
 
-  ctx.lineWidth = 0.8;
+  ctx.shadowBlur = 0; // reset shadow
 
-  // Draw 3D wireframe mesh curves
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const p1 = projected[r][c];
+  // Outline of head
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
 
-      // Latitudinal lines
-      const p2 = projected[r][(c + 1) % cols];
-      const avgDepthH = (p1.depth + p2.depth) / 2;
-      ctx.strokeStyle = avgDepthH < 0.25 ? backColor : strokeColor;
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.stroke();
+  // --- Neck & Collarbone ---
+  ctx.strokeStyle = thinColor;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(p(-35, 58).x, p(-35, 58).y);
+  ctx.bezierCurveTo(p(-38, 80).x, p(-38, 80).y, p(-48, 95).x, p(-48, 95).y, p(-60, 110).x, p(-60, 110).y);
+  ctx.moveTo(p(35, 58).x, p(35, 58).y);
+  ctx.bezierCurveTo(p(38, 80).x, p(38, 80).y, p(48, 95).x, p(48, 95).y, p(60, 110).x, p(60, 110).y);
+  ctx.stroke();
 
-      // Longitudinal lines
-      if (r < rows - 1) {
-        const p3 = projected[r + 1][c];
-        const avgDepthV = (p1.depth + p3.depth) / 2;
-        ctx.strokeStyle = avgDepthV < 0.25 ? backColor : strokeColor;
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p3.x, p3.y);
-        ctx.stroke();
-      }
-    }
-  }
+  ctx.beginPath();
+  ctx.moveTo(p(-55, 115).x, p(-55, 115).y);
+  ctx.quadraticCurveTo(p(-20, 115).x, p(-20, 115).y, p(-5, 122).x, p(-5, 122).y);
+  ctx.moveTo(p(55, 115).x, p(55, 115).y);
+  ctx.quadraticCurveTo(p(20, 115).x, p(20, 115).y, p(5, 122).x, p(5, 122).y);
+  ctx.stroke();
 
-  // Draw 3D projected active indicators
-  ctx.lineWidth = 2.5;
-  for (const [key, p3D] of Object.entries(faceZones3D)) {
-    const proj = project3DPoint(p3D, width, height, rx, ry);
+  // --- Ears ---
+  ctx.strokeStyle = thinColor;
+  ctx.beginPath();
+  ctx.moveTo(p(-57, -35).x, p(-57, -35).y);
+  ctx.bezierCurveTo(p(-68, -35).x, p(-68, -35).y, p(-68, 5).x, p(-68, 5).y, p(-50, 15).x, p(-50, 15).y);
+  ctx.moveTo(p(57, -35).x, p(57, -35).y);
+  ctx.bezierCurveTo(p(68, -35).x, p(68, -35).y, p(68, 5).x, p(68, 5).y, p(50, 15).x, p(50, 15).y);
+  ctx.stroke();
+
+  // Internal Ear details
+  ctx.beginPath();
+  ctx.moveTo(p(-57, -25).x, p(-57, -25).y);
+  ctx.quadraticCurveTo(p(-63, -20).x, p(-63, -20).y, p(-60, -5).x, p(-60, -5).y);
+  ctx.moveTo(p(57, -25).x, p(57, -25).y);
+  ctx.quadraticCurveTo(p(63, -20).x, p(63, -20).y, p(60, -5).x, p(60, -5).y);
+  ctx.stroke();
+
+  // --- Hairline contour ---
+  ctx.strokeStyle = thinColor;
+  ctx.beginPath();
+  ctx.moveTo(p(-48, -75).x, p(-48, -75).y);
+  ctx.bezierCurveTo(p(-30, -78).x, p(-30, -78).y, p(30, -78).x, p(30, -78).y, p(48, -75).x, p(48, -75).y);
+  ctx.stroke();
+
+  // --- 2. Eyebrows (Realistic Hair Strokes Simulation) ---
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  // Left eyebrow
+  ctx.moveTo(p(-45, -35).x, p(-45, -35).y);
+  ctx.bezierCurveTo(p(-30, -42).x, p(-30, -42).y, p(-18, -36).x, p(-18, -36).y, p(-10, -32).x, p(-10, -32).y);
+  ctx.stroke();
+  // Right eyebrow
+  ctx.beginPath();
+  ctx.moveTo(p(45, -35).x, p(45, -35).y);
+  ctx.bezierCurveTo(p(30, -42).x, p(30, -42).y, p(18, -36).x, p(18, -36).y, p(10, -32).x, p(10, -32).y);
+  ctx.stroke();
+
+  // --- 3. Realistic Eyes (Eyelids, Pupil, Iris, Highlight) ---
+  const drawEye = (side) => {
+    const s = side === 'left' ? -1 : 1;
+    const baseWidth = 27;
+    const eC = p(27 * s, -23); // center of eye
+    
+    // Eyelid path
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(p(40 * s, -23).x, p(40 * s, -23).y);
+    ctx.bezierCurveTo(p(32 * s, -30).x, p(32 * s, -30).y, p(22 * s, -30).x, p(22 * s, -30).y, p(14 * s, -23).x, p(14 * s, -23).y);
+    ctx.bezierCurveTo(p(22 * s, -16).x, p(22 * s, -16).y, p(32 * s, -16).x, p(32 * s, -16).y, p(40 * s, -23).x, p(40 * s, -23).y);
+    ctx.stroke();
+
+    // Eyelid crease
+    ctx.strokeStyle = thinColor;
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(p(38 * s, -26).x, p(38 * s, -26).y);
+    ctx.quadraticCurveTo(p(27 * s, -32).x, p(27 * s, -32).y, p(16 * s, -26).x, p(16 * s, -26).y);
+    ctx.stroke();
+
+    // Iris and Pupil
+    ctx.save();
+    // Clip inside the eyelid path
+    ctx.beginPath();
+    ctx.moveTo(p(40 * s, -23).x, p(40 * s, -23).y);
+    ctx.bezierCurveTo(p(32 * s, -30).x, p(32 * s, -30).y, p(22 * s, -30).x, p(22 * s, -30).y, p(14 * s, -23).x, p(14 * s, -23).y);
+    ctx.bezierCurveTo(p(22 * s, -16).x, p(22 * s, -16).y, p(32 * s, -16).x, p(32 * s, -16).y, p(40 * s, -23).x, p(40 * s, -23).y);
+    ctx.clip();
+
+    // Iris
+    ctx.fillStyle = isDark ? 'rgba(212, 175, 55, 0.45)' : 'rgba(15, 23, 42, 0.35)';
+    ctx.beginPath();
+    ctx.arc(eC.x, eC.y, 5.5, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Pupil
+    ctx.fillStyle = isDark ? '#D4AF37' : '#0F172A';
+    ctx.beginPath();
+    ctx.arc(eC.x, eC.y, 2.5, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // Reflection Highlight
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath();
+    ctx.arc(eC.x - 1.2 * s, eC.y - 1.2, 1, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.restore();
+  };
+
+  drawEye('left');
+  drawEye('right');
+
+  // --- 4. Detailed 3D-shaded Nose ---
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  // Bridge side shadow
+  ctx.moveTo(p(-8, -26).x, p(-8, -26).y);
+  ctx.quadraticCurveTo(p(-7, -8).x, p(-7, -8).y, p(-6, 10).x, p(-6, 10).y);
+  // Nose tip bulb
+  ctx.bezierCurveTo(p(-6, 17).x, p(-6, 17).y, p(6, 17).x, p(6, 17).y, p(6, 10).x, p(6, 10).y);
+  ctx.stroke();
+
+  // Nostril flares
+  ctx.beginPath();
+  ctx.arc(p(-9, 10).x, p(-9, 10).y, 2.2, Math.PI * 0.75, Math.PI * 1.8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(p(9, 10).x, p(9, 10).y, 2.2, Math.PI * 1.2, Math.PI * 0.25);
+  ctx.stroke();
+
+  // Soft nose tip highlight curve
+  ctx.strokeStyle = thinColor;
+  ctx.beginPath();
+  ctx.arc(p(0, 9).x, p(0, 9).y, 3, 0, Math.PI, true);
+  ctx.stroke();
+
+  // --- 5. Beautiful Lips (Proportional and Detailed) ---
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.6;
+  
+  // Philtrum guide
+  ctx.beginPath();
+  ctx.moveTo(p(-3, 17).x, p(-3, 17).y);
+  ctx.quadraticCurveTo(p(-2, 23).x, p(-2, 23).y, p(-4, 30).x, p(-4, 30).y);
+  ctx.moveTo(p(3, 17).x, p(3, 17).y);
+  ctx.quadraticCurveTo(p(2, 23).x, p(2, 23).y, p(4, 30).x, p(4, 30).y);
+  ctx.stroke();
+
+  // Lips outline
+  ctx.fillStyle = isDark ? 'rgba(212, 175, 55, 0.15)' : 'rgba(212, 175, 55, 0.08)';
+  ctx.beginPath();
+  ctx.moveTo(p(-22, 35).x, p(-22, 35).y);
+  ctx.quadraticCurveTo(p(-11, 29).x, p(-11, 29).y, p(-5, 31).x, p(-5, 31).y);
+  ctx.lineTo(p(0, 34).x, p(0, 34).y);
+  ctx.lineTo(p(5, 31).x, p(5, 31).y);
+  ctx.quadraticCurveTo(p(11, 29).x, p(11, 29).y, p(22, 35).x, p(22, 35).y);
+  ctx.quadraticCurveTo(p(12, 48).x, p(12, 48).y, p(0, 48).x, p(0, 48).y);
+  ctx.quadraticCurveTo(p(-12, 48).x, p(-12, 48).y, p(-22, 35).x, p(-22, 35).y);
+  ctx.closePath();
+  ctx.fill();
+
+  // Lips dividing line
+  ctx.beginPath();
+  ctx.moveTo(p(-22, 35).x, p(-22, 35).y);
+  ctx.quadraticCurveTo(p(-11, 33).x, p(-11, 33).y, p(-5, 34).x, p(-5, 34).y);
+  ctx.lineTo(p(0, 35.5).x, p(0, 35.5).y);
+  ctx.lineTo(p(5, 34).x, p(5, 34).y);
+  ctx.quadraticCurveTo(p(11, 33).x, p(11, 33).y, p(22, 35).x, p(22, 35).y);
+  ctx.stroke();
+
+  // Lower lip bottom boundary
+  ctx.beginPath();
+  ctx.moveTo(p(-22, 35).x, p(-22, 35).y);
+  ctx.quadraticCurveTo(p(0, 47).x, p(0, 47).y, p(22, 35).x, p(22, 35).y);
+  ctx.stroke();
+
+  // --- 6. Clinical Proportions & Aesthetic Grid Guides ---
+  ctx.strokeStyle = guideColor;
+  ctx.lineWidth = 0.7;
+  ctx.setLineDash([3, 4]);
+
+  // Center line of symmetry
+  ctx.beginPath();
+  ctx.moveTo(p(0, -92).x, p(0, -92).y);
+  ctx.lineTo(p(0, 120).x, p(0, 120).y);
+  ctx.stroke();
+
+  // Eye line guide (horizontal)
+  ctx.beginPath();
+  ctx.moveTo(p(-58, -23).x, p(-58, -23).y);
+  ctx.lineTo(p(58, -23).x, p(58, -23).y);
+  ctx.stroke();
+
+  // Cheekbone contour guides (realistic cheek curve)
+  ctx.beginPath();
+  ctx.moveTo(p(-40, -10).x, p(-40, -10).y);
+  ctx.quadraticCurveTo(p(-20, -5).x, p(-20, -5).y, p(-15, 20).x, p(-15, 20).y);
+  ctx.moveTo(p(40, -10).x, p(40, -10).y);
+  ctx.quadraticCurveTo(p(20, -5).x, p(20, -5).y, p(15, 20).x, p(15, 20).y);
+  ctx.stroke();
+
+  // Forehead horizontal grid
+  ctx.beginPath();
+  ctx.moveTo(p(-42, -58).x, p(-42, -58).y);
+  ctx.lineTo(p(42, -58).x, p(42, -58).y);
+  ctx.stroke();
+
+  ctx.setLineDash([]); // reset line dash
+
+  // --- 7. Hotspot Diagnostic Interactive Zones ---
+  const zones = {
+    forehead: p(0, -60),
+    nose: p(0, 0),
+    leftCheek: p(-31, 8),
+    rightCheek: p(31, 8),
+    chin: p(0, 62)
+  };
+
+  // Draw pins
+  for (const [key, val] of Object.entries(zones)) {
     const active = activeZones[key];
     
-    ctx.beginPath();
-    ctx.arc(proj.x, proj.y, 8, 0, 2 * Math.PI);
     if (active) {
-      ctx.shadowBlur = 18;
+      // Glow shadow
+      ctx.save();
+      ctx.shadowBlur = 15;
       ctx.shadowColor = accentColor;
-      ctx.fillStyle = accentColor;
-      ctx.fill();
       
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = accentColor;
+      // Pin fill
+      ctx.fillStyle = accentColor;
       ctx.beginPath();
-      ctx.arc(proj.x, proj.y, 14, 0, 2 * Math.PI);
+      ctx.arc(val.x, val.y, 7, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.restore();
+
+      // Outer rings
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(val.x, val.y, 13, 0, 2 * Math.PI);
       ctx.stroke();
     } else {
+      // Glassmorphic neutral indicator
       ctx.shadowBlur = 0;
       ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)';
+      ctx.beginPath();
+      ctx.arc(val.x, val.y, 7, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(15, 23, 42, 0.25)';
-      ctx.lineWidth = 1.5;
+
+      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.3)';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.arc(val.x, val.y, 7, 0, 2 * Math.PI);
       ctx.stroke();
     }
   }
@@ -1578,22 +1762,31 @@ function initFacialCanvas() {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const rx = canvas.width * 0.32;
-    const ry = canvas.height * 0.39;
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const scaleX = canvas.width / 250;
+    const scaleY = canvas.height / 250;
+
+    const zones = {
+      forehead: { x: cx + 0 * scaleX, y: cy - 60 * scaleY },
+      nose: { x: cx + 0 * scaleX, y: cy + 0 * scaleY },
+      leftCheek: { x: cx - 31 * scaleX, y: cy + 8 * scaleY },
+      rightCheek: { x: cx + 31 * scaleX, y: cy + 8 * scaleY },
+      chin: { x: cx + 0 * scaleX, y: cy + 62 * scaleY }
+    };
 
     let closestZone = null;
     let minDist = Infinity;
 
-    for (const [key, p3D] of Object.entries(faceZones3D)) {
-      const proj = project3DPoint(p3D, canvas.width, canvas.height, rx, ry);
-      const d = Math.hypot(x - proj.x, y - proj.y);
+    for (const [key, val] of Object.entries(zones)) {
+      const d = Math.hypot(x - val.x, y - val.y);
       if (d < minDist) {
         minDist = d;
         closestZone = key;
       }
     }
 
-    if (closestZone && minDist < 45) {
+    if (closestZone && minDist < 35) {
       activeFacialZones[closestZone] = !activeFacialZones[closestZone];
       drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
 
