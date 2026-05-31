@@ -1381,6 +1381,79 @@ window.clearSignature = function(who) {
 };
 
 // --- Interactive Facial Canvas functions ---
+const faceMeshPoints3D = (() => {
+  const points = [];
+  const rows = 14;
+  const cols = 16;
+  for (let r = 0; r <= rows; r++) {
+    const lat = (r / rows) * Math.PI;
+    const y = -Math.cos(lat);
+    const baseR = Math.sin(lat);
+    const rowPoints = [];
+    for (let c = 0; c < cols; c++) {
+      const lon = (c / cols) * 2 * Math.PI;
+      let x = Math.sin(lon) * baseR;
+      let z = Math.cos(lon) * baseR;
+
+      // Distort front profile to model nose, cheeks, and chin structure in 3D
+      const angleFromFront = Math.abs(lon - Math.PI / 2);
+      const isFront = angleFromFront < 0.6;
+      let rModifier = 1;
+
+      if (isFront) {
+        const frontFactor = Math.cos(angleFromFront * Math.PI / 1.2);
+        
+        // Nose Protrusion
+        if (y > -0.2 && y < 0.25) {
+          const noseFactor = Math.cos((y - 0.0) * Math.PI / 0.45);
+          rModifier += 0.28 * frontFactor * noseFactor;
+        }
+        // Chin Protrusion
+        if (y > 0.45 && y < 0.75) {
+          const chinFactor = Math.cos((y - 0.6) * Math.PI / 0.3);
+          rModifier += 0.14 * frontFactor * chinFactor;
+        }
+        // Brow Protrusion
+        if (y > -0.45 && y < -0.3) {
+          const browFactor = Math.cos((y + 0.37) * Math.PI / 0.15);
+          rModifier += 0.04 * frontFactor * browFactor;
+        }
+      }
+      rowPoints.push({ x, y, z });
+    }
+    points.push(rowPoints);
+  }
+  return points;
+})();
+
+const faceZones3D = {
+  forehead: { x: 0.0, y: -0.62, z: 0.95 },
+  nose: { x: 0.0, y: 0.02, z: 1.25 },
+  leftCheek: { x: -0.42, y: 0.15, z: 0.95 },
+  rightCheek: { x: 0.42, y: 0.15, z: 0.95 },
+  chin: { x: 0.0, y: 0.68, z: 1.10 }
+};
+
+const yawAngle = -0.32;
+const pitchAngle = 0.08;
+
+function project3DPoint(p, width, height, rx, ry) {
+  // Rotate Y (yaw)
+  const x1 = p.x * Math.cos(yawAngle) - p.z * Math.sin(yawAngle);
+  const z1 = p.x * Math.sin(yawAngle) + p.z * Math.cos(yawAngle);
+  // Rotate X (pitch)
+  const y2 = p.y * Math.cos(pitchAngle) - z1 * Math.sin(pitchAngle);
+  const z2 = p.y * Math.sin(pitchAngle) + z1 * Math.cos(pitchAngle);
+  
+  const cx = width / 2;
+  const cy = height / 2;
+  return {
+    x: cx + x1 * rx,
+    y: cy + y2 * ry,
+    depth: z2
+  };
+}
+
 let activeFacialZones = {
   forehead: false,
   nose: false,
@@ -1393,149 +1466,58 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
   ctx.clearRect(0, 0, width, height);
 
   const isDark = document.documentElement.classList.contains('dark');
-  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.75)' : 'rgba(15, 23, 42, 0.55)';
-  const gridColor = isDark ? 'rgba(212, 175, 55, 0.15)' : 'rgba(15, 23, 42, 0.1)';
+  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.4)' : 'rgba(15, 23, 42, 0.3)';
+  const backColor = isDark ? 'rgba(212, 175, 55, 0.1)' : 'rgba(15, 23, 42, 0.06)';
   const accentColor = '#D4AF37';
 
-  ctx.lineCap = 'round';
+  const rx = width * 0.32;
+  const ry = height * 0.39;
 
-  const cx = width / 2;
-  const cy = height / 2;
-  const rx = width * 0.31;
-  const ry = height * 0.40;
+  // Project points
+  const projected = faceMeshPoints3D.map(row =>
+    row.map(p => project3DPoint(p, width, height, rx, ry))
+  );
 
-  // Draw medical grid / clinical alignment guides (dashed lines)
-  ctx.strokeStyle = gridColor;
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 4]);
-  
-  // Vertical axis
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - ry * 1.1);
-  ctx.lineTo(cx, cy + ry * 1.1);
-  ctx.stroke();
+  const rows = projected.length;
+  const cols = projected[0].length;
 
-  // Horizontal guides
-  const browY = cy - ry * 0.35;
-  const eyesY = cy - ry * 0.15;
-  const noseY = cy + ry * 0.15;
-  const mouthY = cy + ry * 0.42;
+  ctx.lineWidth = 0.8;
 
-  // Brow line
-  ctx.beginPath();
-  ctx.moveTo(cx - rx * 0.9, browY);
-  ctx.lineTo(cx + rx * 0.9, browY);
-  ctx.stroke();
+  // Draw 3D wireframe mesh curves
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const p1 = projected[r][c];
 
-  // Nose base line
-  ctx.beginPath();
-  ctx.moveTo(cx - rx * 0.8, noseY);
-  ctx.lineTo(cx + rx * 0.8, noseY);
-  ctx.stroke();
+      // Latitudinal lines
+      const p2 = projected[r][(c + 1) % cols];
+      const avgDepthH = (p1.depth + p2.depth) / 2;
+      ctx.strokeStyle = avgDepthH < 0.25 ? backColor : strokeColor;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
 
-  // Reset line dash for face details
-  ctx.setLineDash([]);
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 2;
+      // Longitudinal lines
+      if (r < rows - 1) {
+        const p3 = projected[r + 1][c];
+        const avgDepthV = (p1.depth + p3.depth) / 2;
+        ctx.strokeStyle = avgDepthV < 0.25 ? backColor : strokeColor;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p3.x, p3.y);
+        ctx.stroke();
+      }
+    }
+  }
 
-  // 1. Draw head outline
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
-  ctx.stroke();
-
-  // 2. Ears (minimalist curves)
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  // Left ear
-  ctx.arc(cx - rx - 2, cy - ry * 0.05, rx * 0.18, -Math.PI * 0.6, Math.PI * 0.6);
-  ctx.stroke();
-  // Right ear
-  ctx.beginPath();
-  ctx.arc(cx + rx + 2, cy - ry * 0.05, rx * 0.18, -Math.PI * 0.4, Math.PI * 0.4, true);
-  ctx.stroke();
-
-  // 3. Eyebrows (elegant clinical arches)
-  ctx.lineWidth = 2;
-  const browWidth = rx * 0.32;
-  const browOffset = rx * 0.48;
-  // Left brow
-  ctx.beginPath();
-  ctx.moveTo(cx - browOffset, browY);
-  ctx.quadraticCurveTo(cx - browOffset + browWidth/2, browY - 6, cx - browOffset + browWidth, browY);
-  ctx.stroke();
-  // Right brow
-  ctx.beginPath();
-  ctx.moveTo(cx + browOffset, browY);
-  ctx.quadraticCurveTo(cx + browOffset - browWidth/2, browY - 6, cx + browOffset - browWidth, browY);
-  ctx.stroke();
-
-  // 4. Eyes (elegant minimalist almonds, closed/resting)
-  ctx.lineWidth = 1.5;
-  const eyeOffset = rx * 0.44;
-  const eyeWidth = rx * 0.28;
-  // Left eye
-  ctx.beginPath();
-  ctx.arc(cx - eyeOffset, eyesY, eyeWidth/2, 0, Math.PI, true);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx - eyeOffset, eyesY, eyeWidth/2, 0.1, Math.PI - 0.1, false);
-  ctx.stroke();
-
-  // Right eye
-  ctx.beginPath();
-  ctx.arc(cx + eyeOffset, eyesY, eyeWidth/2, 0, Math.PI, true);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(cx + eyeOffset, eyesY, eyeWidth/2, 0.1, Math.PI - 0.1, false);
-  ctx.stroke();
-
-  // 5. Nose (refined bridge and nostrils)
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  // Bridge
-  ctx.moveTo(cx, browY + 2);
-  ctx.lineTo(cx, noseY - 4);
-  // Tip and nostrils
-  ctx.quadraticCurveTo(cx, noseY, cx - rx * 0.08, noseY);
-  ctx.moveTo(cx, noseY - 4);
-  ctx.quadraticCurveTo(cx, noseY, cx + rx * 0.08, noseY);
-  ctx.stroke();
-
-  // 6. Lips (structured lips outline)
-  ctx.lineWidth = 1.5;
-  const mouthWidth = rx * 0.35;
-  ctx.beginPath();
-  // Center line of mouth (cupid's bow detail)
-  ctx.moveTo(cx - mouthWidth/2, mouthY);
-  ctx.quadraticCurveTo(cx - mouthWidth/4, mouthY - 2, cx, mouthY + 1);
-  ctx.quadraticCurveTo(cx + mouthWidth/4, mouthY - 2, cx + mouthWidth/2, mouthY);
-  // Bottom lip curve
-  ctx.quadraticCurveTo(cx, mouthY + 8, cx - mouthWidth/2, mouthY);
-  ctx.stroke();
-
-  // Neck and collar lines
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(cx - rx * 0.45, cy + ry * 0.88);
-  ctx.quadraticCurveTo(cx - rx * 0.45, cy + ry, cx - rx * 0.6, height);
-  ctx.moveTo(cx + rx * 0.45, cy + ry * 0.88);
-  ctx.quadraticCurveTo(cx + rx * 0.45, cy + ry, cx + rx * 0.6, height);
-  ctx.stroke();
-
-  // Hotspots definitions
-  const zones = {
-    forehead: { x: cx, y: cy - ry * 0.64 },
-    nose: { x: cx, y: cy + ry * 0.05 },
-    leftCheek: { x: cx - rx * 0.46, y: cy + ry * 0.10 },
-    rightCheek: { x: cx + rx * 0.46, y: cy + ry * 0.10 },
-    chin: { x: cx, y: cy + ry * 0.70 }
-  };
-
-  // Draw active indicators
-  for (const [key, val] of Object.entries(zones)) {
+  // Draw 3D projected active indicators
+  ctx.lineWidth = 2.5;
+  for (const [key, p3D] of Object.entries(faceZones3D)) {
+    const proj = project3DPoint(p3D, width, height, rx, ry);
     const active = activeZones[key];
+    
     ctx.beginPath();
-    ctx.arc(val.x, val.y, 8, 0, 2 * Math.PI);
+    ctx.arc(proj.x, proj.y, 8, 0, 2 * Math.PI);
     if (active) {
       ctx.shadowBlur = 18;
       ctx.shadowColor = accentColor;
@@ -1544,15 +1526,14 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
       
       ctx.shadowBlur = 0;
       ctx.strokeStyle = accentColor;
-      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(val.x, val.y, 15, 0, 2 * Math.PI);
+      ctx.arc(proj.x, proj.y, 14, 0, 2 * Math.PI);
       ctx.stroke();
     } else {
       ctx.shadowBlur = 0;
-      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(15, 23, 42, 0.08)';
+      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)';
       ctx.fill();
-      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(15, 23, 42, 0.25)';
+      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(15, 23, 42, 0.25)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
@@ -1597,24 +1578,15 @@ function initFacialCanvas() {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-    const rx = canvas.width * 0.33;
-    const ry = canvas.height * 0.41;
-
-    const zones = {
-      forehead: { x: cx, y: cy - ry * 0.62 },
-      nose: { x: cx, y: cy + ry * 0.02 },
-      leftCheek: { x: cx - rx * 0.48, y: cy + ry * 0.08 },
-      rightCheek: { x: cx + rx * 0.48, y: cy + ry * 0.08 },
-      chin: { x: cx, y: cy + ry * 0.68 }
-    };
+    const rx = canvas.width * 0.32;
+    const ry = canvas.height * 0.39;
 
     let closestZone = null;
     let minDist = Infinity;
 
-    for (const [key, val] of Object.entries(zones)) {
-      const d = Math.hypot(x - val.x, y - val.y);
+    for (const [key, p3D] of Object.entries(faceZones3D)) {
+      const proj = project3DPoint(p3D, canvas.width, canvas.height, rx, ry);
+      const d = Math.hypot(x - proj.x, y - proj.y);
       if (d < minDist) {
         minDist = d;
         closestZone = key;
