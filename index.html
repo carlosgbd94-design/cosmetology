@@ -740,10 +740,17 @@
           <p class="text-slate-500 dark:text-luxe-300 text-xs mt-1">Crea, edita, elimina y audita el inventario completo de productos activos.</p>
         </div>
         <div class="flex items-center gap-3">
-          <button onclick="toggleProductForm()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-905 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all flex items-center gap-1.5 hover:brightness-110">
+          <button onclick="toggleProductForm()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-950 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all flex items-center gap-1.5 hover:brightness-110">
             <i data-lucide="plus" class="w-4 h-4" stroke-width="1.5"></i> Crear Producto
           </button>
-            <form id="product-form" class="space-y-6">
+        </div>
+      </div>
+
+      <!-- Interactive Mutation Form (Collapsible Glass Card) -->
+      <div id="product-mutation-card" class="hidden liquid-glass rounded-3xl p-8 relative overflow-hidden transition-all duration-300">
+        <h3 id="mutation-form-title" class="font-outfit text-lg font-bold text-slate-800 dark:text-white mb-6">Crear Nuevo Producto</h3>
+        
+        <form id="product-form" class="space-y-6">
               <input type="hidden" id="is_edit" value="false">
               
               <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
