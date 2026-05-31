@@ -1393,7 +1393,7 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
   ctx.clearRect(0, 0, width, height);
 
   const isDark = document.documentElement.classList.contains('dark');
-  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.4)' : 'rgba(15, 23, 42, 0.2)';
+  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.75)' : 'rgba(15, 23, 42, 0.45)';
   const accentColor = '#D4AF37';
 
   ctx.strokeStyle = strokeColor;
@@ -1499,7 +1499,10 @@ function initFacialCanvas() {
   
   const resizeAndDraw = () => {
     const parent = canvas.parentElement;
-    const size = Math.min(parent.clientWidth - 32, parent.clientHeight - 32, 230);
+    let size = Math.min(parent.clientWidth - 32, parent.clientHeight - 32, 230);
+    if (size <= 100) {
+      size = 230; // Safeguard if parent collapsed on init
+    }
     canvas.width = size;
     canvas.height = size;
     drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
