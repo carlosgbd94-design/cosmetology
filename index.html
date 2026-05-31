@@ -203,11 +203,11 @@
       background: rgba(255, 255, 255, 0.02);
     }
     ::-webkit-scrollbar-thumb {
-      background: rgba(0, 0, 0, 0.1);
+      background: rgba(212, 175, 55, 0.4);
       border-radius: 3px;
     }
     html.dark ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(212, 175, 55, 0.5);
     }
 
     /* Professional Clinical Print Design */
@@ -905,12 +905,12 @@
           </div>
         </div>
 
-        <!-- Catalog Items Table -->
-        <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/20 dark:bg-luxe-950/20">
+        <!-- Catalog Items Table (Scrollable Panel with Sticky Headers) -->
+        <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl bg-white/20 dark:bg-luxe-950/20 max-h-[500px] overflow-y-auto shadow-inner relative">
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr class="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5">
+              <thead class="sticky top-0 z-10 bg-slate-100/95 dark:bg-luxe-900/95 backdrop-blur-md border-b border-slate-200/50 dark:border-white/5 shadow-sm">
+                <tr>
                   <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Clave</th>
                   <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Producto</th>
                   <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Marca</th>
