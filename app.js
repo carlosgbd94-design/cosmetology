@@ -817,6 +817,61 @@ window.deleteProduct = async function(id) {
 
 function initProductForm() {
   const form = document.getElementById('product-form');
+  const catSelect = document.getElementById('prod-category');
+  
+  const categoryPrefixes = {
+    "Limpiador": "LIM",
+    "Exfoliante": "EXF",
+    "Regulador pH": "RPH",
+    "Corporal": "COR",
+    "Serum/Vial": "SRM",
+    "Mascarilla": "MAS",
+    "Loción": "LOC",
+    "Crema/Gel": "CRM",
+    "Específico": "ESP",
+    "Alternative": "ALT",
+    "Rosa Mosq.": "RMQ",
+    "Mulike": "MUL",
+    "Oro": "ORO",
+    "Clásica": "CLA",
+    "Diamante": "DIA",
+    "Biohelicina": "HEL",
+    "Biobotulina": "BOT",
+    "Black Allium": "ALL",
+    "Colágeno": "COL",
+    "Venom Ther.": "VNM",
+    "Rosa Negra": "RNG",
+    "Geles/Nuev.": "GEL",
+    "Ojos/Labios": "EYE",
+    "Biotecnopl.": "TEC"
+  };
+
+  catSelect.addEventListener('change', () => {
+    const isEdit = document.getElementById('is_edit').value === 'true';
+    if (isEdit) return; // Do not overwrite ID during edits
+
+    const catVal = catSelect.value;
+    if (!catVal) return;
+
+    const prefix = categoryPrefixes[catVal] || catVal.substring(0, 3).toUpperCase();
+    
+    // Find next sequence number
+    let maxNum = 0;
+    const regex = new RegExp(`^${prefix}-(\\d+)$`, 'i');
+    
+    allProducts.forEach(p => {
+      const match = String(p.id).match(regex);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNum) maxNum = num;
+      }
+    });
+
+    const nextNum = maxNum + 1;
+    const paddedNum = String(nextNum).padStart(3, '0');
+    document.getElementById('prod-id').value = `${prefix}-${paddedNum}`;
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
 

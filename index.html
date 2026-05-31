@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Selector Estético Premium - Catalog & Diagnostic</title>
+  <title>Dermatique Pro - Catálogo & Diagnóstico Clínico</title>
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=Urbanist:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
@@ -36,29 +36,29 @@
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Plus Jakarta Sans', 'sans-serif'],
-            outfit: ['Outfit', 'sans-serif'],
+            sans: ['Urbanist', 'sans-serif'],
+            sora: ['Sora', 'sans-serif'],
           },
           colors: {
             luxe: {
-              50: '#F4F7F6',
-              100: '#E6ECEB',
-              200: '#CAD7D5',
-              300: '#9FB5B2',
-              400: '#6F8E8A',
-              500: '#4E6E6A',
-              600: '#3D5753',
-              700: '#2E413E',
-              800: '#1E2C2A',
-              900: '#0F1615',
-              950: '#090D0C',
+              50: '#FAF9F6',
+              100: '#F2F0EA',
+              200: '#E5E0D5',
+              300: '#CCCCCC',
+              400: '#999999',
+              500: '#666666',
+              600: '#444444',
+              700: '#222225',
+              800: '#1A1A1E',
+              900: '#121215',
+              950: '#0A0A0D',
             },
             bronze: {
-              50: '#FAF7F2',
-              100: '#F2EBE0',
-              500: '#C5A880',
-              600: '#A3845B',
-              700: '#82643E',
+              50: '#FCF9F2',
+              100: '#F7EEDB',
+              500: '#D4AF37',
+              600: '#B5902B',
+              700: '#8C6E20',
             }
           }
         }
@@ -69,19 +69,19 @@
   <style>
     /* Adaptable backgrounds with glows */
     body {
-      background-color: #F8FAFC;
+      background-color: #FAF9F6;
       background-image: 
-        radial-gradient(at 0% 0%, rgba(197, 168, 128, 0.05) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(78, 110, 106, 0.08) 0px, transparent 50%);
+        radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.06) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(26, 26, 30, 0.03) 0px, transparent 50%);
       background-attachment: fixed;
       transition: background-color 0.3s ease, color 0.3s ease;
     }
 
     html.dark body {
-      background-color: #090D0C;
+      background-color: #0A0A0D;
       background-image: 
-        radial-gradient(at 0% 0%, rgba(197, 168, 128, 0.1) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(78, 110, 106, 0.15) 0px, transparent 50%);
+        radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.08) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(181, 144, 43, 0.05) 0px, transparent 50%);
     }
 
     /* iOS Liquid Glass Effect (Dynamic) */
@@ -89,70 +89,70 @@
       background: rgba(255, 255, 255, 0.7);
       backdrop-filter: blur(24px) saturate(180%);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
-      border: 1px solid rgba(15, 22, 21, 0.05);
+      border: 1px solid rgba(18, 18, 21, 0.05);
       box-shadow: 
-        0 10px 40px -10px rgba(148, 163, 184, 0.12),
+        0 10px 40px -10px rgba(18, 18, 21, 0.06),
         inset 0 1px 1px rgba(255, 255, 255, 0.8);
       transition: all 0.3s ease;
     }
 
     html.dark .liquid-glass {
-      background: rgba(30, 44, 42, 0.45);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(18, 18, 21, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.06);
       box-shadow: 
-        0 10px 40px -10px rgba(0, 0, 0, 0.4),
-        inset 0 1px 1px rgba(255, 255, 255, 0.1);
+        0 10px 40px -10px rgba(0, 0, 0, 0.6),
+        inset 0 1px 1px rgba(255, 255, 255, 0.05);
     }
 
     .liquid-glass-light {
-      background: rgba(15, 22, 21, 0.02);
+      background: rgba(18, 18, 21, 0.02);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(15, 22, 21, 0.04);
+      border: 1px solid rgba(18, 18, 21, 0.04);
     }
 
     html.dark .liquid-glass-light {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
     }
 
     /* Smart Input Box Styling (Dynamic) */
     .smart-input {
-      background: rgba(255, 255, 255, 0.8);
-      border: 1px solid rgba(15, 22, 21, 0.1);
-      color: #1E293B;
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(18, 18, 21, 0.08);
+      color: #121215;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     html.dark .smart-input {
-      background: rgba(15, 22, 21, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: #E6ECEB;
+      background: rgba(18, 18, 21, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      color: #FAF9F6;
     }
 
     .smart-input:focus {
       background: #FFFFFF;
-      border-color: #A3845B;
-      box-shadow: 0 0 0 3px rgba(163, 132, 91, 0.15);
+      border-color: #B5902B;
+      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.15);
       outline: none;
     }
 
     html.dark .smart-input:focus {
-      background: rgba(15, 22, 21, 0.9);
-      border-color: #C5A880;
-      box-shadow: 0 0 0 3px rgba(197, 168, 128, 0.15);
+      background: rgba(10, 10, 13, 0.95);
+      border-color: #D4AF37;
+      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
     }
 
     /* Floating label positioning */
     .floating-group:focus-within label,
     .smart-input:not(:placeholder-shown) + label {
       transform: translateY(-20px) scale(0.85);
-      color: #A3845B;
+      color: #B5902B;
     }
 
     html.dark .floating-group:focus-within label,
     html.dark .smart-input:not(:placeholder-shown) + label {
-      color: #C5A880;
+      color: #D4AF37;
     }
 
     /* Custom Scrollbar */
@@ -259,12 +259,16 @@
     <div class="max-w-7xl mx-auto px-4 py-3 sm:px-6 flex flex-col md:flex-row gap-4 items-center justify-between">
       <div class="flex items-center justify-between w-full md:w-auto gap-3">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-bronze-500 to-luxe-400 flex items-center justify-center text-white shadow-lg shadow-bronze-500/10">
-            <i data-lucide="sparkles" class="w-5 h-5" stroke-width="1.5"></i>
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-bronze-600 to-bronze-500 flex items-center justify-center shadow-lg shadow-bronze-500/20">
+            <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              <path d="M12 8V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M8.5 11.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
           </div>
           <div>
-            <span class="font-outfit font-bold text-lg tracking-tight text-slate-800 dark:text-white">Selector Estético</span>
-            <span class="text-[9px] block text-bronze-600 dark:text-bronze-500 font-semibold tracking-widest uppercase">Liquid Glass Premium</span>
+            <span class="font-sora font-extrabold text-lg tracking-tight text-slate-900 dark:text-white">Dermatique<span class="text-bronze-500 font-light">Pro</span></span>
+            <span class="text-[9px] block text-bronze-600 dark:text-bronze-500 font-bold tracking-widest uppercase">Diagnósticos & Catálogo Clínico</span>
           </div>
         </div>
         
