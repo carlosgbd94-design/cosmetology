@@ -1288,8 +1288,8 @@ window.exportToPDF = function() {
   container.innerHTML = `
     <div style="
       width: 800px;
-      height: 1000px;
-      padding: 30px 40px;
+      height: 1000px !important;
+      padding: 25px 40px;
       background: #ffffff;
       color: #121215;
       font-family: 'Urbanist', sans-serif;
@@ -1297,6 +1297,7 @@ window.exportToPDF = function() {
       display: flex;
       flex-direction: column;
       justify-content: space-between;
+      overflow: hidden !important;
     ">
       <!-- Embedded custom styling independent of tailwind or print media query -->
       <style>
@@ -1306,8 +1307,8 @@ window.exportToPDF = function() {
           justify-content: space-between;
           align-items: center;
           border-bottom: 2px solid #D4AF37;
-          padding-bottom: 10px;
-          margin-bottom: 15px;
+          padding-bottom: 8px;
+          margin-bottom: 12px;
         }
         .pdf-header-left {
           display: flex;
@@ -1315,22 +1316,22 @@ window.exportToPDF = function() {
           gap: 12px;
         }
         .pdf-logo {
-          width: 36px;
-          height: 36px;
-          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          border-radius: 6px;
           background: #121215;
           display: flex;
           align-items: center;
           justify-content: center;
         }
         .pdf-logo svg {
-          width: 20px;
-          height: 20px;
+          width: 18px;
+          height: 18px;
           color: #D4AF37;
         }
         .pdf-brand-name {
           font-family: 'Sora', sans-serif;
-          font-size: 18px;
+          font-size: 16px;
           font-weight: 700;
           margin: 0;
           color: #121215;
@@ -1348,7 +1349,7 @@ window.exportToPDF = function() {
         }
         .pdf-doc-title {
           font-family: 'Sora', sans-serif;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1.5px;
@@ -1363,9 +1364,9 @@ window.exportToPDF = function() {
         .pdf-demo-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 15px;
-          margin-bottom: 15px;
-          padding-bottom: 10px;
+          gap: 12px;
+          margin-bottom: 12px;
+          padding-bottom: 8px;
           border-bottom: 1px solid #e2e8f0;
         }
         .pdf-demo-item {
@@ -1381,24 +1382,44 @@ window.exportToPDF = function() {
           margin-bottom: 2px;
         }
         .pdf-demo-value {
-          font-size: 11px;
+          font-size: 10.5px;
           font-weight: 700;
           color: #121215;
         }
         .pdf-details-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
-          gap: 15px;
-          margin-bottom: 15px;
+          gap: 12px;
+          margin-bottom: 12px;
         }
         .pdf-detail-card {
           background: #fafaf9;
           border: 1px solid #e5e5e0;
-          border-radius: 10px;
-          padding: 12px;
-          min-height: 80px;
+          border-radius: 8px;
+          padding: 10px;
+          min-height: 70px;
         }
         .pdf-detail-title {
+          font-size: 7.5px;
+          font-weight: 750;
+          color: #999;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin-bottom: 3px;
+          display: block;
+        }
+        .pdf-detail-content {
+          font-size: 10px;
+          color: #333;
+          line-height: 1.3;
+          margin: 0;
+          white-space: pre-wrap;
+          font-weight: 500;
+        }
+        .pdf-specs-section {
+          margin-bottom: 12px;
+        }
+        .pdf-specs-title {
           font-size: 7.5px;
           font-weight: 750;
           color: #999;
@@ -1407,35 +1428,15 @@ window.exportToPDF = function() {
           margin-bottom: 4px;
           display: block;
         }
-        .pdf-detail-content {
-          font-size: 10.5px;
-          color: #333;
-          line-height: 1.35;
-          margin: 0;
-          white-space: pre-wrap;
-          font-weight: 500;
-        }
-        .pdf-specs-section {
-          margin-bottom: 15px;
-        }
-        .pdf-specs-title {
-          font-size: 7.5px;
-          font-weight: 750;
-          color: #999;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          margin-bottom: 6px;
-          display: block;
-        }
         .pdf-specs-table-wrapper {
           border: 1px solid #e2e8f0;
-          border-radius: 10px;
+          border-radius: 8px;
           overflow: hidden;
         }
         .pdf-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 10.5px;
+          font-size: 10px;
         }
         .pdf-table th {
           background-color: #fafaf9;
@@ -1445,14 +1446,14 @@ window.exportToPDF = function() {
           text-transform: uppercase;
           letter-spacing: 1px;
           font-size: 8px;
-          padding: 8px 12px;
+          padding: 6px 12px;
           text-align: left;
         }
         .pdf-table td {
-          padding: 8px 12px !important;
+          padding: 6px 12px !important;
           border-bottom: 1px solid #e2e8f0 !important;
           color: #333333 !important;
-          font-size: 10.5px !important;
+          font-size: 10px !important;
           font-weight: 500 !important;
           background: transparent !important;
         }
@@ -1461,35 +1462,38 @@ window.exportToPDF = function() {
         }
         .pdf-footer {
           border-top: 1px solid #e2e8f0;
-          padding-top: 12px;
+          padding-top: 10px;
+          page-break-inside: avoid !important;
         }
         .pdf-consent {
           font-size: 7px;
           color: #999;
-          line-height: 1.3;
+          line-height: 1.25;
           font-style: italic;
-          margin-bottom: 15px;
+          margin-bottom: 12px;
         }
         .pdf-sigs-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 40px;
+          page-break-inside: avoid !important;
         }
         .pdf-sig-col {
           display: flex;
           flex-direction: column;
           align-items: center;
           text-align: center;
+          page-break-inside: avoid !important;
         }
         .pdf-sig-box {
           width: 180px;
-          height: 50px;
+          height: 40px;
           border-bottom: 1px solid #999;
           display: flex;
           align-items: center;
           justify-content: center;
           overflow: hidden;
-          margin-bottom: 6px;
+          margin-bottom: 4px;
         }
         .pdf-sig-box img {
           max-height: 100%;
