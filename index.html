@@ -151,14 +151,44 @@
 
     /* Floating label positioning */
     .floating-group:focus-within label,
-    .smart-input:not(:placeholder-shown) + label {
-      transform: translateY(-20px) scale(0.85);
+    .smart-input:not(:placeholder-shown) + label,
+    select.smart-input + label {
+      transform: translateY(-26px) scale(0.8);
       color: #B5902B;
     }
 
     html.dark .floating-group:focus-within label,
-    html.dark .smart-input:not(:placeholder-shown) + label {
+    html.dark .smart-input:not(:placeholder-shown) + label,
+    html.dark select.smart-input + label {
       color: #D4AF37;
+    }
+
+    /* Custom Dropdown Chevron Indicator */
+    select.smart-input {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B5902B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-size: 1.1rem;
+      background-position: right 1rem center;
+      background-repeat: no-repeat;
+      padding-right: 2.5rem;
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      -moz-appearance: none !important;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+    
+    html.dark select.smart-input {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D4AF37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    }
+
+    select.smart-input option {
+      background-color: #FAF9F6;
+      color: #121215;
+    }
+
+    html.dark select.smart-input option {
+      background-color: #121215;
+      color: #FAF9F6;
     }
 
     /* Custom Scrollbar */
