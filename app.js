@@ -1282,14 +1282,14 @@ window.exportToPDF = function() {
   container.style.left = '-9999px';
   container.style.top = '0';
   container.style.width = '800px';
-  container.style.height = '1035px';
+  container.style.height = '1000px';
   container.style.zIndex = '-99999';
 
   container.innerHTML = `
     <div style="
       width: 800px;
-      height: 1035px;
-      padding: 40px;
+      height: 1000px;
+      padding: 30px 40px;
       background: #ffffff;
       color: #121215;
       font-family: 'Urbanist', sans-serif;
@@ -1306,8 +1306,8 @@ window.exportToPDF = function() {
           justify-content: space-between;
           align-items: center;
           border-bottom: 2px solid #D4AF37;
-          padding-bottom: 12px;
-          margin-bottom: 20px;
+          padding-bottom: 10px;
+          margin-bottom: 15px;
         }
         .pdf-header-left {
           display: flex;
@@ -1315,32 +1315,32 @@ window.exportToPDF = function() {
           gap: 12px;
         }
         .pdf-logo {
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
           background: #121215;
           display: flex;
           align-items: center;
           justify-content: center;
         }
         .pdf-logo svg {
-          width: 24px;
-          height: 24px;
+          width: 20px;
+          height: 20px;
           color: #D4AF37;
         }
         .pdf-brand-name {
           font-family: 'Sora', sans-serif;
-          font-size: 20px;
+          font-size: 18px;
           font-weight: 700;
           margin: 0;
           color: #121215;
         }
         .pdf-brand-sub {
-          font-size: 9px;
+          font-size: 8px;
           text-transform: uppercase;
           letter-spacing: 1px;
           color: #666;
-          margin: 2px 0 0 0;
+          margin: 1px 0 0 0;
           font-weight: 600;
         }
         .pdf-header-right {
@@ -1348,7 +1348,7 @@ window.exportToPDF = function() {
         }
         .pdf-doc-title {
           font-family: 'Sora', sans-serif;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1.5px;
@@ -1356,16 +1356,16 @@ window.exportToPDF = function() {
           margin: 0;
         }
         .pdf-doc-sub {
-          font-size: 9px;
+          font-size: 8px;
           color: #666;
-          margin: 2px 0 0 0;
+          margin: 1px 0 0 0;
         }
         .pdf-demo-grid {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
-          gap: 20px;
-          margin-bottom: 20px;
-          padding-bottom: 15px;
+          gap: 15px;
+          margin-bottom: 15px;
+          padding-bottom: 10px;
           border-bottom: 1px solid #e2e8f0;
         }
         .pdf-demo-item {
@@ -1373,33 +1373,53 @@ window.exportToPDF = function() {
           flex-direction: column;
         }
         .pdf-demo-label {
-          font-size: 8px;
+          font-size: 7.5px;
           font-weight: 750;
           color: #999;
           text-transform: uppercase;
           letter-spacing: 1px;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
         }
         .pdf-demo-value {
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 700;
           color: #121215;
         }
         .pdf-details-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
-          gap: 20px;
-          margin-bottom: 20px;
+          gap: 15px;
+          margin-bottom: 15px;
         }
         .pdf-detail-card {
           background: #fafaf9;
           border: 1px solid #e5e5e0;
-          border-radius: 12px;
-          padding: 15px;
-          min-height: 90px;
+          border-radius: 10px;
+          padding: 12px;
+          min-height: 80px;
         }
         .pdf-detail-title {
-          font-size: 8px;
+          font-size: 7.5px;
+          font-weight: 750;
+          color: #999;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin-bottom: 4px;
+          display: block;
+        }
+        .pdf-detail-content {
+          font-size: 10.5px;
+          color: #333;
+          line-height: 1.35;
+          margin: 0;
+          white-space: pre-wrap;
+          font-weight: 500;
+        }
+        .pdf-specs-section {
+          margin-bottom: 15px;
+        }
+        .pdf-specs-title {
+          font-size: 7.5px;
           font-weight: 750;
           color: #999;
           text-transform: uppercase;
@@ -1407,35 +1427,15 @@ window.exportToPDF = function() {
           margin-bottom: 6px;
           display: block;
         }
-        .pdf-detail-content {
-          font-size: 11px;
-          color: #333;
-          line-height: 1.4;
-          margin: 0;
-          white-space: pre-wrap;
-          font-weight: 500;
-        }
-        .pdf-specs-section {
-          margin-bottom: 20px;
-        }
-        .pdf-specs-title {
-          font-size: 8px;
-          font-weight: 750;
-          color: #999;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          margin-bottom: 8px;
-          display: block;
-        }
         .pdf-specs-table-wrapper {
           border: 1px solid #e2e8f0;
-          border-radius: 12px;
+          border-radius: 10px;
           overflow: hidden;
         }
         .pdf-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 11px;
+          font-size: 10.5px;
         }
         .pdf-table th {
           background-color: #fafaf9;
@@ -1444,15 +1444,15 @@ window.exportToPDF = function() {
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1px;
-          font-size: 8.5px;
-          padding: 10px 15px;
+          font-size: 8px;
+          padding: 8px 12px;
           text-align: left;
         }
         .pdf-table td {
-          padding: 10px 15px !important;
+          padding: 8px 12px !important;
           border-bottom: 1px solid #e2e8f0 !important;
           color: #333333 !important;
-          font-size: 11px !important;
+          font-size: 10.5px !important;
           font-weight: 500 !important;
           background: transparent !important;
         }
@@ -1461,14 +1461,14 @@ window.exportToPDF = function() {
         }
         .pdf-footer {
           border-top: 1px solid #e2e8f0;
-          padding-top: 15px;
+          padding-top: 12px;
         }
         .pdf-consent {
-          font-size: 7.5px;
+          font-size: 7px;
           color: #999;
-          line-height: 1.4;
+          line-height: 1.3;
           font-style: italic;
-          margin-bottom: 25px;
+          margin-bottom: 15px;
         }
         .pdf-sigs-grid {
           display: grid;
@@ -1482,14 +1482,14 @@ window.exportToPDF = function() {
           text-align: center;
         }
         .pdf-sig-box {
-          width: 200px;
-          height: 60px;
+          width: 180px;
+          height: 50px;
           border-bottom: 1px solid #999;
           display: flex;
           align-items: center;
           justify-content: center;
           overflow: hidden;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         .pdf-sig-box img {
           max-height: 100%;
@@ -1497,7 +1497,7 @@ window.exportToPDF = function() {
           object-fit: contain;
         }
         .pdf-sig-title {
-          font-size: 8.5px;
+          font-size: 8px;
           font-weight: 700;
           color: #333;
           text-transform: uppercase;
@@ -1505,9 +1505,9 @@ window.exportToPDF = function() {
           margin: 0;
         }
         .pdf-sig-sub {
-          font-size: 7.5px;
+          font-size: 7px;
           color: #999;
-          margin: 2px 0 0 0;
+          margin: 1px 0 0 0;
         }
       </style>
 
@@ -1616,9 +1616,10 @@ window.exportToPDF = function() {
       useCORS: true, 
       logging: false,
       width: 800,
-      height: 1035
+      height: 1000
     },
-    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' },
+    pagebreak:    { mode: 'avoid-all' }
   };
 
   html2pdf().set(opt).from(container.firstElementChild).save().then(() => {
@@ -1627,7 +1628,6 @@ window.exportToPDF = function() {
     console.error(err);
     showToast('Error al generar PDF.', 'error');
   }).finally(() => {
-    // Remove the cloned element from DOM
     container.remove();
   });
 };
