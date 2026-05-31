@@ -212,11 +212,24 @@
 
     /* Professional Clinical Print Design */
     @media print {
+      @page {
+        size: letter;
+        margin: 15mm;
+      }
       body {
         background: white !important;
         color: #121215 !important;
         font-family: 'Urbanist', sans-serif !important;
         font-size: 11px !important;
+      }
+      #clinical-print-template {
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: space-between !important;
+        height: 248mm !important;
+        min-height: 248mm !important;
+        box-sizing: border-box !important;
+        padding: 0 !important;
       }
       .no-print {
         display: none !important;
@@ -327,8 +340,8 @@
     <!-- TAB 1: GENERADOR DE FICHAS -->
     <div id="tab-generator" class="space-y-8">
       
-      <!-- Hidden Printable Template (A4 Optimized, High Contrast, Clean Typography) -->
-      <div id="clinical-print-template" class="hidden print:flex flex-col justify-between w-full max-w-4xl mx-auto p-12 bg-white text-slate-900 min-h-[275mm] box-border">
+      <!-- Hidden Printable Template (Letter Optimized, High Contrast, Clean Typography) -->
+      <div id="clinical-print-template" class="hidden print:flex flex-col justify-between w-full max-w-4xl mx-auto p-12 bg-white text-slate-900 min-h-[279.4mm] box-border">
         <div>
           <!-- Header -->
           <div class="flex justify-between items-center border-b-2 border-bronze-500 pb-4 mb-6">

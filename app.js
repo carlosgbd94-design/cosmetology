@@ -1261,15 +1261,23 @@ window.exportToPDF = function() {
   
   const element = document.getElementById('clinical-print-template');
   
-  // Temporarily show the element so html2pdf can render it
+  // Temporarily show and style the element for precise PDF capture
   element.classList.remove('hidden');
+  element.style.display = 'flex';
+  element.style.flexDirection = 'column';
+  element.style.justifyContent = 'space-between';
+  element.style.width = '215.9mm';
+  element.style.height = '279.4mm';
+  element.style.minHeight = '279.4mm';
+  element.style.boxSizing = 'border-box';
+  element.style.padding = '15mm';
   
   const opt = {
-    margin:       10,
+    margin:       0,
     filename:     filename,
     image:        { type: 'jpeg', quality: 0.98 },
     html2canvas:  { scale: 2, useCORS: true, logging: false },
-    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
   };
   
   html2pdf().set(opt).from(element).save().then(() => {
@@ -1278,8 +1286,16 @@ window.exportToPDF = function() {
     console.error(err);
     showToast('Error al generar PDF.', 'error');
   }).finally(() => {
-    // Hide the print template again
+    // Reset and hide the print template
     element.classList.add('hidden');
+    element.style.display = '';
+    element.style.flexDirection = '';
+    element.style.justifyContent = '';
+    element.style.width = '';
+    element.style.height = '';
+    element.style.minHeight = '';
+    element.style.boxSizing = '';
+    element.style.padding = '';
   });
 };
 
