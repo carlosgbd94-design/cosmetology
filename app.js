@@ -11,6 +11,16 @@ let allProducts = [];
 let allIngredientsList = [];
 let uploadDataPreview = [];
 
+// Dexie Local Database setup
+const db = new Dexie('DermatiqueLocalDB');
+db.version(1).stores({
+  products: 'id, brand, category, name, active_ingredients, skin_indication',
+  fichas_pacientes: '++id, nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente, synced'
+});
+
+// Fuse.js Fuzzy Search state
+let fuseInstance = null;
+
 const productMapping = {
   "ID / Clave": "id",
   "Marca": "brand",
@@ -348,26 +358,31 @@ function clearResultsTable() {
   const tbody = document.getElementById('results-table-body');
   tbody.innerHTML = `
     <tr>
-      <td colspan="2" class="py-8 px-5 text-center text-slate-400 text-sm">
+      <td colspan="2" class="py-8 px-5 text-center text-slate-400 dark:text-luxe-400 text-sm">
         Seleccione una marca, categoría y producto para poblar la ficha técnica.
       </td>
     </tr>
   `;
   const badge = document.getElementById('product-info-badge');
-  badge.classList.add('hidden');
+  if (badge) badge.classList.add('hidden');
+  const finCard = document.getElementById('financial-summary-card');
+  if (finCard) finCard.classList.add('hidden');
 }
 
 function renderResultsTable(p) {
   const tbody = document.getElementById('results-table-body');
   const badge = document.getElementById('product-info-badge');
+  const finCard = document.getElementById('financial-summary-card');
 
   if (!p) {
     clearResultsTable();
     return;
   }
 
-  badge.textContent = `${p.brand} - ${p.name}`;
-  badge.classList.remove('hidden');
+  if (badge) {
+    badge.textContent = `${p.brand} - ${p.name}`;
+    badge.classList.remove('hidden');
+  }
 
   tbody.innerHTML = `
     <tr class="border-b border-slate-200/50 dark:border-white/5">
@@ -391,6 +406,61 @@ function renderResultsTable(p) {
       <td class="py-3.5 px-5 text-slate-800 dark:text-white font-semibold">${p.active_ingredients || '-'}</td>
     </tr>
   `;
+
+  // Render financial analytics (Specialist only)
+  if (finCard) {
+    finCard.classList.remove('hidden');
+    
+    const cost = p.price_aesthetic || 0;
+    const publicPrice = p.price_public || 0;
+    const profit = publicPrice - cost;
+    const marginPct = publicPrice > 0 ? Math.round((profit / publicPrice) * 100) : 0;
+    
+    document.getElementById('fin-cost').textContent = formatCurrency(cost);
+    document.getElementById('fin-public').textContent = formatCurrency(publicPrice);
+    document.getElementById('fin-profit').textContent = `${formatCurrency(profit)} (${marginPct}%)`;
+    
+    const chartContainer = document.getElementById('profit-margin-chart');
+    chartContainer.innerHTML = '';
+    
+    const options = {
+      series: [marginPct],
+      chart: {
+        height: 140,
+        type: 'radialBar',
+        sparkline: {
+          enabled: true
+        }
+      },
+      plotOptions: {
+        radialBar: {
+          hollow: {
+            size: '60%',
+          },
+          dataLabels: {
+            show: true,
+            name: {
+              show: false
+            },
+            value: {
+              offsetY: 5,
+              fontSize: '14px',
+              fontWeight: 'bold',
+              color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#121215',
+              formatter: function (val) {
+                return val + "%";
+              }
+            }
+          }
+        }
+      },
+      colors: ['#D4AF37'],
+      labels: ['Margen']
+    };
+    
+    const chart = new ApexCharts(chartContainer, options);
+    chart.render();
+  }
 }
 
 // --- Levenshtein Correction Tool ---
@@ -442,73 +512,47 @@ function initCheckerTool() {
 
   const check = () => {
     const val = input.value;
-    const normInput = normalizeText(val);
-
-    if (!normInput) {
-      resultsDiv.innerHTML = '<p class="text-slate-400 italic">Por favor, escriba un ingrediente activo para comenzar.</p>';
+    if (!val || val.trim() === '') {
+      resultsDiv.innerHTML = '<p class="text-slate-400 italic">Por favor, escriba un ingrediente activo o producto para comenzar.</p>';
       return;
     }
 
-    let exactMatch = null;
-    let matches = [];
-
-    allIngredientsList.forEach(item => {
-      const normDb = normalizeText(item.activo);
-      
-      if (normDb === normInput) {
-        exactMatch = item;
-      }
-
-      const dist = getLevenshteinDistance(normInput, normDb);
-      const maxLen = Math.max(normInput.length, normDb.length);
-      const similarity = maxLen === 0 ? 1 : 1 - dist / maxLen;
-
-      if (similarity > 0.8) {
-        matches.push({
-          activo: item.activo,
-          similarity: similarity
-        });
-      }
-    });
-
-    matches.sort((a, b) => b.similarity - a.similarity);
-
-    if (exactMatch) {
-      resultsDiv.innerHTML = `
-        <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-          <div class="flex items-center gap-1.5 text-emerald-800 font-bold text-sm">
-            <i data-lucide="check-circle" class="w-4.5 h-4.5 text-emerald-600"></i>
-            <span>Coincidencia Exacta Encontrada:</span>
+    if (fuseInstance) {
+      const searchResults = fuseInstance.search(val);
+      if (searchResults.length === 0) {
+        resultsDiv.innerHTML = `
+          <div class="p-3 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl">
+            <div class="flex items-center gap-1.5 text-slate-700 dark:text-luxe-300 font-semibold text-sm">
+              <i data-lucide="x-circle" class="w-4.5 h-4.5 text-slate-500"></i>
+              <span>Sin coincidencias</span>
+            </div>
+            <p class="text-slate-500 dark:text-luxe-400 text-xs mt-1">No se encontraron productos o activos similares en el catálogo actual.</p>
           </div>
-          <p class="text-slate-800 font-semibold mt-1">${exactMatch.activo}</p>
-        </div>
-      `;
-    } else if (matches.length > 0) {
-      let listHtml = matches.map(m => `
-        <div class="py-1.5 border-b border-slate-100 last:border-0 text-xs">
-          <p class="text-slate-800 font-semibold">${m.activo} <span class="text-xs bg-slate-100 text-slate-500 font-medium px-2 py-0.5 rounded-full ml-1">${Math.round(m.similarity * 100)}% similitud</span></p>
-        </div>
-      `).join('');
+        `;
+      } else {
+        let listHtml = searchResults.map(res => {
+          const p = res.item;
+          const score = res.score ? Math.round((1 - res.score) * 100) : 95; // Default score if undefined
+          return `
+            <div class="py-2 border-b border-slate-200/50 dark:border-white/5 last:border-0 text-xs">
+              <p class="text-slate-800 dark:text-white font-semibold">${p.name} <span class="text-[9px] bg-slate-100 dark:bg-white/10 text-slate-500 dark:text-luxe-300 px-2 py-0.5 rounded-full ml-1">${score}% coincidencia</span></p>
+              <p class="text-slate-500 dark:text-luxe-400 mt-0.5">Línea: ${p.brand} | Activos: ${p.active_ingredients || '-'}</p>
+            </div>
+          `;
+        }).join('');
 
-      resultsDiv.innerHTML = `
-        <div class="space-y-3">
-          <div class="flex items-center gap-1.5 text-blue-800 font-bold text-sm bg-blue-50 border border-blue-200 p-2.5 rounded-xl">
-            <i data-lucide="info" class="w-4.5 h-4.5 text-blue-600"></i>
-            <span>Sugerencias (>80% Similitud):</span>
+        resultsDiv.innerHTML = `
+          <div class="space-y-3">
+            <div class="flex items-center gap-1.5 text-blue-800 dark:text-luxe-200 font-bold text-sm bg-blue-50 dark:bg-white/5 border border-blue-200 dark:border-white/10 p-2.5 rounded-xl">
+              <i data-lucide="info" class="w-4.5 h-4.5 text-blue-600 dark:text-bronze-500"></i>
+              <span>Coincidencias Encontradas:</span>
+            </div>
+            <div class="max-h-40 overflow-y-auto pr-1">${listHtml}</div>
           </div>
-          <div class="max-h-40 overflow-y-auto pr-1">${listHtml}</div>
-        </div>
-      `;
+        `;
+      }
     } else {
-      resultsDiv.innerHTML = `
-        <div class="p-3 bg-slate-100 border border-slate-200 rounded-xl">
-          <div class="flex items-center gap-1.5 text-slate-700 font-semibold text-sm">
-            <i data-lucide="x-circle" class="w-4.5 h-4.5 text-slate-500"></i>
-            <span>Sin coincidencias</span>
-          </div>
-          <p class="text-slate-500 text-xs mt-1">No se encontraron activos similares en el catálogo actual.</p>
-        </div>
-      `;
+      resultsDiv.innerHTML = '<p class="text-slate-400 italic">Cargando motor de búsqueda...</p>';
     }
     lucide.createIcons();
   };
@@ -559,16 +603,43 @@ function initPatientForm() {
     const firmaEsp = signaturePadEspecialista && !signaturePadEspecialista.isEmpty() ? signaturePadEspecialista.toDataURL() : null;
     const firmaPac = signaturePadPaciente && !signaturePadPaciente.isEmpty() ? signaturePadPaciente.toDataURL() : null;
 
-    try {
-      await executeQuery(
-        'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [nombre, fecha, biotipo, diagnostico, condicion, prodId, firmaEsp, firmaPac]
-      );
+    const newRecord = {
+      nombre,
+      fecha,
+      biotipo,
+      diagnostico,
+      condicion,
+      protocolo_id: prodId,
+      firma_especialista: firmaEsp,
+      firma_paciente: firmaPac,
+      synced: 0
+    };
 
-      showToast('Ficha guardada con éxito.', 'success');
-      
-      if (signaturePadEspecialista) signaturePadEspecialista.clear();
-      if (signaturePadPaciente) signaturePadPaciente.clear();
+    try {
+      // Save locally to Dexie LocalDB first
+      const localId = await db.fichas_pacientes.add(newRecord);
+
+      if (navigator.onLine) {
+        // Direct cloud write if online
+        await executeQuery(
+          'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [nombre, fecha, biotipo, diagnostico, condicion, prodId, firmaEsp, firmaPac]
+        );
+        // Mark as synced
+        await db.fichas_pacientes.update(localId, { synced: 1 });
+        showToast('Ficha guardada y sincronizada con la nube.', 'success');
+      } else {
+        showToast('Ficha guardada localmente (pendiente de conexión).', 'warning');
+      }
+
+      if (signaturePadEspecialista) {
+        signaturePadEspecialista.clear();
+        savedSignatureEsp = null;
+      }
+      if (signaturePadPaciente) {
+        signaturePadPaciente.clear();
+        savedSignaturePac = null;
+      }
 
       loadHistory();
       scrollToSection('history-section');
@@ -687,17 +758,47 @@ window.toggleProductForm = function() {
   }
 };
 
+function updateFuseIndex() {
+  if (typeof Fuse !== 'undefined' && allProducts.length > 0) {
+    fuseInstance = new Fuse(allProducts, {
+      keys: ['name', 'active_ingredients', 'skin_indication'],
+      threshold: 0.4,
+      ignoreLocation: true
+    });
+  }
+}
+
 async function loadCatalogList() {
   const tbody = document.getElementById('catalog-table-body');
   try {
-    const res = await executeQuery("SELECT * FROM products ORDER BY name ASC");
-    allProducts = res.rows;
+    if (navigator.onLine) {
+      const res = await executeQuery("SELECT * FROM products ORDER BY name ASC");
+      allProducts = res.rows;
+      
+      // Mirror to Dexie LocalDB
+      await db.products.clear();
+      await db.products.bulkPut(allProducts);
+    } else {
+      allProducts = await db.products.toArray();
+      showToast('Modo Offline: cargando catálogo local.', 'warning');
+    }
+    
+    updateFuseIndex();
     renderCatalogTable(allProducts);
     populateFilterSelects(allProducts);
     loadBrandsLocal();
   } catch (err) {
     console.error(err);
-    tbody.innerHTML = '<tr><td colspan="9" class="py-8 px-4 text-center text-red-500">Error al consultar catálogo.</td></tr>';
+    try {
+      allProducts = await db.products.toArray();
+      updateFuseIndex();
+      renderCatalogTable(allProducts);
+      populateFilterSelects(allProducts);
+      loadBrandsLocal();
+      showToast('Cargados datos locales tras fallo de conexión.', 'warning');
+    } catch (localErr) {
+      tbody.innerHTML = '<tr><td colspan="9" class="py-8 px-4 text-center text-red-500">Error al consultar catálogo.</td></tr>';
+    }
   }
 }
 
@@ -772,21 +873,30 @@ function renderCatalogTable(products) {
 }
 
 window.filterCatalog = function() {
-  const queryText = normalizeText(document.getElementById('catalog-search').value);
+  const queryText = document.getElementById('catalog-search').value;
   const brandVal = document.getElementById('filter-brand').value;
   const catVal = document.getElementById('filter-category').value;
 
-  const filtered = allProducts.filter(p => {
-    const matchQuery = !queryText || 
-      normalizeText(p.name).includes(queryText) ||
-      normalizeText(p.id).includes(queryText) ||
-      normalizeText(p.active_ingredients).includes(queryText) ||
-      normalizeText(p.skin_indication).includes(queryText);
+  let results = allProducts;
 
+  if (queryText && queryText.trim() !== '') {
+    if (fuseInstance) {
+      results = fuseInstance.search(queryText).map(res => res.item);
+    } else {
+      const normQuery = normalizeText(queryText);
+      results = allProducts.filter(p => 
+        normalizeText(p.name).includes(normQuery) ||
+        normalizeText(p.id).includes(normQuery) ||
+        normalizeText(p.active_ingredients).includes(normQuery) ||
+        normalizeText(p.skin_indication).includes(normQuery)
+      );
+    }
+  }
+
+  const filtered = results.filter(p => {
     const matchBrand = !brandVal || p.brand === brandVal;
     const matchCat = !catVal || p.category === catVal;
-
-    return matchQuery && matchBrand && matchCat;
+    return matchBrand && matchCat;
   });
 
   renderCatalogTable(filtered);
@@ -1480,6 +1590,18 @@ window.exportToPDF = function() {
     tableRowsHtml = mainTableBody.innerHTML;
   }
 
+  let aiRoutineHtml = '';
+  const aiContent = document.getElementById('ai-recommendation-content');
+  const aiContainer = document.getElementById('ai-recommendation-container');
+  if (aiContent && aiContainer && !aiContainer.classList.contains('hidden') && aiContent.textContent.trim() !== '') {
+    aiRoutineHtml = `
+      <div style="margin-top: 10px; padding: 10px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px;">
+        <span class="pdf-specs-title" style="margin-bottom: 4px; display: block;">Recomendación Inteligente de la IA</span>
+        <p style="font-size: 8px; color: #333; line-height: 1.25; margin: 0; white-space: pre-wrap; font-weight: 500;">${aiContent.innerText}</p>
+      </div>
+    `;
+  }
+
   let signatureEspImg = '';
   let signaturePacImg = '';
   if (signaturePadEspecialista && !signaturePadEspecialista.isEmpty()) {
@@ -1797,6 +1919,7 @@ window.exportToPDF = function() {
             </table>
           </div>
         </div>
+        ${aiRoutineHtml}
       </div>
 
       <!-- Footer -->
@@ -2068,3 +2191,134 @@ window.confirmAPIImport = async function() {
     }
   }
 };
+
+// --- Clinical AI Prescription & Offline synchronization ---
+window.generarPrescripcionIA = async function() {
+  const diagnostico = document.getElementById('diagnostico').value;
+  const condicion = document.getElementById('condicion').value || 'Ninguna';
+  const biotipo = document.getElementById('biotipo').value || 'No especificado';
+  
+  if (!diagnostico) {
+    showToast('Por favor ingrese un diagnóstico para que la IA genere la recomendación.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-generar-ia');
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span>✨ Generando recomendación con IA...</span>';
+
+  // Get active face zones from global state
+  const activeZonesList = Object.keys(activeFacialZones)
+    .filter(k => activeFacialZones[k])
+    .map(k => {
+      const zNames = { forehead: 'Frente', nose: 'Nariz', leftCheek: 'Mejilla Izq', rightCheek: 'Mejilla Der', chin: 'Mentón' };
+      return zNames[k] || k;
+    }).join(', ');
+
+  // Format products context
+  const productsCtx = allProducts.map(p => `- ID: ${p.id} | Marca: ${p.brand} | Nombre: ${p.name} | Activos: ${p.active_ingredients} | Indicación: ${p.skin_indication}`).join('\n');
+
+  const prompt = `Eres un experto Cosmiatra y Cosmetólogo Médico.
+Analiza la siguiente información del paciente:
+- Biotipo Cutáneo: ${biotipo}
+- Diagnóstico Clínico: ${diagnostico}
+- Condición / Contraindicaciones: ${condicion}
+- Zonas faciales con afecciones activas: ${activeZonesList || 'Ninguna específica'}
+
+El catálogo de productos disponibles en inventario es el siguiente:
+${productsCtx}
+
+Tu tarea:
+1. Diseña una rutina de Skincare de Mañana (Morning) y Noche (Night) estructurada.
+2. Utiliza ÚNICAMENTE los productos que existen en el catálogo de productos anterior. No inventes productos.
+3. Para cada producto prescrito, justifica su uso mencionando sus ingredientes activos clave en relación con la zona facial afectada o el diagnóstico.
+4. Mantén la respuesta con formato limpio, claro, y profesional en español. No uses negritas Markdown (asteriscos).
+
+Escribe la respuesta directamente.`;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=AIzaSyCSHrOfPNKR62SZ7X2TsIvDr1WUFEQ8ySo`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.2
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API response error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const resultText = data.candidates[0].content.parts[0].text;
+
+    // Show AI recommendation container
+    const container = document.getElementById('ai-recommendation-container');
+    const content = document.getElementById('ai-recommendation-content');
+    const printContent = document.getElementById('ai-recommendation-print-content');
+    const printContainer = document.getElementById('ai-recommendation-print');
+
+    if (content) content.innerText = resultText;
+    if (container) container.classList.remove('hidden');
+
+    if (printContent && printContainer) {
+      printContent.innerText = resultText;
+      printContainer.classList.remove('hidden');
+    }
+
+    showToast('Prescripción con IA generada con éxito.', 'success');
+  } catch (error) {
+    console.error(error);
+    showToast('Error al conectar con la IA de Gemini.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+};
+
+window.addEventListener('online', async () => {
+  showToast('Conexión restablecida. Sincronizando datos...', 'success');
+  
+  // Sync products from Turso to Dexie
+  try {
+    const res = await executeQuery("SELECT * FROM products ORDER BY name ASC");
+    allProducts = res.rows;
+    await db.products.clear();
+    await db.products.bulkPut(allProducts);
+    updateFuseIndex();
+    renderCatalogTable(allProducts);
+    populateFilterSelects(allProducts);
+    loadBrandsLocal();
+  } catch (err) {
+    console.error('Error syncing products: ', err);
+  }
+
+  // Sync unsynced patient sheets to Turso
+  try {
+    const unsynced = await db.fichas_pacientes.where('synced').equals(0).toArray();
+    for (const record of unsynced) {
+      await executeQuery(
+        'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [record.nombre, record.fecha, record.biotipo, record.diagnostico, record.condicion, record.protocolo_id, record.firma_especialista, record.firma_paciente]
+      );
+      await db.fichas_pacientes.update(record.id, { synced: 1 });
+    }
+    if (unsynced.length > 0) {
+      showToast(`${unsynced.length} fichas pendientes sincronizadas con éxito.`, 'success');
+      loadHistory();
+    }
+  } catch (err) {
+    console.error('Error syncing patient sheets: ', err);
+    showToast('Error al sincronizar fichas pendientes.', 'error');
+  }
+});
