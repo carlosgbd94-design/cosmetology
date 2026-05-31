@@ -298,80 +298,82 @@
     <div id="tab-generator" class="space-y-8">
       
       <!-- Hidden Printable Template (A4 Optimized, High Contrast, Clean Typography) -->
-      <div id="clinical-print-template" class="hidden print:block w-full max-w-4xl mx-auto p-8 bg-white text-slate-900">
-        <!-- Header -->
-        <div class="flex justify-between items-center border-b-2 border-bronze-500 pb-4 mb-6">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white">
-              <svg class="w-6 h-6 text-bronze-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                <path d="M12 8V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-                <path d="M8.5 11.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-              </svg>
+      <div id="clinical-print-template" class="hidden print:flex flex-col justify-between w-full max-w-4xl mx-auto p-12 bg-white text-slate-900 min-h-[275mm] box-border">
+        <div>
+          <!-- Header -->
+          <div class="flex justify-between items-center border-b-2 border-bronze-500 pb-4 mb-6">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center text-white">
+                <svg class="w-6 h-6 text-bronze-500" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                  <path d="M12 8V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M8.5 11.5H15.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div>
+                <h1 class="text-xl font-bold font-sora tracking-tight">Dermatique Pro</h1>
+                <p class="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Clinical Diagnostics & Prescriptions</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <h2 class="text-sm font-bold text-slate-950 uppercase tracking-widest font-sora" id="print-doc-id">Prescripción de Activos</h2>
+              <p class="text-[9px] text-slate-500">Clínica de Estética Especializada</p>
+            </div>
+          </div>
+
+          <!-- Demographics Grid -->
+          <div class="grid grid-cols-3 gap-6 mb-6 pb-6 border-b border-slate-200">
+            <div>
+              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Paciente</span>
+              <span class="text-xs font-bold text-slate-950 font-sora mt-0.5 block animate-none" id="print-val-nombre">-</span>
             </div>
             <div>
-              <h1 class="text-xl font-bold font-sora tracking-tight">Dermatique Pro</h1>
-              <p class="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">Clinical Diagnostics & Prescriptions</p>
+              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Fecha de Consulta</span>
+              <span class="text-xs font-medium text-slate-900 mt-0.5 block" id="print-val-fecha">-</span>
+            </div>
+            <div>
+              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Biotipo Cutáneo</span>
+              <span class="text-xs font-semibold text-slate-900 mt-0.5 block" id="print-val-biotipo">-</span>
             </div>
           </div>
-          <div class="text-right">
-            <h2 class="text-sm font-bold text-slate-950 uppercase tracking-widest font-sora" id="print-doc-id">Prescripción de Activos</h2>
-            <p class="text-[9px] text-slate-500">Clínica de Estética Especializada</p>
-          </div>
-        </div>
 
-        <!-- Demographics Grid -->
-        <div class="grid grid-cols-3 gap-6 mb-6 pb-6 border-b border-slate-200">
-          <div>
-            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Paciente</span>
-            <span class="text-xs font-bold text-slate-950 font-sora mt-0.5 block animate-none" id="print-val-nombre">-</span>
+          <!-- Clinical Details -->
+          <div class="grid grid-cols-2 gap-6 mb-6">
+            <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Diagnóstico Clínico</span>
+              <p class="text-xs text-slate-850 leading-relaxed font-semibold whitespace-pre-wrap" id="print-val-diagnostico">-</p>
+            </div>
+            <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Condición / Contraindicaciones</span>
+              <p class="text-xs text-slate-850 leading-relaxed font-semibold whitespace-pre-wrap" id="print-val-condicion">-</p>
+            </div>
           </div>
-          <div>
-            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Fecha de Consulta</span>
-            <span class="text-xs font-medium text-slate-900 mt-0.5 block" id="print-val-fecha">-</span>
-          </div>
-          <div>
-            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Biotipo Cutáneo</span>
-            <span class="text-xs font-semibold text-slate-900 mt-0.5 block" id="print-val-biotipo">-</span>
-          </div>
-        </div>
 
-        <!-- Clinical Details -->
-        <div class="grid grid-cols-2 gap-6 mb-6">
-          <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
-            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Diagnóstico Clínico</span>
-            <p class="text-xs text-slate-850 leading-relaxed font-semibold whitespace-pre-wrap" id="print-val-diagnostico">-</p>
-          </div>
-          <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
-            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Condición / Contraindicaciones</span>
-            <p class="text-xs text-slate-850 leading-relaxed font-semibold whitespace-pre-wrap" id="print-val-condicion">-</p>
-          </div>
-        </div>
-
-        <!-- Product Technical Specifications -->
-        <div class="mb-8">
-          <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-2">Detalles Técnicos del Producto Prescrito</span>
-          <div class="border border-slate-200 rounded-xl overflow-hidden">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr class="bg-slate-50 border-b border-slate-200">
-                  <th class="py-2.5 px-4 font-bold text-slate-600 uppercase tracking-wider w-1/3">Parámetro</th>
-                  <th class="py-2.5 px-4 font-bold text-slate-600 uppercase tracking-wider">Valor Técnico</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-200" id="print-results-body">
-                <tr>
-                  <td colspan="2" class="py-6 px-4 text-center text-slate-400 italic">
-                    Ningún producto seleccionado
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <!-- Product Technical Specifications -->
+          <div class="mb-8">
+            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-2">Detalles Técnicos del Producto Prescrito</span>
+            <div class="border border-slate-200 rounded-xl overflow-hidden">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="bg-slate-50 border-b border-slate-200">
+                    <th class="py-2.5 px-4 font-bold text-slate-600 uppercase tracking-wider w-1/3">Parámetro</th>
+                    <th class="py-2.5 px-4 font-bold text-slate-600 uppercase tracking-wider">Valor Técnico</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200" id="print-results-body">
+                  <tr>
+                    <td colspan="2" class="py-6 px-4 text-center text-slate-400 italic">
+                      Ningún producto seleccionado
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
         <!-- Consent & Signatures -->
-        <div class="mt-12 pt-6 border-t border-slate-200">
+        <div class="mt-auto pt-6 border-t border-slate-200">
           <p class="text-[7.5px] text-slate-400 leading-relaxed italic mb-8">
             *Nota de Consentimiento Clínico: Al firmar esta ficha, el especialista confirma haber valorado clínicamente el biotipo cutáneo del paciente y haber seleccionado los activos recomendados. El paciente certifica estar de acuerdo con las recomendaciones cosméticas detalladas y declara no poseer alergias conocidas a los ingredientes descritos.
           </p>
