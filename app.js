@@ -144,6 +144,13 @@ function formatCurrency(val) {
 
 // Bootstrapper
 document.addEventListener('DOMContentLoaded', () => {
+  // Sync theme icon state with current document class
+  const isDark = document.documentElement.classList.contains('dark');
+  const themeIcon = document.getElementById('theme-icon');
+  const themeIconMobile = document.getElementById('theme-icon-mobile');
+  if (themeIcon) themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+  if (themeIconMobile) themeIconMobile.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+
   lucide.createIcons();
   document.getElementById('fecha').value = new Date().toISOString().substring(0, 10);
 
@@ -180,6 +187,31 @@ window.switchTab = function(tabName) {
     btnGen.className = "px-4 py-2 rounded-lg text-sm font-semibold transition-all text-slate-600 hover:text-slate-900";
     loadCatalogList();
   }
+};
+
+// Theme Toggler Logic
+window.toggleTheme = function() {
+  const html = document.documentElement;
+  const isDark = html.classList.contains('dark');
+  const newTheme = isDark ? 'light' : 'dark';
+  
+  if (newTheme === 'dark') {
+    html.classList.add('dark');
+    html.classList.remove('light');
+  } else {
+    html.classList.remove('dark');
+    html.classList.add('light');
+  }
+  
+  localStorage.setItem('theme', newTheme);
+  
+  const themeIcon = document.getElementById('theme-icon');
+  const themeIconMobile = document.getElementById('theme-icon-mobile');
+  if (themeIcon) themeIcon.setAttribute('data-lucide', newTheme === 'dark' ? 'sun' : 'moon');
+  if (themeIconMobile) themeIconMobile.setAttribute('data-lucide', newTheme === 'dark' ? 'sun' : 'moon');
+  
+  lucide.createIcons();
+  showToast(`Modo ${newTheme === 'dark' ? 'oscuro' : 'claro'} activado`, 'success');
 };
 
 function showToast(message, type = 'success') {

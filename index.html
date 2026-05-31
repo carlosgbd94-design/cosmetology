@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,9 +17,22 @@
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <!-- Favicon -->
   <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      } else {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      }
+    })();
+  </script>
 
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           fontFamily: {
@@ -38,10 +51,14 @@
               700: '#2E413E',
               800: '#1E2C2A',
               900: '#0F1615',
+              950: '#090D0C',
             },
             bronze: {
+              50: '#FAF7F2',
+              100: '#F2EBE0',
               500: '#C5A880',
               600: '#A3845B',
+              700: '#82643E',
             }
           }
         }
@@ -50,52 +67,91 @@
   </script>
 
   <style>
+    /* Adaptable backgrounds with glows */
     body {
-      background-color: #0F1615;
+      background-color: #F8FAFC;
       background-image: 
-        radial-gradient(at 0% 0%, rgba(197, 168, 128, 0.12) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(78, 110, 106, 0.15) 0px, transparent 50%),
-        radial-gradient(at 50% 100%, rgba(197, 168, 128, 0.05) 0px, transparent 50%);
+        radial-gradient(at 0% 0%, rgba(197, 168, 128, 0.05) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(78, 110, 106, 0.08) 0px, transparent 50%);
       background-attachment: fixed;
+      transition: background-color 0.3s ease, color 0.3s ease;
     }
 
-    /* iOS Liquid Glass Effect */
+    html.dark body {
+      background-color: #090D0C;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(197, 168, 128, 0.1) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(78, 110, 106, 0.15) 0px, transparent 50%);
+    }
+
+    /* iOS Liquid Glass Effect (Dynamic) */
     .liquid-glass {
-      background: rgba(30, 44, 42, 0.45);
+      background: rgba(255, 255, 255, 0.7);
       backdrop-filter: blur(24px) saturate(180%);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(15, 22, 21, 0.05);
+      box-shadow: 
+        0 10px 40px -10px rgba(148, 163, 184, 0.12),
+        inset 0 1px 1px rgba(255, 255, 255, 0.8);
+      transition: all 0.3s ease;
+    }
+
+    html.dark .liquid-glass {
+      background: rgba(30, 44, 42, 0.45);
       border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow: 
-        0 4px 30px rgba(0, 0, 0, 0.4),
+        0 10px 40px -10px rgba(0, 0, 0, 0.4),
         inset 0 1px 1px rgba(255, 255, 255, 0.1);
     }
 
     .liquid-glass-light {
-      background: rgba(255, 255, 255, 0.03);
+      background: rgba(15, 22, 21, 0.02);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(15, 22, 21, 0.04);
+    }
+
+    html.dark .liquid-glass-light {
+      background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
 
-    /* Smart Input Box Styling */
+    /* Smart Input Box Styling (Dynamic) */
     .smart-input {
-      background: rgba(15, 22, 21, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: #E6ECEB;
+      background: rgba(255, 255, 255, 0.8);
+      border: 1px solid rgba(15, 22, 21, 0.1);
+      color: #1E293B;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
+    html.dark .smart-input {
+      background: rgba(15, 22, 21, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #E6ECEB;
+    }
+
     .smart-input:focus {
+      background: #FFFFFF;
+      border-color: #A3845B;
+      box-shadow: 0 0 0 3px rgba(163, 132, 91, 0.15);
+      outline: none;
+    }
+
+    html.dark .smart-input:focus {
       background: rgba(15, 22, 21, 0.9);
       border-color: #C5A880;
       box-shadow: 0 0 0 3px rgba(197, 168, 128, 0.15);
-      outline: none;
     }
 
     /* Floating label positioning */
     .floating-group:focus-within label,
     .smart-input:not(:placeholder-shown) + label {
       transform: translateY(-20px) scale(0.85);
+      color: #A3845B;
+    }
+
+    html.dark .floating-group:focus-within label,
+    html.dark .smart-input:not(:placeholder-shown) + label {
       color: #C5A880;
     }
 
@@ -105,14 +161,17 @@
       height: 6px;
     }
     ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.02);
+    }
+    html.dark ::-webkit-scrollbar-track {
       background: rgba(255, 255, 255, 0.02);
     }
     ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(0, 0, 0, 0.1);
       border-radius: 3px;
     }
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.2);
+    html.dark ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
     }
 
     /* Professional Clinical Print Design */
@@ -187,39 +246,61 @@
     }
   </style>
 </head>
-<body class="font-sans text-luxe-100 min-h-screen pb-16 antialiased">
+<body class="font-sans text-slate-700 dark:text-luxe-100 min-h-screen pb-16 antialiased">
 
   <!-- Floating Toast Notification -->
-  <div id="toast" class="fixed top-5 right-5 z-50 transform translate-y-10 opacity-0 pointer-events-none transition-all duration-500 flex items-center gap-3 bg-luxe-800/90 border border-white/10 text-white px-5 py-3.5 rounded-2xl shadow-2xl max-w-md backdrop-blur-md">
+  <div id="toast" class="fixed top-5 right-5 z-50 transform translate-y-10 opacity-0 pointer-events-none transition-all duration-500 flex items-center gap-3 bg-white/90 dark:bg-luxe-800/90 border border-slate-200/50 dark:border-white/10 text-slate-800 dark:text-white px-5 py-3.5 rounded-2xl shadow-2xl max-w-md backdrop-blur-md">
     <div id="toast-icon"></div>
     <p id="toast-message" class="text-sm font-medium tracking-wide"></p>
   </div>
 
   <!-- Header Nav (iOS Style) -->
-  <nav class="no-print w-full border-b border-white/5 bg-luxe-900/60 backdrop-blur-lg sticky top-0 z-40">
-    <div class="max-w-7xl mx-auto px-6 h-18 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-bronze-500 to-luxe-400 flex items-center justify-center text-luxe-900 shadow-lg shadow-bronze-500/10">
-          <i data-lucide="sparkles" class="w-5 h-5" stroke-width="1.5"></i>
+  <nav class="no-print w-full border-b border-slate-200/50 dark:border-white/5 bg-white/70 dark:bg-luxe-900/60 backdrop-blur-lg sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 py-3 sm:px-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+      <div class="flex items-center justify-between w-full md:w-auto gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-bronze-500 to-luxe-400 flex items-center justify-center text-white shadow-lg shadow-bronze-500/10">
+            <i data-lucide="sparkles" class="w-5 h-5" stroke-width="1.5"></i>
+          </div>
+          <div>
+            <span class="font-outfit font-bold text-lg tracking-tight text-slate-800 dark:text-white">Selector Estético</span>
+            <span class="text-[9px] block text-bronze-600 dark:text-bronze-500 font-semibold tracking-widest uppercase">Liquid Glass Premium</span>
+          </div>
         </div>
-        <div>
-          <span class="font-outfit font-bold text-lg tracking-tight text-white">Selector Estético</span>
-          <span class="text-[9px] block text-bronze-500 font-semibold tracking-widest uppercase">Liquid Glass Premium</span>
+        
+        <!-- Mobile theme toggle button -->
+        <div class="flex items-center gap-2 md:hidden">
+          <button onclick="toggleTheme()" class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200/50 dark:border-white/5 text-slate-700 dark:text-luxe-300 hover:text-bronze-600 dark:hover:text-white transition-all flex items-center justify-center shadow-sm">
+            <i id="theme-icon-mobile" data-lucide="moon" class="w-4.5 h-4.5" stroke-width="1.5"></i>
+          </button>
         </div>
       </div>
       
       <!-- Tab Controls (iOS Segmented Control) -->
-      <div class="flex bg-white/5 border border-white/5 p-1 rounded-2xl">
-        <button id="tab-btn-generator" onclick="switchTab('generator')" class="px-5 py-2 rounded-xl text-xs font-semibold transition-all bg-white/10 text-white shadow-sm">
+      <div class="flex w-full md:w-auto bg-slate-100 dark:bg-white/5 border border-slate-200/30 dark:border-white/5 p-1 rounded-2xl">
+        <button id="tab-btn-generator" onclick="switchTab('generator')" class="flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-semibold transition-all bg-white text-slate-800 dark:bg-white/10 dark:text-white shadow-sm">
           Generador de Fichas
         </button>
-        <button id="tab-btn-inventory" onclick="switchTab('inventory')" class="px-5 py-2 rounded-xl text-xs font-semibold transition-all text-luxe-300 hover:text-white">
+        <button id="tab-btn-inventory" onclick="switchTab('inventory')" class="flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-semibold transition-all text-slate-500 dark:text-luxe-300 hover:text-slate-800 dark:hover:text-white">
           Gestión de Catálogo
         </button>
       </div>
+      
+      <!-- Actions (Desktop only) -->
+      <div class="hidden md:flex items-center gap-3">
+        <!-- Sun/Moon Theme Toggle Button -->
+        <button onclick="toggleTheme()" class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200/50 dark:border-white/5 text-slate-700 dark:text-luxe-300 hover:text-bronze-600 dark:hover:text-white transition-all flex items-center justify-center shadow-sm">
+          <i id="theme-icon" data-lucide="moon" class="w-4.5 h-4.5" stroke-width="1.5"></i>
+        </button>
+ 
+        <button onclick="window.print()" class="flex items-center gap-2 bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white dark:text-luxe-950 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all">
+          <i data-lucide="printer" class="w-4 h-4" stroke-width="1.5"></i> Imprimir Ficha
+        </button>
+      </div>
 
-      <div>
-        <button onclick="window.print()" class="flex items-center gap-2 bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-luxe-900 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all">
+      <!-- Action (Mobile only) -->
+      <div class="flex md:hidden w-full">
+        <button onclick="window.print()" class="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white dark:text-luxe-950 py-3 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all">
           <i data-lucide="printer" class="w-4 h-4" stroke-width="1.5"></i> Imprimir Ficha
         </button>
       </div>
@@ -239,14 +320,14 @@
         <div class="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-bronze-500/10 blur-[100px] pointer-events-none"></div>
 
         <!-- Printable Clinical Header -->
-        <div class="print-card-header flex justify-between items-start mb-8 pb-6 border-b border-white/5">
+        <div class="print-card-header flex justify-between items-start mb-8 pb-6 border-b border-slate-200/50 dark:border-white/5">
           <div>
-            <h1 class="font-outfit text-3xl font-bold text-white">Ficha de Diagnóstico Estético</h1>
-            <p class="text-luxe-300 text-xs mt-1">Valoración cutánea y recomendación cosmética profesional</p>
+            <h1 class="font-outfit text-3xl font-bold text-slate-800 dark:text-white">Ficha de Diagnóstico Estético</h1>
+            <p class="text-slate-500 dark:text-luxe-300 text-xs mt-1">Valoración cutánea y recomendación cosmética profesional</p>
           </div>
           <div class="text-right flex flex-col items-end">
-            <span class="text-xs text-bronze-500 font-bold uppercase tracking-widest font-outfit" id="current-doc-id">Prescripción de Activos</span>
-            <span class="text-[10px] text-luxe-400 mt-1">Clínica de Estética Especializada</span>
+            <span class="text-xs text-bronze-600 dark:text-bronze-500 font-bold uppercase tracking-widest font-outfit" id="current-doc-id">Prescripción de Activos</span>
+            <span class="text-[10px] text-slate-400 mt-1">Clínica de Estética Especializada</span>
           </div>
         </div>
 
@@ -258,7 +339,7 @@
             <div class="relative floating-group flex flex-col">
               <input type="text" id="nombre" name="nombre" placeholder=" " required
                 class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="nombre" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="nombre" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Nombre del Paciente
               </label>
             </div>
@@ -267,7 +348,7 @@
             <div class="relative floating-group flex flex-col">
               <input type="date" id="fecha" name="fecha" required
                 class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="fecha" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="fecha" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Fecha de Consulta
               </label>
             </div>
@@ -284,7 +365,7 @@
                 <option value="Mixta">Mixta</option>
                 <option value="Sensible / Rosácea">Sensible / Rosácea</option>
               </select>
-              <label for="biotipo" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="biotipo" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Biotipo Cutáneo
               </label>
             </div>
@@ -296,7 +377,7 @@
             <div class="relative floating-group flex flex-col">
               <textarea id="diagnostico" name="diagnostico" rows="3" placeholder=" " required
                 class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="diagnostico" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="diagnostico" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Diagnóstico Clínico
               </label>
             </div>
@@ -305,15 +386,15 @@
             <div class="relative floating-group flex flex-col">
               <textarea id="condicion" name="condicion" rows="3" placeholder=" "
                 class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="condicion" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="condicion" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Condición / Contraindicaciones
               </label>
             </div>
           </div>
 
           <!-- Cascading Selector Section (iOS Glass Card) -->
-          <div class="no-print liquid-glass-light rounded-2xl p-6 border border-white/5">
-            <h3 class="font-outfit text-sm font-bold text-white mb-6 uppercase tracking-wider flex items-center gap-2">
+          <div class="no-print liquid-glass-light rounded-2xl p-6 border border-slate-200/50 dark:border-white/5">
+            <h3 class="font-outfit text-sm font-bold text-slate-800 dark:text-white mb-6 uppercase tracking-wider flex items-center gap-2">
               <i data-lucide="layers" class="w-4 h-4 text-bronze-500" stroke-width="1.5"></i>
               Asignación de Producto Cosmético
             </h3>
@@ -321,7 +402,7 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
               <!-- Cascade 1: Marca -->
               <div class="flex flex-col">
-                <label class="block text-[10px] font-bold text-luxe-400 uppercase tracking-widest mb-2 ml-1">1. Marca</label>
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-2 ml-1">1. Marca</label>
                 <select id="sel-marca" class="smart-input w-full px-4 py-3.5 rounded-xl text-xs appearance-none">
                   <option value="">Seleccionar marca...</option>
                 </select>
@@ -329,7 +410,7 @@
 
               <!-- Cascade 2: Categoría -->
               <div class="flex flex-col">
-                <label class="block text-[10px] font-bold text-luxe-400 uppercase tracking-widest mb-2 ml-1">2. Categoría</label>
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-2 ml-1">2. Categoría</label>
                 <select id="sel-categoria" class="smart-input w-full px-4 py-3.5 rounded-xl text-xs appearance-none" disabled>
                   <option value="">Seleccione marca primero...</option>
                 </select>
@@ -337,7 +418,7 @@
 
               <!-- Cascade 3: Producto -->
               <div class="flex flex-col">
-                <label class="block text-[10px] font-bold text-luxe-400 uppercase tracking-widest mb-2 ml-1">3. Producto</label>
+                <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-2 ml-1">3. Producto</label>
                 <select id="sel-producto" class="smart-input w-full px-4 py-3.5 rounded-xl text-xs appearance-none" disabled>
                   <option value="">Seleccione categoría primero...</option>
                 </select>
@@ -348,25 +429,25 @@
           <!-- Technical Specs Printable Area -->
           <div class="space-y-4">
             <div class="flex justify-between items-center">
-              <label class="block text-[10px] font-bold text-luxe-400 uppercase tracking-widest">
+              <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">
                 Descripción Técnica del Producto Seleccionado
               </label>
-              <div id="product-info-badge" class="hidden text-[10px] border border-bronze-500/30 bg-bronze-500/5 text-bronze-500 px-3 py-1 rounded-full font-bold tracking-wide">
+              <div id="product-info-badge" class="hidden text-[10px] border border-bronze-500/30 bg-bronze-500/5 text-bronze-600 dark:text-bronze-500 px-3 py-1 rounded-full font-bold tracking-wide">
                 <!-- Name -->
               </div>
             </div>
             
-            <div class="border border-white/5 rounded-2xl overflow-hidden bg-luxe-950/20 backdrop-blur">
+            <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/40 dark:bg-luxe-950/20 backdrop-blur">
               <table class="w-full text-left border-collapse">
                 <thead>
-                  <tr class="bg-white/5 border-b border-white/5">
-                    <th class="py-3 px-5 text-[10px] font-bold text-luxe-300 uppercase tracking-wider w-1/3">Parámetro</th>
-                    <th class="py-3 px-5 text-[10px] font-bold text-luxe-300 uppercase tracking-wider">Valor Técnico</th>
+                  <tr class="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5">
+                    <th class="py-3 px-5 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider w-1/3">Parámetro</th>
+                    <th class="py-3 px-5 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Valor Técnico</th>
                   </tr>
                 </thead>
                 <tbody id="results-table-body" class="text-sm">
                   <tr>
-                    <td colspan="2" class="py-8 px-5 text-center text-luxe-400 text-xs italic">
+                    <td colspan="2" class="py-8 px-5 text-center text-slate-400 dark:text-luxe-400 text-xs italic">
                       Por favor, asigne un producto en el filtro de cascada para visualizar su descripción técnica.
                     </td>
                   </tr>
@@ -395,11 +476,11 @@
           </div>
 
           <!-- Submit Buttons -->
-          <div class="no-print flex justify-end gap-4 pt-6 border-t border-white/5">
-            <button type="button" id="btn-reset" class="px-5 py-3 rounded-xl text-luxe-300 hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
+          <div class="no-print flex justify-end gap-4 pt-6 border-t border-slate-200/50 dark:border-white/5">
+            <button type="button" id="btn-reset" class="px-5 py-3 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
               Limpiar Ficha
             </button>
-            <button type="submit" class="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-luxe-900 px-8 py-3 rounded-xl text-xs font-bold shadow-lg shadow-bronze-500/10 transition-all flex items-center gap-2">
+            <button type="submit" class="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white dark:text-luxe-950 px-8 py-3 rounded-xl text-xs font-bold shadow-lg shadow-bronze-500/10 transition-all flex items-center gap-2">
               <i data-lucide="save" class="w-4 h-4" stroke-width="1.5"></i> Guardar Ficha Paciente
             </button>
           </div>
@@ -411,29 +492,29 @@
         
         <div class="liquid-glass rounded-3xl p-8 md:col-span-2 space-y-4">
           <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-lg bg-bronze-500/10 text-bronze-500 flex items-center justify-center">
+            <div class="w-8 h-8 rounded-lg bg-bronze-500/10 text-bronze-600 dark:text-bronze-500 flex items-center justify-center">
               <i data-lucide="activity" class="w-4.5 h-4.5" stroke-width="1.5"></i>
             </div>
-            <h2 class="font-outfit text-lg font-bold text-white">Corrector Inteligente de Activos</h2>
+            <h2 class="font-outfit text-lg font-bold text-slate-800 dark:text-white">Corrector Inteligente de Activos</h2>
           </div>
-          <p class="text-luxe-300 text-xs">
+          <p class="text-slate-500 dark:text-luxe-300 text-xs">
             Verifica la ortografía de los activos de forma interactiva. El algoritmo de Levenshtein sugiere automáticamente las coincidencias del catálogo de ingredientes activos.
           </p>
 
           <div class="relative">
             <input type="text" id="checker-input" placeholder="Ej: Santalum albu, Acido Salicilico"
               class="smart-input w-full pl-4 pr-24 py-3.5 rounded-xl text-xs">
-            <button id="btn-check-active" class="absolute right-2 top-2 bg-gradient-to-r from-bronze-500 to-bronze-600 text-luxe-900 px-4 py-2 rounded-lg text-[10px] font-bold shadow transition-all hover:brightness-105">
+            <button id="btn-check-active" class="absolute right-2 top-2 bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-900 px-4 py-2 rounded-lg text-[10px] font-bold shadow transition-all hover:brightness-105">
               Buscar Activo
             </button>
           </div>
         </div>
 
-        <div class="liquid-glass rounded-3xl p-6 flex flex-col justify-between border border-white/5">
+        <div class="liquid-glass rounded-3xl p-6 flex flex-col justify-between border border-slate-200/50 dark:border-white/5">
           <div>
-            <h3 class="text-[9px] font-bold text-luxe-400 uppercase tracking-widest mb-3">Resultados del Analizador</h3>
-            <div id="checker-results" class="text-xs text-luxe-200 space-y-2">
-              <p class="text-luxe-400 italic">Los resultados aparecerán aquí tras realizar una búsqueda...</p>
+            <h3 class="text-[9px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-3">Resultados del Analizador</h3>
+            <div id="checker-results" class="text-xs text-slate-600 dark:text-luxe-200 space-y-2">
+              <p class="text-slate-400 italic">Los resultados aparecerán aquí tras realizar una búsqueda...</p>
             </div>
           </div>
         </div>
@@ -442,25 +523,25 @@
 
       <!-- Patient Sheets History -->
       <div id="history-section" class="no-print liquid-glass rounded-3xl p-8">
-        <h2 class="font-outfit text-xl font-bold text-white mb-2">Historial de Fichas Clínicas</h2>
-        <p class="text-luxe-300 text-xs mb-6">Listado histórico de diagnósticos de pacientes y tratamientos cosmetológicos asignados.</p>
+        <h2 class="font-outfit text-xl font-bold text-slate-800 dark:text-white mb-2">Historial de Fichas Clínicas</h2>
+        <p class="text-slate-500 dark:text-luxe-300 text-xs mb-6">Listado histórico de diagnósticos de pacientes y tratamientos cosmetológicos asignados.</p>
 
-        <div class="border border-white/5 rounded-2xl overflow-hidden bg-luxe-950/20">
+        <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/20 dark:bg-luxe-950/20">
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs">
               <thead>
-                <tr class="bg-white/5 border-b border-white/5">
-                  <th class="py-3 px-6 text-[10px] font-bold text-luxe-300 uppercase tracking-wider">Paciente</th>
-                  <th class="py-3 px-6 text-[10px] font-bold text-luxe-300 uppercase tracking-wider">Fecha</th>
-                  <th class="py-3 px-6 text-[10px] font-bold text-luxe-300 uppercase tracking-wider">Biotipo</th>
-                  <th class="py-3 px-6 text-[10px] font-bold text-luxe-300 uppercase tracking-wider">Diagnóstico</th>
-                  <th class="py-3 px-6 text-[10px] font-bold text-luxe-300 uppercase tracking-wider">Producto Vinculado</th>
-                  <th class="py-3 px-6 text-[10px] font-bold text-luxe-300 uppercase tracking-wider text-right">Acción</th>
+                <tr class="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5">
+                  <th class="py-3 px-6 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Paciente</th>
+                  <th class="py-3 px-6 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Fecha</th>
+                  <th class="py-3 px-6 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Biotipo</th>
+                  <th class="py-3 px-6 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Diagnóstico</th>
+                  <th class="py-3 px-6 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Producto Vinculado</th>
+                  <th class="py-3 px-6 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider text-right">Acción</th>
                 </tr>
               </thead>
-              <tbody id="history-table-body" class="divide-y divide-white/5">
+              <tbody id="history-table-body" class="divide-y divide-slate-200/50 dark:divide-white/5">
                 <tr>
-                  <td colspan="6" class="py-8 px-6 text-center text-luxe-400">
+                  <td colspan="6" class="py-8 px-6 text-center text-slate-400">
                     Cargando historial de valoraciones...
                   </td>
                 </tr>
@@ -475,14 +556,14 @@
     <!-- TAB 2: INVENTARIO / CATALOGO -->
     <div id="tab-inventory" class="hidden space-y-8 no-print">
 
-      <!-- Catalog Header Options -->
+      <!-- Catalog Header Operations -->
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 class="font-outfit text-2xl font-bold text-white">Catálogo de Fórmulas & Productos</h2>
-          <p class="text-luxe-300 text-xs mt-1">Crea, edita, elimina y audita el inventario completo de productos activos.</p>
+          <h2 class="font-outfit text-2xl font-bold text-slate-800 dark:text-white">Catálogo de Fórmulas & Productos</h2>
+          <p class="text-slate-500 dark:text-luxe-300 text-xs mt-1">Crea, edita, elimina y audita el inventario completo de productos activos.</p>
         </div>
         <div class="flex items-center gap-3">
-          <button onclick="toggleProductForm()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-luxe-900 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all flex items-center gap-1.5 hover:brightness-110">
+          <button onclick="toggleProductForm()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-905 px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-bronze-500/10 transition-all flex items-center gap-1.5 hover:brightness-110">
             <i data-lucide="plus" class="w-4 h-4" stroke-width="1.5"></i> Crear Producto
           </button>
         </div>
@@ -490,7 +571,7 @@
 
       <!-- Interactive Mutation Form (Collapsible Glass Card) -->
       <div id="product-mutation-card" class="hidden liquid-glass rounded-3xl p-8 relative overflow-hidden transition-all duration-300">
-        <h3 id="mutation-form-title" class="font-outfit text-lg font-bold text-white mb-6">Crear Nuevo Producto</h3>
+        <h3 id="mutation-form-title" class="font-outfit text-lg font-bold text-slate-800 dark:text-white mb-6">Crear Nuevo Producto</h3>
         
         <form id="product-form" class="space-y-6">
           <input type="hidden" id="is_edit" value="false">
@@ -500,7 +581,7 @@
             <div class="relative floating-group flex flex-col">
               <input type="text" id="prod-id" placeholder=" " required
                 class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-id" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-id" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 ID / Clave
               </label>
             </div>
@@ -509,7 +590,7 @@
             <div class="md:col-span-2 relative floating-group flex flex-col">
               <input type="text" id="prod-name" placeholder=" " required
                 class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-name" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-name" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Nombre del Producto
               </label>
             </div>
@@ -518,7 +599,7 @@
             <div class="relative floating-group flex flex-col">
               <input type="text" id="prod-capacity" placeholder=" "
                 class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-capacity" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-capacity" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Capacidad (ej: 125 ml)
               </label>
             </div>
@@ -535,7 +616,7 @@
                 <option value="Marant">Marant</option>
                 <option value="Grande de Leim">Grande de Leim</option>
               </select>
-              <label for="prod-brand" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-brand" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Marca / Laboratorio
               </label>
             </div>
@@ -569,7 +650,7 @@
                 <option value="Biohelicina">Biohelicina</option>
                 <option value="Biobotulina">Biobotulina</option>
               </select>
-              <label for="prod-category" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-category" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Categoría
               </label>
             </div>
@@ -578,7 +659,7 @@
             <div class="relative floating-group flex flex-col">
               <input type="text" id="prod-price-aesthetic" placeholder=" "
                 class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-price-aesthetic" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-price-aesthetic" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Precio Esteticista
               </label>
             </div>
@@ -587,7 +668,7 @@
             <div class="relative floating-group flex flex-col">
               <input type="text" id="prod-price-public" placeholder=" "
                 class="smart-input w-full px-4 pt-6 pb-2 rounded-xl text-sm">
-              <label for="prod-price-public" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-price-public" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Precio Público
               </label>
             </div>
@@ -598,7 +679,7 @@
             <div class="relative floating-group flex flex-col">
               <textarea id="prod-actives" rows="3" placeholder=" "
                 class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="prod-actives" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-actives" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Activos Clave
               </label>
             </div>
@@ -607,17 +688,17 @@
             <div class="relative floating-group flex flex-col">
               <textarea id="prod-indication" rows="3" placeholder=" "
                 class="smart-input w-full p-4 pt-6 rounded-xl text-sm resize-none"></textarea>
-              <label for="prod-indication" class="absolute left-4 top-4 text-xs text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
+              <label for="prod-indication" class="absolute left-4 top-4 text-xs text-slate-400 dark:text-luxe-400 pointer-events-none transition-all duration-300 origin-left uppercase tracking-wider font-semibold">
                 Biotipo / Indicación de Piel
               </label>
             </div>
           </div>
 
-          <div class="flex justify-end gap-3 pt-4 border-t border-white/5">
-            <button type="button" onclick="toggleProductForm()" class="px-5 py-2.5 rounded-xl text-luxe-300 hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
+          <div class="flex justify-end gap-3 pt-4 border-t border-slate-200/50 dark:border-white/5">
+            <button type="button" onclick="toggleProductForm()" class="px-5 py-2.5 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
               Cancelar
             </button>
-            <button type="submit" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-luxe-900 px-6 py-2.5 rounded-xl text-xs font-bold tracking-wide shadow-md shadow-bronze-500/10 transition-all hover:brightness-110">
+            <button type="submit" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-950 px-6 py-2.5 rounded-xl text-xs font-bold tracking-wide shadow-md shadow-bronze-500/10 transition-all hover:brightness-110">
               Guardar en Catálogo
             </button>
           </div>
@@ -630,7 +711,7 @@
         <!-- Live filters controls -->
         <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
           <div class="relative w-full md:max-w-md">
-            <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-luxe-400">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400 dark:text-luxe-400">
               <i data-lucide="search" class="w-4 h-4" stroke-width="1.5"></i>
             </span>
             <input type="text" id="catalog-search" oninput="filterCatalog()" placeholder="Buscar por Nombre, Activos o Biotipo..."
@@ -648,25 +729,25 @@
         </div>
 
         <!-- Catalog Items Table -->
-        <div class="border border-white/5 rounded-2xl overflow-hidden bg-luxe-950/20">
+        <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/20 dark:bg-luxe-950/20">
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs">
               <thead>
-                <tr class="bg-white/5 border-b border-white/5">
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider">Clave</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider">Producto</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider">Marca</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider">Categoría</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider">Capacidad</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider">P. Esteticista</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider">P. Público</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider w-1/5">Activos</th>
-                  <th class="py-3.5 px-4 font-bold text-luxe-300 uppercase tracking-wider text-right">Acciones</th>
+                <tr class="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5">
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Clave</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Producto</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Marca</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Categoría</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Capacidad</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">P. Esteticista</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">P. Público</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider w-1/5">Activos</th>
+                  <th class="py-3.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody id="catalog-table-body" class="divide-y divide-white/5">
+              <tbody id="catalog-table-body" class="divide-y divide-slate-200/50 dark:divide-white/5">
                 <tr>
-                  <td colspan="9" class="py-8 px-4 text-center text-luxe-400">
+                  <td colspan="9" class="py-8 px-4 text-center text-slate-400">
                     Cargando inventario de cosméticos...
                   </td>
                 </tr>
@@ -678,47 +759,47 @@
 
       <!-- Bulk Excel Ingest View -->
       <div id="database-section" class="liquid-glass rounded-3xl p-8">
-        <h2 class="font-outfit text-xl font-bold text-white mb-2">Importación de Catálogo</h2>
-        <p class="text-luxe-300 text-xs mb-6">Arrastra y suelta tu archivo Excel del catálogo corregido (`Catalogo_Productos_Corregido.xlsx`) para actualizar masivamente el inventario.</p>
+        <h2 class="font-outfit text-xl font-bold text-slate-800 dark:text-white mb-2">Importación de Catálogo</h2>
+        <p class="text-slate-500 dark:text-luxe-300 text-xs mb-6">Arrastra y suelta tu archivo Excel del catálogo corregido (`Catalogo_Productos_Corregido.xlsx`) para actualizar masivamente el inventario.</p>
 
         <!-- Dropzone -->
-        <div id="dropzone" class="border-2 border-dashed border-white/10 hover:border-bronze-500/50 rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer bg-white/[0.01] hover:bg-bronze-500/[0.02] transition-all duration-300">
+        <div id="dropzone" class="border-2 border-dashed border-slate-300 dark:border-white/10 hover:border-bronze-500/50 rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 dark:bg-white/[0.01] hover:bg-bronze-500/[0.02] transition-all duration-300">
           <input type="file" id="file-input" accept=".csv,.xlsx,.xls" class="hidden">
           <div class="w-12 h-12 rounded-full bg-bronze-500/10 flex items-center justify-center text-bronze-500 mb-4 shadow">
             <i data-lucide="file-up" class="w-5 h-5" stroke-width="1.5"></i>
           </div>
-          <p class="text-xs font-semibold text-white tracking-wide">Arrastra tu archivo aquí o <span class="text-bronze-500 hover:underline">explora archivos</span></p>
-          <p class="text-[10px] text-luxe-400 mt-1">Formatos admitidos: .xlsx, .xls, .csv</p>
+          <p class="text-xs font-semibold text-slate-800 dark:text-white tracking-wide">Arrastra tu archivo aquí o <span class="text-bronze-500 hover:underline">explora archivos</span></p>
+          <p class="text-[10px] text-slate-400 dark:text-luxe-400 mt-1">Formatos admitidos: .xlsx, .xls, .csv</p>
         </div>
 
         <!-- Preview -->
         <div id="ingestion-preview-container" class="hidden mt-6">
           <div class="flex justify-between items-center mb-3">
-            <span class="text-[10px] font-bold text-luxe-400 uppercase tracking-widest">Catálogo identificado:</span>
+            <span class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">Catálogo identificado:</span>
             <span id="preview-row-count" class="text-xs font-bold text-bronze-500">0 productos</span>
           </div>
-          <div class="border border-white/5 rounded-2xl max-h-60 overflow-y-auto bg-luxe-950/20">
+          <div class="border border-slate-200/50 dark:border-white/5 rounded-2xl max-h-60 overflow-y-auto bg-white/20 dark:bg-luxe-950/20">
             <table class="w-full text-left border-collapse text-[11px]">
               <thead>
-                <tr class="bg-white/5 border-b border-white/5 sticky top-0">
-                  <th class="py-2.5 px-4 font-bold text-luxe-300 uppercase">Clave</th>
-                  <th class="py-2.5 px-4 font-bold text-luxe-300 uppercase">Producto</th>
-                  <th class="py-2.5 px-4 font-bold text-luxe-300 uppercase">Marca</th>
-                  <th class="py-2.5 px-4 font-bold text-luxe-300 uppercase">Categoría</th>
-                  <th class="py-2.5 px-4 font-bold text-luxe-300 uppercase">Precio Est.</th>
-                  <th class="py-2.5 px-4 font-bold text-luxe-300 uppercase">Precio Pub.</th>
+                <tr class="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 sticky top-0">
+                  <th class="py-2.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase">Clave</th>
+                  <th class="py-2.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase">Producto</th>
+                  <th class="py-2.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase">Marca</th>
+                  <th class="py-2.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase">Categoría</th>
+                  <th class="py-2.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase">Precio Est.</th>
+                  <th class="py-2.5 px-4 font-bold text-slate-600 dark:text-luxe-300 uppercase">Precio Pub.</th>
                 </tr>
               </thead>
-              <tbody id="preview-table-body" class="divide-y divide-white/5">
+              <tbody id="preview-table-body" class="divide-y divide-slate-200/50 dark:divide-white/5">
                 <!-- Preview rows -->
               </tbody>
             </table>
           </div>
           <div class="flex justify-end gap-3 mt-4">
-            <button id="btn-cancel-upload" class="px-4 py-2 rounded-xl border border-white/5 text-xs font-semibold text-luxe-300 hover:bg-white/5 transition-colors">
+            <button id="btn-cancel-upload" class="px-4 py-2 rounded-xl border border-slate-200/50 dark:border-white/5 text-xs font-semibold text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
               Cancelar
             </button>
-            <button id="btn-confirm-upload" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-luxe-900 px-6 py-2 rounded-xl text-xs font-bold tracking-wide shadow transition-all hover:brightness-110">
+            <button id="btn-confirm-upload" class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-900 px-6 py-2 rounded-xl text-xs font-bold tracking-wide shadow transition-all hover:brightness-110">
               Confirmar e Importar Catálogo
             </button>
           </div>
