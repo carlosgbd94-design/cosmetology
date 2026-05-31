@@ -3,6 +3,8 @@ const TURSO_URL = 'https://cosmetics-prodcts-carlos-becerra.aws-us-west-2.turso.
 const TURSO_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODAyNTc5MzEsImlkIjoiMDE5ZTdmOWUtMmEwMS03OWMxLTg3N2YtN2RkY2FkZjg1ZDk5IiwicmlkIjoiM2VhNTAwMzUtMjIwZS00MWM2LWI3NjItNTM2NjQ1NzJhM2EzIn0.7-B8dPeRempyRbJBif_dZYDmoKizAwHz9F9RTv-WGNmpniIRicU3GkcENXOi2k0n1_rKfDuL69f1cLAOyeFnBg';
 
 // Mappings and State
+let signaturePadEspecialista = null;
+let signaturePadPaciente = null;
 let allProducts = [];
 let allIngredientsList = [];
 let uploadDataPreview = [];
@@ -160,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initDragAndDrop();
   initPatientForm();
   initProductForm();
+  initSignatures();
 
   // Load database entities
   loadBrands();
@@ -543,6 +546,9 @@ function initPatientForm() {
     selProd.innerHTML = '<option value="">Seleccione categoría primero...</option>';
     selProd.disabled = true;
 
+    if (signaturePadEspecialista) signaturePadEspecialista.clear();
+    if (signaturePadPaciente) signaturePadPaciente.clear();
+
     clearResultsTable();
     showToast('Ficha limpia.', 'success');
   });
@@ -562,13 +568,20 @@ function initPatientForm() {
       return;
     }
 
+    const firmaEsp = signaturePadEspecialista && !signaturePadEspecialista.isEmpty() ? signaturePadEspecialista.toDataURL() : null;
+    const firmaPac = signaturePadPaciente && !signaturePadPaciente.isEmpty() ? signaturePadPaciente.toDataURL() : null;
+
     try {
       await executeQuery(
-        'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [nombre, fecha, biotipo, diagnostico, condicion, prodId]
+        'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [nombre, fecha, biotipo, diagnostico, condicion, prodId, firmaEsp, firmaPac]
       );
 
       showToast('Ficha guardada con éxito.', 'success');
+      
+      if (signaturePadEspecialista) signaturePadEspecialista.clear();
+      if (signaturePadPaciente) signaturePadPaciente.clear();
+
       loadHistory();
       scrollToSection('history-section');
     } catch (err) {
@@ -634,6 +647,16 @@ window.loadFichaToForm = function(f) {
   document.getElementById('diagnostico').value = f.diagnostico || '';
   document.getElementById('condicion').value = f.condicion || '';
   document.getElementById('current-doc-id').textContent = `Ficha Nº ${f.id} (Historial)`;
+
+  if (signaturePadEspecialista) signaturePadEspecialista.clear();
+  if (signaturePadPaciente) signaturePadPaciente.clear();
+
+  if (f.firma_especialista && signaturePadEspecialista) {
+    signaturePadEspecialista.fromDataURL(f.firma_especialista);
+  }
+  if (f.firma_paciente && signaturePadPaciente) {
+    signaturePadPaciente.fromDataURL(f.firma_paciente);
+  }
 
   switchTab('generator');
   scrollToSection('clinical-sheet-card');
@@ -1146,7 +1169,7 @@ function normalizeText(text) {
 }
 
 // Automatically sync the interactive form values into the high-contrast clean printable template before print dialog launches.
-window.addEventListener('beforeprint', () => {
+function syncPrintView() {
   document.getElementById('print-val-nombre').textContent = document.getElementById('nombre').value || '__________________________________';
   document.getElementById('print-val-fecha').textContent = document.getElementById('fecha').value || '__________________';
   document.getElementById('print-val-biotipo').textContent = document.getElementById('biotipo').value || '__________________';
@@ -1163,4 +1186,98 @@ window.addEventListener('beforeprint', () => {
   if (mainTableBody && printTableBody) {
     printTableBody.innerHTML = mainTableBody.innerHTML;
   }
-});
+
+  // Handle signature images rendering in print view
+  const imgEsp = document.getElementById('print-val-firma-especialista');
+  const imgPac = document.getElementById('print-val-firma-paciente');
+
+  if (signaturePadEspecialista && !signaturePadEspecialista.isEmpty()) {
+    imgEsp.src = signaturePadEspecialista.toDataURL();
+    imgEsp.classList.remove('hidden');
+  } else {
+    imgEsp.classList.add('hidden');
+  }
+
+  if (signaturePadPaciente && !signaturePadPaciente.isEmpty()) {
+    imgPac.src = signaturePadPaciente.toDataURL();
+    imgPac.classList.remove('hidden');
+  } else {
+    imgPac.classList.add('hidden');
+  }
+}
+
+window.addEventListener('beforeprint', syncPrintView);
+
+// Initialize Interactive Signature Canvas Pads
+function initSignatures() {
+  const canvasEsp = document.getElementById('canvas-firma-especialista');
+  const canvasPac = document.getElementById('canvas-firma-paciente');
+  
+  if (canvasEsp && canvasPac) {
+    signaturePadEspecialista = new SignaturePad(canvasEsp, {
+      backgroundColor: 'rgba(0,0,0,0)',
+      penColor: 'rgb(18, 18, 21)'
+    });
+    signaturePadPaciente = new SignaturePad(canvasPac, {
+      backgroundColor: 'rgba(0,0,0,0)',
+      penColor: 'rgb(18, 18, 21)'
+    });
+
+    const resizeCanvas = () => {
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      [canvasEsp, canvasPac].forEach(canvas => {
+        const width = canvas.offsetWidth;
+        const height = canvas.offsetHeight;
+        canvas.width = width * ratio;
+        canvas.height = height * ratio;
+        canvas.getContext("2d").scale(ratio, ratio);
+      });
+      signaturePadEspecialista.clear();
+      signaturePadPaciente.clear();
+    };
+
+    window.addEventListener("resize", resizeCanvas);
+    setTimeout(resizeCanvas, 300);
+  }
+}
+
+window.clearSignature = function(who) {
+  if (who === 'especialista' && signaturePadEspecialista) {
+    signaturePadEspecialista.clear();
+  } else if (who === 'paciente' && signaturePadPaciente) {
+    signaturePadPaciente.clear();
+  }
+};
+
+// Export to Premium PDF via html2pdf
+window.exportToPDF = function() {
+  const nombre = document.getElementById('nombre').value || 'Sin_Nombre';
+  const sanitizeName = nombre.trim().replace(/\s+/g, '_');
+  const filename = `Ficha_Estetica_${sanitizeName}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  
+  // Sync the hidden print template first
+  syncPrintView();
+  
+  const element = document.getElementById('clinical-print-template');
+  
+  // Temporarily show the element so html2pdf can render it
+  element.classList.remove('hidden');
+  
+  const opt = {
+    margin:       10,
+    filename:     filename,
+    image:        { type: 'jpeg', quality: 0.98 },
+    html2canvas:  { scale: 2, useCORS: true, logging: false },
+    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  };
+  
+  html2pdf().set(opt).from(element).save().then(() => {
+    showToast('Ficha PDF descargada con éxito.', 'success');
+  }).catch(err => {
+    console.error(err);
+    showToast('Error al generar PDF.', 'error');
+  }).finally(() => {
+    // Hide the print template again
+    element.classList.add('hidden');
+  });
+};
