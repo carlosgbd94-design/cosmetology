@@ -635,6 +635,7 @@ async function loadHistory() {
     });
 
     lucide.createIcons();
+    updateBiotypeChart(res.rows);
   } catch (err) {
     console.error(err);
   }
@@ -1280,4 +1281,222 @@ window.exportToPDF = function() {
     // Hide the print template again
     element.classList.add('hidden');
   });
+};
+
+// --- ApexCharts Patient Diagnostics Analytics Dashboard ---
+let biotypeChartInstance = null;
+
+function updateBiotypeChart(records) {
+  const counts = {
+    "Eudérmica / Normal": 0,
+    "Seca / Alípica": 0,
+    "Grasa deshidratada": 0,
+    "Grasa seborreica": 0,
+    "Mixta": 0,
+    "Sensible / Rosácea": 0
+  };
+  
+  let total = 0;
+  records.forEach(r => {
+    if (r.biotipo && r.biotipo in counts) {
+      counts[r.biotipo]++;
+      total++;
+    }
+  });
+
+  document.getElementById('stats-total-patients').textContent = total;
+  
+  // Find predominant biotype
+  let maxVal = -1;
+  let maxBiotipo = 'Ninguno';
+  Object.keys(counts).forEach(k => {
+    if (counts[k] > maxVal && counts[k] > 0) {
+      maxVal = counts[k];
+      maxBiotipo = k;
+    }
+  });
+  document.getElementById('stats-predominant-biotype').textContent = maxBiotipo;
+
+  const categories = Object.keys(counts);
+  const data = Object.values(counts);
+
+  const options = {
+    chart: {
+      type: 'donut',
+      height: '100%',
+      fontFamily: 'Urbanist, sans-serif'
+    },
+    colors: ['#D4AF37', '#B5902B', '#E5C453', '#121215', '#444444', '#8C6E20'],
+    series: data,
+    labels: categories,
+    stroke: {
+      show: true,
+      colors: ['#FAF9F6'],
+      width: 2
+    },
+    legend: {
+      position: 'right',
+      labels: {
+        colors: '#666666'
+      }
+    },
+    responsive: [{
+      breakpoint: 480,
+      options: {
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }]
+  };
+
+  const chartContainer = document.getElementById('biotype-chart');
+  if (chartContainer) {
+    if (biotypeChartInstance) {
+      biotypeChartInstance.destroy();
+    }
+    biotypeChartInstance = new ApexCharts(chartContainer, options);
+    biotypeChartInstance.render();
+  }
+}
+
+// --- Public Cosmetics API Lookup & Ingestion (Makeup API) ---
+let apiIngestionData = [];
+
+window.fetchFromPublicAPI = async function() {
+  const brandSelect = document.getElementById('api-brand-select');
+  const selectedBrand = brandSelect.value;
+  
+  if (!selectedBrand) {
+    showToast('Por favor, selecciona una marca de cosméticos.', 'error');
+    return;
+  }
+
+  showToast('Consultando base de datos de cosméticos...', 'success');
+  
+  try {
+    const response = await fetch(`https://makeup-api.herokuapp.com/api/v1/products.json?brand=${selectedBrand}`);
+    if (!response.ok) throw new Error('API Error');
+    const data = await response.json();
+
+    if (!data || data.length === 0) {
+      showToast('No se encontraron productos para esta marca.', 'error');
+      return;
+    }
+
+    const previewContainer = document.getElementById('api-preview-container');
+    const previewTableBody = document.getElementById('api-preview-table-body');
+    const apiRowCount = document.getElementById('api-row-count');
+
+    // Filter and map to local format
+    apiIngestionData = data.slice(0, 15).map((item, idx) => {
+      // Map API categories to local categories
+      let cat = 'Crema/Gel';
+      if (item.product_type === 'mascara' || item.product_type === 'eyeshadow') cat = 'Ojos/Labios';
+      else if (item.product_type === 'eyebrow' || item.product_type === 'eyeliner') cat = 'Ojos/Labios';
+      else if (item.product_type === 'cleanser') cat = 'Limpiador';
+      else if (item.product_type === 'lipstick' || item.product_type === 'lip_liner') cat = 'Ojos/Labios';
+
+      // Generate sequence code
+      const prefix = cat.substring(0, 3).toUpperCase();
+      const code = `${prefix}-API-${idx + 100}`;
+
+      const price = parseFloat(item.price) || 0.0;
+
+      return {
+        id: code,
+        name: item.name || 'Producto Cosmético',
+        brand: item.brand ? item.brand.charAt(0).toUpperCase() + item.brand.slice(1) : 'Genérica',
+        category: cat,
+        capacity: '50 ml',
+        price_aesthetic: price * 0.7, // wholesale discount
+        price_public: price,
+        active_ingredients: (item.tag_list && item.tag_list.length > 0) ? item.tag_list.join(', ') : 'Extractos Naturales',
+        skin_indication: 'Todo tipo de piel'
+      };
+    });
+
+    previewTableBody.innerHTML = '';
+    apiIngestionData.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.className = 'border-b border-slate-100 dark:border-white/5';
+      tr.innerHTML = `
+        <td class="py-2 px-4 font-bold text-slate-800 dark:text-white">${r.id}</td>
+        <td class="py-2 px-4 font-semibold text-slate-700 dark:text-luxe-300">${r.name}</td>
+        <td class="py-2 px-4 text-slate-600 dark:text-luxe-400">${r.brand}</td>
+        <td class="py-2 px-4 text-slate-600 dark:text-luxe-400">${r.category}</td>
+        <td class="py-2 px-4 text-emerald-700 font-bold">${formatCurrency(r.price_public)}</td>
+      `;
+      previewTableBody.appendChild(tr);
+    });
+
+    apiRowCount.textContent = `${apiIngestionData.length} productos listos`;
+    previewContainer.classList.remove('hidden');
+  } catch (err) {
+    console.error(err);
+    showToast('Error al conectar con la base de datos pública.', 'error');
+  }
+};
+
+window.confirmAPIImport = async function() {
+  if (apiIngestionData.length === 0) return;
+  
+  const btn = document.querySelector('#api-lookup-section button[onclick="confirmAPIImport()"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Importando...';
+  }
+
+  try {
+    const insertStatements = [];
+
+    for (const r of apiIngestionData) {
+      insertStatements.push({
+        sql: `
+          INSERT INTO products (id, brand, name, category, capacity, price_aesthetic, price_public, active_ingredients, skin_indication)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            brand = excluded.brand,
+            name = excluded.name,
+            category = excluded.category,
+            capacity = excluded.capacity,
+            price_aesthetic = excluded.price_aesthetic,
+            price_public = excluded.price_public,
+            active_ingredients = excluded.active_ingredients,
+            skin_indication = excluded.skin_indication,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        args: [
+          r.id,
+          r.brand,
+          r.name,
+          r.category,
+          r.capacity,
+          r.price_aesthetic,
+          r.price_public,
+          r.active_ingredients,
+          r.skin_indication
+        ]
+      });
+    }
+
+    if (insertStatements.length > 0) {
+      await executeBatch(insertStatements);
+    }
+
+    showToast(`Se importaron ${apiIngestionData.length} productos de la API de cosméticos.`, 'success');
+    document.getElementById('api-preview-container').classList.add('hidden');
+    apiIngestionData = [];
+
+    loadBrands();
+    loadCatalogList();
+  } catch (err) {
+    console.error(err);
+    showToast('Error al guardar datos de la API en Turso.', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Importar Productos a la Base de Datos';
+    }
+  }
 };
