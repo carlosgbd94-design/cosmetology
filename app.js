@@ -1252,37 +1252,361 @@ window.clearSignature = function(who) {
 
 // Export to Premium PDF via html2pdf
 window.exportToPDF = function() {
-  const nombre = document.getElementById('nombre').value || 'Sin_Nombre';
-  const sanitizeName = nombre.trim().replace(/\s+/g, '_');
-  const filename = `Ficha_Estetica_${sanitizeName}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const nombre = document.getElementById('nombre').value || '__________________________________';
+  const fecha = document.getElementById('fecha').value || '__________________';
+  const biotipo = document.getElementById('biotipo').value || '__________________';
+  const diagnostico = document.getElementById('diagnostico').value || 'No especificado.';
+  const condicion = document.getElementById('condicion').value || 'Ninguna.';
+  const docTitle = document.getElementById('current-doc-id').textContent || 'Prescripción de Activos';
   
-  // Sync the hidden print template first
-  syncPrintView();
-  
-  const original = document.getElementById('clinical-print-template');
-  
-  // Clone the element to isolate it from responsive parent wrappers (like max-w-7xl)
-  const element = original.cloneNode(true);
-  element.id = 'clinical-print-template-pdf-clone';
-  element.classList.remove('hidden');
-  
-  // Style the cloned element for exact Letter page capture (800px width, 1035px height for 8.5x11 aspect ratio)
-  element.style.display = 'flex';
-  element.style.flexDirection = 'column';
-  element.style.justifyContent = 'space-between';
-  element.style.position = 'fixed';
-  element.style.left = '0';
-  element.style.top = '0';
-  element.style.width = '800px';
-  element.style.height = '1035px';
-  element.style.minHeight = '1035px';
-  element.style.boxSizing = 'border-box';
-  element.style.padding = '40px';
-  element.style.backgroundColor = '#ffffff';
-  element.style.zIndex = '-9999'; // Render in viewport but behind active page content
-  
-  document.body.appendChild(element);
-  
+  const mainTableBody = document.getElementById('results-table-body');
+  let tableRowsHtml = '';
+  if (mainTableBody) {
+    tableRowsHtml = mainTableBody.innerHTML;
+  }
+
+  let signatureEspImg = '';
+  let signaturePacImg = '';
+  if (signaturePadEspecialista && !signaturePadEspecialista.isEmpty()) {
+    signatureEspImg = `<img class="signature-img" src="${signaturePadEspecialista.toDataURL()}" alt="Firma Especialista">`;
+  }
+  if (signaturePadPaciente && !signaturePadPaciente.isEmpty()) {
+    signaturePacImg = `<img class="signature-img" src="${signaturePadPaciente.toDataURL()}" alt="Firma Paciente">`;
+  }
+
+  const filename = `Ficha_Estetica_${nombre.trim().replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+  // Create isolated sandbox container for PDF generation to bypass any browser zoom or responsive screen dimensions
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '800px';
+  container.style.height = '1035px';
+  container.style.zIndex = '-99999';
+
+  container.innerHTML = `
+    <div style="
+      width: 800px;
+      height: 1035px;
+      padding: 40px;
+      background: #ffffff;
+      color: #121215;
+      font-family: 'Urbanist', sans-serif;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    ">
+      <!-- Embedded custom styling independent of tailwind or print media query -->
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Urbanist:wght@400;500;600;700&display=swap');
+        .pdf-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 2px solid #D4AF37;
+          padding-bottom: 12px;
+          margin-bottom: 20px;
+        }
+        .pdf-header-left {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .pdf-logo {
+          width: 40px;
+          height: 40px;
+          border-radius: 10px;
+          background: #121215;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .pdf-logo svg {
+          width: 24px;
+          height: 24px;
+          color: #D4AF37;
+        }
+        .pdf-brand-name {
+          font-family: 'Sora', sans-serif;
+          font-size: 20px;
+          font-weight: 700;
+          margin: 0;
+          color: #121215;
+        }
+        .pdf-brand-sub {
+          font-size: 9px;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          color: #666;
+          margin: 2px 0 0 0;
+          font-weight: 600;
+        }
+        .pdf-header-right {
+          text-align: right;
+        }
+        .pdf-doc-title {
+          font-family: 'Sora', sans-serif;
+          font-size: 14px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 1.5px;
+          color: #121215;
+          margin: 0;
+        }
+        .pdf-doc-sub {
+          font-size: 9px;
+          color: #666;
+          margin: 2px 0 0 0;
+        }
+        .pdf-demo-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 20px;
+          margin-bottom: 20px;
+          padding-bottom: 15px;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .pdf-demo-item {
+          display: flex;
+          flex-direction: column;
+        }
+        .pdf-demo-label {
+          font-size: 8px;
+          font-weight: 750;
+          color: #999;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin-bottom: 4px;
+        }
+        .pdf-demo-value {
+          font-size: 12px;
+          font-weight: 700;
+          color: #121215;
+        }
+        .pdf-details-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        .pdf-detail-card {
+          background: #fafaf9;
+          border: 1px solid #e5e5e0;
+          border-radius: 12px;
+          padding: 15px;
+          min-height: 90px;
+        }
+        .pdf-detail-title {
+          font-size: 8px;
+          font-weight: 750;
+          color: #999;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin-bottom: 6px;
+          display: block;
+        }
+        .pdf-detail-content {
+          font-size: 11px;
+          color: #333;
+          line-height: 1.4;
+          margin: 0;
+          white-space: pre-wrap;
+          font-weight: 500;
+        }
+        .pdf-specs-section {
+          margin-bottom: 20px;
+        }
+        .pdf-specs-title {
+          font-size: 8px;
+          font-weight: 750;
+          color: #999;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin-bottom: 8px;
+          display: block;
+        }
+        .pdf-specs-table-wrapper {
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          overflow: hidden;
+        }
+        .pdf-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 11px;
+        }
+        .pdf-table th {
+          background-color: #fafaf9;
+          border-bottom: 1px solid #e2e8f0;
+          color: #666;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          font-size: 8.5px;
+          padding: 10px 15px;
+          text-align: left;
+        }
+        .pdf-table td {
+          padding: 10px 15px !important;
+          border-bottom: 1px solid #e2e8f0 !important;
+          color: #333333 !important;
+          font-size: 11px !important;
+          font-weight: 500 !important;
+          background: transparent !important;
+        }
+        .pdf-table tr:last-child td {
+          border-bottom: none !important;
+        }
+        .pdf-footer {
+          border-top: 1px solid #e2e8f0;
+          padding-top: 15px;
+        }
+        .pdf-consent {
+          font-size: 7.5px;
+          color: #999;
+          line-height: 1.4;
+          font-style: italic;
+          margin-bottom: 25px;
+        }
+        .pdf-sigs-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 40px;
+        }
+        .pdf-sig-col {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+        }
+        .pdf-sig-box {
+          width: 200px;
+          height: 60px;
+          border-bottom: 1px solid #999;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          margin-bottom: 8px;
+        }
+        .pdf-sig-box img {
+          max-height: 100%;
+          max-width: 100%;
+          object-fit: contain;
+        }
+        .pdf-sig-title {
+          font-size: 8.5px;
+          font-weight: 700;
+          color: #333;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin: 0;
+        }
+        .pdf-sig-sub {
+          font-size: 7.5px;
+          color: #999;
+          margin: 2px 0 0 0;
+        }
+      </style>
+
+      <div>
+        <!-- Header -->
+        <div class="pdf-header">
+          <div class="pdf-header-left">
+            <div class="pdf-logo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2Z" />
+                <path d="M12 8V15" stroke-linecap="round" />
+                <path d="M8.5 11.5H15.5" stroke-linecap="round" />
+              </svg>
+            </div>
+            <div>
+              <h1 class="pdf-brand-name">Dermatique Pro</h1>
+              <p class="pdf-brand-sub">Clinical Diagnostics & Prescriptions</p>
+            </div>
+          </div>
+          <div class="pdf-header-right">
+            <h2 class="pdf-doc-title">${docTitle}</h2>
+            <p class="pdf-doc-sub">Clínica de Estética Especializada</p>
+          </div>
+        </div>
+
+        <!-- Demographics -->
+        <div class="pdf-demo-grid">
+          <div class="pdf-demo-item">
+            <span class="pdf-demo-label">Paciente</span>
+            <span class="pdf-demo-value">${nombre}</span>
+          </div>
+          <div class="pdf-demo-item">
+            <span class="pdf-demo-label">Fecha de Consulta</span>
+            <span class="pdf-demo-value">${fecha}</span>
+          </div>
+          <div class="pdf-demo-item">
+            <span class="pdf-demo-label">Biotipo Cutáneo</span>
+            <span class="pdf-demo-value">${biotipo}</span>
+          </div>
+        </div>
+
+        <!-- Details -->
+        <div class="pdf-details-grid">
+          <div class="pdf-detail-card">
+            <span class="pdf-detail-title">Diagnóstico Clínico</span>
+            <p class="pdf-detail-content">${diagnostico}</p>
+          </div>
+          <div class="pdf-detail-card">
+            <span class="pdf-detail-title">Condición / Contraindicaciones</span>
+            <p class="pdf-detail-content">${condicion}</p>
+          </div>
+        </div>
+
+        <!-- Product Specs -->
+        <div class="pdf-specs-section">
+          <span class="pdf-specs-title">Detalles Técnicos del Producto Prescrito</span>
+          <div class="pdf-specs-table-wrapper">
+            <table class="pdf-table">
+              <thead>
+                <tr>
+                  <th style="width: 33%">Parámetro</th>
+                  <th>Valor Técnico</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="pdf-footer">
+        <p class="pdf-consent">
+          *Nota de Consentimiento Clínico: Al firmar esta ficha, el especialista confirma haber valorado clínicamente el biotipo cutáneo del paciente y haber seleccionado los activos recomendados. El paciente certifica estar de acuerdo con las recomendaciones cosméticas detalladas y declara no poseer alergias conocidas a los ingredientes descritos.
+        </p>
+        <div class="pdf-sigs-grid">
+          <div class="pdf-sig-col">
+            <div class="pdf-sig-box">
+              ${signatureEspImg}
+            </div>
+            <h3 class="pdf-sig-title">Firma del Especialista</h3>
+            <span class="pdf-sig-sub">Cédula y Diagnóstico Técnico</span>
+          </div>
+          <div class="pdf-sig-col">
+            <div class="pdf-sig-box">
+              ${signaturePacImg}
+            </div>
+            <h3 class="pdf-sig-title">Firma del Paciente</h3>
+            <span class="pdf-sig-sub">Consentimiento de Aplicación</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(container);
+
   const opt = {
     margin:       0,
     filename:     filename,
@@ -1296,15 +1620,15 @@ window.exportToPDF = function() {
     },
     jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
   };
-  
-  html2pdf().set(opt).from(element).save().then(() => {
+
+  html2pdf().set(opt).from(container.firstElementChild).save().then(() => {
     showToast('Ficha PDF descargada con éxito.', 'success');
   }).catch(err => {
     console.error(err);
     showToast('Error al generar PDF.', 'error');
   }).finally(() => {
     // Remove the cloned element from DOM
-    element.remove();
+    container.remove();
   });
 };
 
