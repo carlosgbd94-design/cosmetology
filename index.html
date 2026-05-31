@@ -45,6 +45,15 @@
             sans: ['Urbanist', 'sans-serif'],
             sora: ['Sora', 'sans-serif'],
           },
+          transitionProperty: {
+            'all-custom': 'all',
+          },
+          transitionTimingFunction: {
+            'custom-bezier': 'cubic-bezier(0.16, 1, 0.3, 1)',
+          },
+          transitionDuration: {
+            '400': '400ms',
+          },
           colors: {
             luxe: {
               50: '#FAF9F6',
@@ -73,6 +82,11 @@
   </script>
 
   <style>
+    /* Ultra-smooth bezier transitions globally */
+    body, .liquid-glass, .liquid-glass-light, .smart-input, button, select, input, textarea, tr, td, a {
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    }
+
     /* Adaptable backgrounds with glows */
     body {
       background-color: #FAF9F6;
@@ -80,7 +94,6 @@
         radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.06) 0px, transparent 50%),
         radial-gradient(at 100% 0%, rgba(26, 26, 30, 0.03) 0px, transparent 50%);
       background-attachment: fixed;
-      transition: background-color 0.3s ease, color 0.3s ease;
     }
 
     html.dark body {
@@ -90,21 +103,24 @@
         radial-gradient(at 100% 0%, rgba(181, 144, 43, 0.05) 0px, transparent 50%);
     }
 
-    /* iOS Liquid Glass Effect (Dynamic) */
-    .liquid-glass {
-      background: rgba(255, 255, 255, 0.7);
+    /* iOS Liquid Glass Effect (Dynamic) with dynamic gradient borders using masks */
+    .liquid-glass, .liquid-glass-light {
+      position: relative;
       backdrop-filter: blur(24px) saturate(180%);
       -webkit-backdrop-filter: blur(24px) saturate(180%);
-      border: 1px solid rgba(18, 18, 21, 0.05);
+    }
+
+    .liquid-glass {
+      background: rgba(255, 255, 255, 0.7);
+      border: none;
       box-shadow: 
         0 10px 40px -10px rgba(18, 18, 21, 0.06),
         inset 0 1px 1px rgba(255, 255, 255, 0.8);
-      transition: all 0.3s ease;
     }
 
     html.dark .liquid-glass {
       background: rgba(18, 18, 21, 0.65);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      border: none;
       box-shadow: 
         0 10px 40px -10px rgba(0, 0, 0, 0.6),
         inset 0 1px 1px rgba(255, 255, 255, 0.05);
@@ -112,14 +128,36 @@
 
     .liquid-glass-light {
       background: rgba(18, 18, 21, 0.02);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(18, 18, 21, 0.04);
+      border: none;
     }
 
     html.dark .liquid-glass-light {
       background: rgba(255, 255, 255, 0.02);
-      border: 1px solid rgba(255, 255, 255, 0.04);
+      border: none;
+    }
+
+    /* Masked Gradient Border logic */
+    .liquid-glass::before, .liquid-glass-light::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      padding: 1px; /* border thickness */
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.65), rgba(18, 18, 21, 0.08));
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    html.dark .liquid-glass::before {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.02));
+    }
+
+    html.dark .liquid-glass-light::before {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.01));
     }
 
     /* Smart Input Box Styling (Dynamic) */
@@ -499,22 +537,35 @@
           </div>
  
           <div class="print-grid grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Diagnostico -->
-            <div class="flex flex-col gap-2">
-              <label for="diagnostico" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
-                Diagnóstico Clínico
-              </label>
-              <textarea id="diagnostico" name="diagnostico" rows="3" placeholder="Detalles de la valoración cutánea..." required
-                class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
-            </div>
+            <!-- Textareas Column (Diagnóstico + Condición) -->
+            <div class="flex flex-col gap-6">
+              <!-- Diagnostico -->
+              <div class="flex flex-col gap-2">
+                <label for="diagnostico" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                  Diagnóstico Clínico (Toca zonas del mapa facial para añadir notas)
+                </label>
+                <textarea id="diagnostico" name="diagnostico" rows="3" placeholder="Detalles de la valoración cutánea..." required
+                  class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
+              </div>
  
-            <!-- Condicion -->
-            <div class="flex flex-col gap-2">
-              <label for="condicion" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
-                Condición / Contraindicaciones
+              <!-- Condicion -->
+              <div class="flex flex-col gap-2">
+                <label for="condicion" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                  Condición / Contraindicaciones
+                </label>
+                <textarea id="condicion" name="condicion" rows="3" placeholder="Alergias o condiciones específicas..."
+                  class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
+              </div>
+            </div>
+
+            <!-- Mapa Facial Interactivo Column -->
+            <div class="no-print flex flex-col gap-2">
+              <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                Mapa Facial Clínico Interactivo
               </label>
-              <textarea id="condicion" name="condicion" rows="3" placeholder="Alergias o condiciones específicas..."
-                class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
+              <div class="liquid-glass-light rounded-[24px] p-4 flex items-center justify-center border border-slate-200/50 dark:border-white/5 h-full min-h-[220px]">
+                <canvas id="facial-diagnostic-canvas" class="cursor-pointer max-w-full max-h-full"></canvas>
+              </div>
             </div>
           </div>
 

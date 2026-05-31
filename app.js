@@ -5,6 +5,8 @@ const TURSO_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOj
 // Mappings and State
 let signaturePadEspecialista = null;
 let signaturePadPaciente = null;
+let savedSignatureEsp = null;
+let savedSignaturePac = null;
 let allProducts = [];
 let allIngredientsList = [];
 let uploadDataPreview = [];
@@ -163,9 +165,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initPatientForm();
   initProductForm();
   initSignatures();
+  initFacialCanvas();
 
   // Load database entities
-  loadBrands();
   loadCatalogList();
   loadIngredientsList();
   loadHistory();
@@ -254,10 +256,12 @@ function initCascadingDropdowns() {
   const selCategoria = document.getElementById('sel-categoria');
   const selProducto = document.getElementById('sel-producto');
 
-  selMarca.addEventListener('change', async (e) => {
+  if (!selMarca || !selCategoria || !selProducto) return;
+
+  selMarca.addEventListener('change', (e) => {
     const brandVal = e.target.value;
 
-    selCategoria.innerHTML = '<option value="">Cargando categorías...</option>';
+    selCategoria.innerHTML = '<option value="">Seleccione categoría...</option>';
     selCategoria.disabled = true;
     selProducto.innerHTML = '<option value="">Seleccione categoría primero...</option>';
     selProducto.disabled = true;
@@ -268,31 +272,28 @@ function initCascadingDropdowns() {
       return;
     }
 
-    try {
-      const res = await executeQuery(
-        "SELECT DISTINCT category FROM products WHERE brand = ? AND category IS NOT NULL AND category != '' ORDER BY category ASC",
-        [brandVal]
-      );
-      
-      selCategoria.innerHTML = '<option value="">Seleccionar categoría...</option>';
-      res.rows.forEach(row => {
-        const opt = document.createElement('option');
-        opt.value = row.category;
-        opt.textContent = row.category;
-        selCategoria.appendChild(opt);
-      });
-      selCategoria.disabled = false;
-    } catch (err) {
-      console.error(err);
-      showToast('Error al cargar categorías de la base de datos.', 'error');
-    }
+    const categories = new Set();
+    allProducts.forEach(p => {
+      if (p.brand === brandVal && p.category) {
+        categories.add(p.category);
+      }
+    });
+
+    selCategoria.innerHTML = '<option value="">Seleccionar categoría...</option>';
+    Array.from(categories).sort().forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      selCategoria.appendChild(opt);
+    });
+    selCategoria.disabled = false;
   });
 
-  selCategoria.addEventListener('change', async (e) => {
+  selCategoria.addEventListener('change', (e) => {
     const brandVal = selMarca.value;
     const catVal = e.target.value;
 
-    selProducto.innerHTML = '<option value="">Cargando productos...</option>';
+    selProducto.innerHTML = '<option value="">Seleccione producto...</option>';
     selProducto.disabled = true;
     clearResultsTable();
 
@@ -301,27 +302,19 @@ function initCascadingDropdowns() {
       return;
     }
 
-    try {
-      const res = await executeQuery(
-        "SELECT id, name FROM products WHERE brand = ? AND category = ? ORDER BY name ASC",
-        [brandVal, catVal]
-      );
+    const products = allProducts.filter(p => p.brand === brandVal && p.category === catVal);
 
-      selProducto.innerHTML = '<option value="">Seleccionar producto...</option>';
-      res.rows.forEach(row => {
-        const opt = document.createElement('option');
-        opt.value = row.id;
-        opt.textContent = row.name;
-        selProducto.appendChild(opt);
-      });
-      selProducto.disabled = false;
-    } catch (err) {
-      console.error(err);
-      showToast('Error al cargar productos.', 'error');
-    }
+    selProducto.innerHTML = '<option value="">Seleccionar producto...</option>';
+    products.sort((a, b) => a.name.localeCompare(b.name)).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      selProducto.appendChild(opt);
+    });
+    selProducto.disabled = false;
   });
 
-  selProducto.addEventListener('change', async (e) => {
+  selProducto.addEventListener('change', (e) => {
     const prodId = e.target.value;
 
     if (!prodId) {
@@ -329,31 +322,26 @@ function initCascadingDropdowns() {
       return;
     }
 
-    try {
-      const res = await executeQuery("SELECT * FROM products WHERE id = ?", [prodId]);
-      renderResultsTable(res.rows[0]);
-    } catch (err) {
-      console.error(err);
-      showToast('Error al cargar detalles del producto.', 'error');
-    }
+    const product = allProducts.find(p => p.id === prodId);
+    renderResultsTable(product);
   });
 }
 
-async function loadBrands() {
+function loadBrandsLocal() {
   const selMarca = document.getElementById('sel-marca');
-  try {
-    const res = await executeQuery("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL AND brand != '' ORDER BY brand ASC");
-    selMarca.innerHTML = '<option value="">Seleccionar marca...</option>';
-    res.rows.forEach(row => {
-      const opt = document.createElement('option');
-      opt.value = row.brand;
-      opt.textContent = row.brand;
-      selMarca.appendChild(opt);
-    });
-  } catch (err) {
-    console.error(err);
-    showToast('Error al conectar a Turso desde el navegador.', 'error');
-  }
+  if (!selMarca) return;
+  const brands = new Set();
+  allProducts.forEach(p => {
+    if (p.brand) brands.add(p.brand);
+  });
+  
+  selMarca.innerHTML = '<option value="">Seleccionar marca...</option>';
+  Array.from(brands).sort().forEach(b => {
+    const opt = document.createElement('option');
+    opt.value = b;
+    opt.textContent = b;
+    selMarca.appendChild(opt);
+  });
 }
 
 function clearResultsTable() {
@@ -382,25 +370,25 @@ function renderResultsTable(p) {
   badge.classList.remove('hidden');
 
   tbody.innerHTML = `
-    <tr class="border-b border-slate-100">
-      <td class="py-3.5 px-5 font-semibold text-slate-500 w-1/3">ID / Clave</td>
-      <td class="py-3.5 px-5 font-bold text-slate-800">${p.id}</td>
+    <tr class="border-b border-slate-200/50 dark:border-white/5">
+      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400 w-1/3">ID / Clave</td>
+      <td class="py-3.5 px-5 font-bold text-slate-800 dark:text-white">${p.id}</td>
     </tr>
-    <tr class="border-b border-slate-100">
-      <td class="py-3.5 px-5 font-semibold text-slate-500">Capacidad</td>
-      <td class="py-3.5 px-5 text-slate-700">${p.capacity || '-'}</td>
+    <tr class="border-b border-slate-200/50 dark:border-white/5">
+      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Capacidad</td>
+      <td class="py-3.5 px-5 text-slate-700 dark:text-luxe-200">${p.capacity || '-'}</td>
     </tr>
-    <tr class="border-b border-slate-100">
-      <td class="py-3.5 px-5 font-semibold text-slate-500">Precio Público (MXN)</td>
-      <td class="py-3.5 px-5 text-emerald-700 font-bold">${formatCurrency(p.price_public)}</td>
+    <tr class="border-b border-slate-200/50 dark:border-white/5">
+      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Precio Público (MXN)</td>
+      <td class="py-3.5 px-5 text-emerald-600 dark:text-emerald-400 font-bold">${formatCurrency(p.price_public)}</td>
     </tr>
-    <tr class="border-b border-slate-100">
-      <td class="py-3.5 px-5 font-semibold text-slate-500">Biotipo / Indicación</td>
-      <td class="py-3.5 px-5 text-slate-700 font-medium">${p.skin_indication || '-'}</td>
+    <tr class="border-b border-slate-200/50 dark:border-white/5">
+      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Biotipo / Indicación</td>
+      <td class="py-3.5 px-5 text-slate-700 dark:text-luxe-200 font-medium">${p.skin_indication || '-'}</td>
     </tr>
-    <tr class="border-b border-slate-100">
-      <td class="py-3.5 px-5 font-semibold text-slate-500">Activos Clave</td>
-      <td class="py-3.5 px-5 text-slate-800 font-semibold">${p.active_ingredients || '-'}</td>
+    <tr class="border-b border-slate-200/50 dark:border-white/5">
+      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Activos Clave</td>
+      <td class="py-3.5 px-5 text-slate-800 dark:text-white font-semibold">${p.active_ingredients || '-'}</td>
     </tr>
   `;
 }
@@ -706,6 +694,7 @@ async function loadCatalogList() {
     allProducts = res.rows;
     renderCatalogTable(allProducts);
     populateFilterSelects(allProducts);
+    loadBrandsLocal();
   } catch (err) {
     console.error(err);
     tbody.innerHTML = '<tr><td colspan="9" class="py-8 px-4 text-center text-red-500">Error al consultar catálogo.</td></tr>';
@@ -1224,17 +1213,46 @@ function initSignatures() {
       penColor: 'rgb(18, 18, 21)'
     });
 
+    // Listen to changes to save state
+    signaturePadEspecialista.onEnd = () => {
+      savedSignatureEsp = canvasEsp.toDataURL();
+    };
+    signaturePadPaciente.onEnd = () => {
+      savedSignaturePac = canvasPac.toDataURL();
+    };
+
     const resizeCanvas = () => {
       const ratio = Math.max(window.devicePixelRatio || 1, 1);
-      [canvasEsp, canvasPac].forEach(canvas => {
-        const width = canvas.offsetWidth;
-        const height = canvas.offsetHeight;
-        canvas.width = width * ratio;
-        canvas.height = height * ratio;
-        canvas.getContext("2d").scale(ratio, ratio);
-      });
+      
+      const wEsp = canvasEsp.offsetWidth;
+      const hEsp = canvasEsp.offsetHeight;
+      canvasEsp.width = wEsp * ratio;
+      canvasEsp.height = hEsp * ratio;
+      canvasEsp.getContext("2d").scale(ratio, ratio);
+
+      const wPac = canvasPac.offsetWidth;
+      const hPac = canvasPac.offsetHeight;
+      canvasPac.width = wPac * ratio;
+      canvasPac.height = hPac * ratio;
+      canvasPac.getContext("2d").scale(ratio, ratio);
+
       signaturePadEspecialista.clear();
       signaturePadPaciente.clear();
+
+      if (savedSignatureEsp) {
+        const img = new Image();
+        img.src = savedSignatureEsp;
+        img.onload = () => {
+          canvasEsp.getContext("2d").drawImage(img, 0, 0, wEsp, hEsp);
+        };
+      }
+      if (savedSignaturePac) {
+        const img = new Image();
+        img.src = savedSignaturePac;
+        img.onload = () => {
+          canvasPac.getContext("2d").drawImage(img, 0, 0, wPac, hPac);
+        };
+      }
     };
 
     window.addEventListener("resize", resizeCanvas);
@@ -1245,10 +1263,207 @@ function initSignatures() {
 window.clearSignature = function(who) {
   if (who === 'especialista' && signaturePadEspecialista) {
     signaturePadEspecialista.clear();
+    savedSignatureEsp = null;
   } else if (who === 'paciente' && signaturePadPaciente) {
     signaturePadPaciente.clear();
+    savedSignaturePac = null;
   }
 };
+
+// --- Interactive Facial Canvas functions ---
+let activeFacialZones = {
+  forehead: false,
+  nose: false,
+  leftCheek: false,
+  rightCheek: false,
+  chin: false
+};
+
+function drawFacialSilhouette(ctx, width, height, activeZones) {
+  ctx.clearRect(0, 0, width, height);
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.4)' : 'rgba(15, 23, 42, 0.2)';
+  const accentColor = '#D4AF37';
+
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+
+  // 1. Draw head outline
+  ctx.beginPath();
+  const cx = width / 2;
+  const cy = height / 2;
+  const rx = width * 0.33;
+  const ry = height * 0.41;
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+  ctx.stroke();
+
+  // 2. Ears
+  ctx.beginPath();
+  ctx.ellipse(cx - rx, cy, rx * 0.12, ry * 0.22, -Math.PI / 6, 0, 2 * Math.PI);
+  ctx.ellipse(cx + rx, cy, rx * 0.12, ry * 0.22, Math.PI / 6, 0, 2 * Math.PI);
+  ctx.stroke();
+
+  // 3. Eyes
+  const eyeY = cy - ry * 0.18;
+  const eyeSpacing = rx * 0.38;
+  ctx.beginPath();
+  ctx.arc(cx - eyeSpacing, eyeY, rx * 0.1, 0, Math.PI, true);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx + eyeSpacing, eyeY, rx * 0.1, 0, Math.PI, true);
+  ctx.stroke();
+
+  // Eyebrows
+  ctx.beginPath();
+  ctx.arc(cx - eyeSpacing, eyeY - 6, rx * 0.12, Math.PI + 0.25, Math.PI * 2 - 0.25);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx + eyeSpacing, eyeY - 6, rx * 0.12, Math.PI + 0.25, Math.PI * 2 - 0.25);
+  ctx.stroke();
+
+  // 4. Nose
+  ctx.beginPath();
+  ctx.moveTo(cx, eyeY - 4);
+  ctx.lineTo(cx, cy + ry * 0.12);
+  ctx.lineTo(cx - rx * 0.08, cy + ry * 0.12);
+  ctx.stroke();
+
+  // 5. Mouth
+  const mouthY = cy + ry * 0.38;
+  ctx.beginPath();
+  ctx.arc(cx, mouthY - 4, rx * 0.18, 0.15, Math.PI - 0.15);
+  ctx.stroke();
+
+  // Neck
+  ctx.beginPath();
+  ctx.moveTo(cx - rx * 0.45, cy + ry * 0.88);
+  ctx.quadraticCurveTo(cx - rx * 0.45, cy + ry, cx - rx * 0.6, height);
+  ctx.moveTo(cx + rx * 0.45, cy + ry * 0.88);
+  ctx.quadraticCurveTo(cx + rx * 0.45, cy + ry, cx + rx * 0.6, height);
+  ctx.stroke();
+
+  // Hotspots definitions
+  const zones = {
+    forehead: { x: cx, y: cy - ry * 0.62 },
+    nose: { x: cx, y: cy + ry * 0.02 },
+    leftCheek: { x: cx - rx * 0.48, y: cy + ry * 0.08 },
+    rightCheek: { x: cx + rx * 0.48, y: cy + ry * 0.08 },
+    chin: { x: cx, y: cy + ry * 0.68 }
+  };
+
+  // Draw active indicators
+  for (const [key, val] of Object.entries(zones)) {
+    const active = activeZones[key];
+    ctx.beginPath();
+    ctx.arc(val.x, val.y, 8, 0, 2 * Math.PI);
+    if (active) {
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = accentColor;
+      ctx.fillStyle = accentColor;
+      ctx.fill();
+      
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(val.x, val.y, 14, 0, 2 * Math.PI);
+      ctx.stroke();
+    } else {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.06)';
+      ctx.fill();
+      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(15, 23, 42, 0.15)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+}
+
+function initFacialCanvas() {
+  const canvas = document.getElementById('facial-diagnostic-canvas');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  
+  const resizeAndDraw = () => {
+    const parent = canvas.parentElement;
+    const size = Math.min(parent.clientWidth - 32, parent.clientHeight - 32, 230);
+    canvas.width = size;
+    canvas.height = size;
+    drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
+  };
+
+  window.addEventListener('resize', resizeAndDraw);
+  setTimeout(resizeAndDraw, 100);
+
+  const themeObserver = new MutationObserver(() => {
+    resizeAndDraw();
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
+  const zoneTags = {
+    forehead: '[Zona T: Grasa]',
+    nose: '[Zona T: Grasa]',
+    leftCheek: '[Mejilla Izq: Deshidratada]',
+    rightCheek: '[Mejilla Der: Deshidratada]',
+    chin: '[Mentón: Seca]'
+  };
+
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const rx = canvas.width * 0.33;
+    const ry = canvas.height * 0.41;
+
+    const zones = {
+      forehead: { x: cx, y: cy - ry * 0.62 },
+      nose: { x: cx, y: cy + ry * 0.02 },
+      leftCheek: { x: cx - rx * 0.48, y: cy + ry * 0.08 },
+      rightCheek: { x: cx + rx * 0.48, y: cy + ry * 0.08 },
+      chin: { x: cx, y: cy + ry * 0.68 }
+    };
+
+    let closestZone = null;
+    let minDist = Infinity;
+
+    for (const [key, val] of Object.entries(zones)) {
+      const d = Math.hypot(x - val.x, y - val.y);
+      if (d < minDist) {
+        minDist = d;
+        closestZone = key;
+      }
+    }
+
+    if (closestZone && minDist < 45) {
+      activeFacialZones[closestZone] = !activeFacialZones[closestZone];
+      drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
+
+      const textarea = document.getElementById('diagnostico');
+      if (textarea) {
+        const tag = zoneTags[closestZone];
+        let currentText = textarea.value;
+        if (activeFacialZones[closestZone]) {
+          if (!currentText.includes(tag)) {
+            textarea.value = currentText ? `${currentText} ${tag}` : tag;
+          }
+        } else {
+          textarea.value = currentText.replace(new RegExp('\\s*' + escapeRegExp(tag), 'g'), '').trim();
+        }
+        textarea.dispatchEvent(new Event('input'));
+      }
+    }
+  });
+}
+
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // Export to Premium PDF via html2pdf
 window.exportToPDF = function() {
