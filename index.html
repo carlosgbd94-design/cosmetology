@@ -86,7 +86,7 @@
 
   <style>
     /* Ultra-smooth bezier transitions globally */
-    body, .liquid-glass, .liquid-glass-light, .smart-input, button, select, input, textarea, tr, td, a {
+    body, .liquid-glass, .liquid-glass-light, .smart-input, button, input, textarea, tr, td, a {
       transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
     }
 
@@ -239,10 +239,14 @@
       -moz-appearance: none !important;
       border-radius: 12px;
       cursor: pointer;
+      transition: border-color 0.3s, background-color 0.3s, box-shadow 0.3s, color 0.3s !important;
     }
     
     html.dark select.smart-input {
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D4AF37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat !important;
+      background-position: right 1rem center !important;
+      background-size: 1.1rem !important;
     }
 
     select.smart-input option {
