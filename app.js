@@ -13,9 +13,10 @@ let uploadDataPreview = [];
 
 // Dexie Local Database setup
 const db = new Dexie('DermatiqueLocalDB');
-db.version(1).stores({
+db.version(2).stores({
   products: 'id, brand, category, name, active_ingredients, skin_indication',
-  fichas_pacientes: '++id, nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente, synced'
+  fichas_pacientes: '++id, nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente, synced',
+  expedientes_clinicos: 'folio, nombre, fecha, biotipo, synced'
 });
 
 // Fuse.js Fuzzy Search state
@@ -218,20 +219,36 @@ document.addEventListener('DOMContentLoaded', () => {
 window.switchTab = function(tabName) {
   const tabGen = document.getElementById('tab-generator');
   const tabInv = document.getElementById('tab-inventory');
+  const tabRec = document.getElementById('tab-records');
+
   const btnGen = document.getElementById('tab-btn-generator');
   const btnInv = document.getElementById('tab-btn-inventory');
+  const btnRec = document.getElementById('tab-btn-records');
+
+  // Hide all
+  if (tabGen) tabGen.classList.add('hidden');
+  if (tabInv) tabInv.classList.add('hidden');
+  if (tabRec) tabRec.classList.add('hidden');
+
+  // Reset button styles
+  const inactiveClass = "flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-semibold transition-all text-slate-500 dark:text-luxe-300 hover:text-slate-800 dark:hover:text-white";
+  const activeClass = "flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-semibold transition-all bg-white text-slate-800 dark:bg-white/10 dark:text-white shadow-sm";
+
+  if (btnGen) btnGen.className = inactiveClass;
+  if (btnInv) btnInv.className = inactiveClass;
+  if (btnRec) btnRec.className = inactiveClass;
 
   if (tabName === 'generator') {
-    tabGen.classList.remove('hidden');
-    tabInv.classList.add('hidden');
-    btnGen.className = "px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-white text-slate-900 shadow-sm";
-    btnInv.className = "px-4 py-2 rounded-lg text-sm font-semibold transition-all text-slate-600 hover:text-slate-900";
-  } else {
-    tabGen.classList.add('hidden');
-    tabInv.classList.remove('hidden');
-    btnInv.className = "px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-white text-slate-900 shadow-sm";
-    btnGen.className = "px-4 py-2 rounded-lg text-sm font-semibold transition-all text-slate-600 hover:text-slate-900";
+    if (tabGen) tabGen.classList.remove('hidden');
+    if (btnGen) btnGen.className = activeClass;
+  } else if (tabName === 'inventory') {
+    if (tabInv) tabInv.classList.remove('hidden');
+    if (btnInv) btnInv.className = activeClass;
     loadCatalogList();
+  } else if (tabName === 'records') {
+    if (tabRec) tabRec.classList.remove('hidden');
+    if (btnRec) btnRec.className = activeClass;
+    loadRecordsList();
   }
 };
 
@@ -613,8 +630,23 @@ function initPatientForm() {
     if (signaturePadPaciente) signaturePadPaciente.clear();
 
     clearResultsTable();
+    
+    // Clear stepper inputs
+    document.getElementById('stepper-phase-1-product').value = '';
+    document.getElementById('stepper-phase-2-apparatus').value = '';
+    document.getElementById('stepper-phase-2-intensity').value = '';
+    document.getElementById('stepper-phase-2-time').value = '';
+    document.getElementById('stepper-phase-3-product').value = '';
+    document.getElementById('apparatus-recommendation-badge').classList.add('hidden');
+
     showToast('Ficha limpia.', 'success');
   });
+
+  const diagInput = document.getElementById('diagnostico');
+  if (diagInput) {
+    diagInput.addEventListener('input', updateApparatusSuggestions);
+  }
+  populateApparatusDropdown();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -662,7 +694,11 @@ function initPatientForm() {
       } else {
         showToast('Ficha guardada localmente (pendiente de conexión).', 'warning');
       }
-      updateSyncBadge();
+      
+      // Also save the consolidated Expediente Clínico!
+      await saveExpedienteClinico({
+        nombre, fecha, biotipo, diagnostico, condicion, prodId, firmaEsp, firmaPac
+      });
 
       if (signaturePadEspecialista) {
         signaturePadEspecialista.clear();
@@ -819,6 +855,7 @@ async function loadCatalogList() {
     renderCatalogTable(allProducts);
     populateFilterSelects(allProducts);
     loadBrandsLocal();
+    populateStepperDropdowns(allProducts);
   } catch (err) {
     console.error(err);
     try {
@@ -827,6 +864,7 @@ async function loadCatalogList() {
       renderCatalogTable(allProducts);
       populateFilterSelects(allProducts);
       loadBrandsLocal();
+      populateStepperDropdowns(allProducts);
       showToast('Cargados datos locales tras fallo de conexión.', 'warning');
     } catch (localErr) {
       tbody.innerHTML = '<tr><td colspan="9" class="py-8 px-4 text-center text-red-500">Error al consultar catálogo.</td></tr>';
@@ -2632,3 +2670,620 @@ window.addEventListener('offline', () => {
   showToast('Modo sin conexión activado.', 'warning');
   updateSyncBadge();
 });
+
+// --- Enterprise-Grade Clinical Apparatus Modules ---
+
+const APPARATUS_REGISTRY = {
+  "Alta Frecuencia (Electrodo de Neón/Argón)": {
+    targets: ['cicatrizacion', 'acneica', 'bactericida', 'pustulas', 'seborrea'],
+    intensityRange: "Bajo - Medio (mA / Nivel)",
+    defaultTime: 10
+  },
+  "Corriente Galvanica (Desincrustacion/Iontoforesis)": {
+    targets: ['profunda', 'seborreica', 'saponificacion', 'introduccion de activos'],
+    intensityRange: "0.5 - 2.0 mA",
+    defaultTime: 15
+  },
+  "Microcorrientes (EMS / Lifting Facial)": {
+    targets: ['flacidez', 'tonificacion', 'muscular', 'madura', 'lineas de expresion'],
+    intensityRange: "100 - 400 uA",
+    defaultTime: 20
+  },
+  "Radiofrecuencia Termica": {
+    targets: ['colageno', 'elastina', 'reafirmacion', 'arrugas', 'densidad'],
+    intensityRange: "Nivel 1 - 5 (Térmica)",
+    defaultTime: 25
+  },
+  "Peeling Ultrasonico / Microdermabrasion": {
+    targets: ['exfoliacion mecanica', 'celulas muertas', 'pigmentada', 'poros obstruidos'],
+    intensityRange: "Modo Continuo / Pulsado",
+    defaultTime: 15
+  }
+};
+
+function updateApparatusSuggestions() {
+  const diagText = document.getElementById('diagnostico').value;
+  const normalizedDiag = normalizeText(diagText);
+  const matched = [];
+
+  for (const [key, details] of Object.entries(APPARATUS_REGISTRY)) {
+    for (const target of details.targets) {
+      if (normalizedDiag.includes(normalizeText(target))) {
+        matched.push(key);
+        break;
+      }
+    }
+  }
+
+  const badge = document.getElementById('apparatus-recommendation-badge');
+  if (!badge) return;
+
+  if (matched.length > 0) {
+    badge.innerHTML = `Recomendado: ${matched.join(', ')}`;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function generateClinicalFolio(patientName) {
+  const datePart = new Date().toISOString().slice(0, 7).replace('-', '');
+  const hex = Math.floor(Date.now() % 65536).toString(16).toUpperCase().padStart(4, '0');
+  return `DP-${datePart}-${hex}`;
+}
+
+function populateStepperDropdowns(products) {
+  const select1 = document.getElementById('stepper-phase-1-product');
+  const select3 = document.getElementById('stepper-phase-3-product');
+  if (!select1 || !select3) return;
+
+  select1.innerHTML = '<option value="">Seleccione fórmula limpiadora...</option>';
+  select3.innerHTML = '<option value="">Seleccione sellador / protector...</option>';
+
+  products.forEach(p => {
+    const opt1 = document.createElement('option');
+    opt1.value = p.id;
+    opt1.textContent = `[${p.brand}] ${p.name}`;
+    select1.appendChild(opt1);
+
+    const opt3 = document.createElement('option');
+    opt3.value = p.id;
+    opt3.textContent = `[${p.brand}] ${p.name}`;
+    select3.appendChild(opt3);
+  });
+}
+
+function populateApparatusDropdown() {
+  const select2 = document.getElementById('stepper-phase-2-apparatus');
+  if (!select2) return;
+  select2.innerHTML = '<option value="">Seleccione aparatología...</option>';
+  Object.keys(APPARATUS_REGISTRY).forEach(key => {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = key;
+    select2.appendChild(opt);
+  });
+}
+
+window.updateApparatusSettings = function() {
+  const val = document.getElementById('stepper-phase-2-apparatus').value;
+  const intensity = document.getElementById('stepper-phase-2-intensity');
+  const time = document.getElementById('stepper-phase-2-time');
+  if (val && APPARATUS_REGISTRY[val]) {
+    intensity.value = APPARATUS_REGISTRY[val].intensityRange;
+    time.value = APPARATUS_REGISTRY[val].defaultTime;
+  } else {
+    intensity.value = '';
+    time.value = '';
+  }
+};
+
+// Global redraw handler for canvas
+window.resizeAndDrawFacial = function() {
+  const canvas = document.getElementById('facial-diagnostic-canvas');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
+  }
+};
+
+async function saveExpedienteClinico(p) {
+  const folio = generateClinicalFolio(p.nombre);
+  const phase1 = document.getElementById('stepper-phase-1-product').value;
+  const phase2 = document.getElementById('stepper-phase-2-apparatus').value;
+  const phase2Intensity = document.getElementById('stepper-phase-2-intensity').value;
+  const phase2Time = document.getElementById('stepper-phase-2-time').value;
+  const phase3 = document.getElementById('stepper-phase-3-product').value;
+
+  const activeHotspots = { ...activeFacialZones };
+  
+  const prod = allProducts.find(pr => pr.id === p.prodId);
+  const cost = prod ? cleanPrice(prod.price_aesthetic) : 0;
+  const publicPrice = prod ? cleanPrice(prod.price_public) : 0;
+  const profit = publicPrice - cost;
+  const marginPct = publicPrice > 0 ? Math.round((profit / publicPrice) * 100) : 0;
+
+  const sessionState = {
+    folio,
+    nombre: p.nombre,
+    fecha: p.fecha,
+    biotipo: p.biotipo,
+    diagnostico: p.diagnostico,
+    condicion: p.condicion,
+    producto_vinculado: p.prodId,
+    fases: {
+      fase1: { producto: phase1 },
+      fase2: { aparato: phase2, intensidad: phase2Intensity, tiempo: phase2Time },
+      fase3: { producto: phase3 }
+    },
+    hotspots: activeHotspots,
+    firmas: {
+      especialista: p.firmaEsp,
+      paciente: p.firmaPac
+    },
+    financiero: {
+      costo: cost,
+      publico: publicPrice,
+      ganancia: profit,
+      margen: marginPct
+    }
+  };
+
+  const jsonStr = JSON.stringify(sessionState);
+
+  const dbRecord = {
+    folio,
+    nombre: p.nombre,
+    fecha: p.fecha,
+    biotipo: p.biotipo,
+    session_data: jsonStr,
+    synced: 0
+  };
+
+  try {
+    await db.expedientes_clinicos.put(dbRecord);
+
+    if (navigator.onLine) {
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS expedientes_clinicos (
+          folio TEXT PRIMARY KEY,
+          nombre TEXT,
+          fecha TEXT,
+          biotipo TEXT,
+          session_data TEXT,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+
+      await executeQuery(`
+        INSERT INTO expedientes_clinicos (folio, nombre, fecha, biotipo, session_data) 
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(folio) DO UPDATE SET
+          nombre=excluded.nombre,
+          fecha=excluded.fecha,
+          biotipo=excluded.biotipo,
+          session_data=excluded.session_data
+      `, [folio, p.nombre, p.fecha, p.biotipo, jsonStr]);
+
+      await db.expedientes_clinicos.update(folio, { synced: 1 });
+    }
+    
+    // Clear stepper inputs
+    document.getElementById('stepper-phase-1-product').value = '';
+    document.getElementById('stepper-phase-2-apparatus').value = '';
+    document.getElementById('stepper-phase-2-intensity').value = '';
+    document.getElementById('stepper-phase-2-time').value = '';
+    document.getElementById('stepper-phase-3-product').value = '';
+    document.getElementById('apparatus-recommendation-badge').classList.add('hidden');
+    
+    Object.keys(activeFacialZones).forEach(k => activeFacialZones[k] = false);
+    if (window.resizeAndDrawFacial) window.resizeAndDrawFacial();
+    updateSyncBadge();
+    loadRecordsList();
+  } catch (err) {
+    console.error("Error in saveExpedienteClinico:", err);
+  }
+}
+
+let allRecords = [];
+
+async function loadRecordsList() {
+  const tbody = document.getElementById('records-table-body');
+  if (!tbody) return;
+
+  try {
+    if (navigator.onLine) {
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS expedientes_clinicos (
+          folio TEXT PRIMARY KEY,
+          nombre TEXT,
+          fecha TEXT,
+          biotipo TEXT,
+          session_data TEXT,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+      const res = await executeQuery("SELECT * FROM expedientes_clinicos ORDER BY fecha DESC");
+      allRecords = res.rows.map(r => ({
+        folio: r.folio,
+        nombre: r.nombre,
+        fecha: r.fecha,
+        biotipo: r.biotipo,
+        session_data: r.session_data,
+        synced: 1
+      }));
+      
+      // Update IndexedDB
+      await db.expedientes_clinicos.clear();
+      for (const rec of allRecords) {
+        await db.expedientes_clinicos.put({
+          folio: rec.folio,
+          nombre: rec.nombre,
+          fecha: rec.fecha,
+          biotipo: rec.biotipo,
+          session_data: rec.session_data,
+          synced: 1
+        });
+      }
+    } else {
+      allRecords = await db.expedientes_clinicos.toArray();
+    }
+  } catch (err) {
+    console.error("Error loading records: ", err);
+    try {
+      allRecords = await db.expedientes_clinicos.toArray();
+    } catch (e) {}
+  }
+
+  renderRecordsTable(allRecords);
+}
+
+function renderRecordsTable(records) {
+  const tbody = document.getElementById('records-table-body');
+  if (!tbody) return;
+
+  if (!records || records.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="py-8 px-4 text-center text-slate-400">No hay expedientes clínicos guardados.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  records.forEach(r => {
+    let appUsed = '-';
+    try {
+      const data = JSON.parse(r.session_data);
+      appUsed = data.fases?.fase2?.aparato || '-';
+    } catch (e) {}
+
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-slate-200/50 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-white/[0.02] transition-colors';
+    tr.innerHTML = `
+      <td class="py-3.5 px-4 font-bold text-slate-900 dark:text-white">${r.folio}</td>
+      <td class="py-3.5 px-4 font-semibold text-slate-800 dark:text-luxe-100">${r.nombre}</td>
+      <td class="py-3.5 px-4 text-slate-600 dark:text-luxe-300">${r.fecha}</td>
+      <td class="py-3.5 px-4 text-slate-600 dark:text-luxe-300">${r.biotipo}</td>
+      <td class="py-3.5 px-4 text-slate-500 dark:text-luxe-400 font-medium">${appUsed}</td>
+      <td class="py-3.5 px-4">
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold ${
+          r.synced ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-yellow-500/10 text-yellow-600'
+        }">
+          ${r.synced ? 'Nube' : 'Local'}
+        </span>
+      </td>
+      <td class="py-3.5 px-4 text-right flex justify-end gap-2.5">
+        <button onclick="rehydrateRecord('${r.folio}')" class="text-medical-600 dark:text-bronze-500 hover:brightness-110 font-bold flex items-center gap-1" title="Visualizar y Rehidratar">
+          👁️ Ver
+        </button>
+        <button onclick="exportRecordPDF('${r.folio}')" class="text-emerald-600 dark:text-emerald-400 hover:brightness-110 font-bold flex items-center gap-1" title="Exportar PDF">
+          📥 PDF
+        </button>
+        <button onclick="archiveRecord('${r.folio}')" class="text-red-500 hover:brightness-110 font-bold flex items-center gap-1" title="Archivar">
+          🗑️ Borrar
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+window.filterRecords = function() {
+  const query = normalizeText(document.getElementById('records-search').value);
+  if (!query) {
+    renderRecordsTable(allRecords);
+    return;
+  }
+  const filtered = allRecords.filter(r => 
+    normalizeText(r.folio).includes(query) || 
+    normalizeText(r.nombre).includes(query)
+  );
+  renderRecordsTable(filtered);
+};
+
+window.rehydrateRecord = async function(folio) {
+  try {
+    const rec = await db.expedientes_clinicos.get(folio);
+    if (!rec) return;
+    const data = JSON.parse(rec.session_data);
+
+    // Rehydrate Patient Info
+    document.getElementById('nombre').value = data.nombre || '';
+    document.getElementById('fecha').value = data.fecha || '';
+    document.getElementById('biotipo').value = data.biotipo || '';
+    document.getElementById('diagnostico').value = data.diagnostico || '';
+    document.getElementById('condicion').value = data.condicion || '';
+
+    // Rehydrate Product
+    if (data.producto_vinculado) {
+      const prod = allProducts.find(pr => pr.id === data.producto_vinculado);
+      if (prod) {
+        document.getElementById('sel-marca').value = prod.brand;
+        // Trigger cascading updates
+        const selCat = document.getElementById('sel-categoria');
+        const selProd = document.getElementById('sel-producto');
+        
+        selCat.innerHTML = `<option value="${prod.category}">${prod.category}</option>`;
+        selCat.disabled = false;
+        selProd.innerHTML = `<option value="${prod.id}">${prod.name}</option>`;
+        selProd.disabled = false;
+        
+        selCat.value = prod.category;
+        selProd.value = prod.id;
+        
+        renderResultsTable(prod);
+      }
+    }
+
+    // Rehydrate Stepper Fases
+    if (data.fases) {
+      document.getElementById('stepper-phase-1-product').value = data.fases.fase1?.producto || '';
+      document.getElementById('stepper-phase-2-apparatus').value = data.fases.fase2?.aparato || '';
+      document.getElementById('stepper-phase-2-intensity').value = data.fases.fase2?.intensidad || '';
+      document.getElementById('stepper-phase-2-time').value = data.fases.fase2?.tiempo || '';
+      document.getElementById('stepper-phase-3-product').value = data.fases.fase3?.producto || '';
+      updateApparatusSuggestions();
+    }
+
+    // Rehydrate canvas
+    if (data.hotspots) {
+      Object.assign(activeFacialZones, data.hotspots);
+      if (window.resizeAndDrawFacial) window.resizeAndDrawFacial();
+    }
+
+    // Rehydrate signatures
+    if (data.firmas) {
+      if (signaturePadEspecialista && data.firmas.especialista) {
+        signaturePadEspecialista.fromDataURL(data.firmas.especialista);
+      }
+      if (signaturePadPaciente && data.firmas.paciente) {
+        signaturePadPaciente.fromDataURL(data.firmas.paciente);
+      }
+    }
+
+    showToast(`Expediente ${folio} cargado y rehidratado en la Ficha.`, 'success');
+    switchTab('generator');
+  } catch (err) {
+    console.error("Error rehydrating record: ", err);
+    showToast("Error al rehidratar expediente clínico.", "error");
+  }
+};
+
+window.exportRecordPDF = async function(folio) {
+  try {
+    const rec = await db.expedientes_clinicos.get(folio);
+    if (!rec) return;
+    const data = JSON.parse(rec.session_data);
+
+    const name = data.nombre || '________________';
+    const date = data.fecha || '________________';
+    const biotipo = data.biotipo || '________________';
+    const diag = data.diagnostico || 'No especificado.';
+    const cond = data.condicion || 'Ninguna.';
+    
+    let appUsed = data.fases?.fase2?.aparato || 'Ninguno';
+    let phaseDetailsHtml = `
+      <div style="margin-top: 15px; padding: 12px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px; font-size: 8px;">
+        <span style="font-weight: bold; color: #121215; display: block; margin-bottom: 5px; text-transform: uppercase; tracking-wider">Protocolo de Fases Clínicas</span>
+        <p style="margin: 2px 0;"><strong>Fase 1:</strong> Limpieza y Preparación: ${data.fases?.fase1?.producto || '-'}</p>
+        <p style="margin: 2px 0;"><strong>Fase 2:</strong> Aparatología (${appUsed}) - Intensidad: ${data.fases?.fase2?.intensidad || '-'}, Tiempo: ${data.fases?.fase2?.tiempo || '-'} min</p>
+        <p style="margin: 2px 0;"><strong>Fase 3:</strong> Sellado y Protección: ${data.fases?.fase3?.producto || '-'}</p>
+      </div>
+    `;
+
+    // Re-create the isolated sandbox element for PDF compile
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '0';
+    container.style.width = '800px';
+    container.style.height = '1000px';
+    container.style.zIndex = '-99999';
+
+    container.innerHTML = `
+      <div style="
+        width: 800px;
+        height: 1000px !important;
+        padding: 25px 40px;
+        background: #ffffff;
+        color: #121215;
+        font-family: 'Urbanist', sans-serif;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        overflow: hidden !important;
+      ">
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Urbanist:wght@400;500;600;700&display=swap');
+          .pdf-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #D4AF37;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+          }
+          .pdf-logo-img {
+            height: 38px;
+            width: auto;
+          }
+          .pdf-demo-grid {
+            display: grid;
+            grid-cols-3;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            background: #fafaf9;
+            border: 1px solid #e5e5e0;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 15px;
+          }
+          .pdf-demo-col {
+            font-size: 8px;
+          }
+          .pdf-demo-label {
+            color: #666;
+            font-weight: bold;
+            text-transform: uppercase;
+            font-size: 7px;
+            display: block;
+          }
+          .pdf-demo-val {
+            color: #121215;
+            font-weight: 600;
+          }
+        </style>
+
+        <div>
+          <div class="pdf-header">
+            <div>
+              <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" class="pdf-logo-img">
+            </div>
+            <div style="text-align: right;">
+              <span style="font-weight: bold; font-size: 10px; color: #D4AF37;">EXPEDIENTE DE TRATAMIENTO</span>
+              <p style="font-size: 7px; color: #666; margin: 2px 0;">Folio: ${data.folio}</p>
+            </div>
+          </div>
+
+          <div class="pdf-demo-grid">
+            <div class="pdf-demo-col">
+              <span class="pdf-demo-label">Paciente</span>
+              <span class="pdf-demo-val">${name}</span>
+            </div>
+            <div class="pdf-demo-col">
+              <span class="pdf-demo-label">Fecha</span>
+              <span class="pdf-demo-val">${date}</span>
+            </div>
+            <div class="pdf-demo-col">
+              <span class="pdf-demo-label">Biotipo Cutáneo</span>
+              <span class="pdf-demo-val">${biotipo}</span>
+            </div>
+          </div>
+
+          <div style="font-size: 8px; line-height: 1.3;">
+            <p><strong>Diagnóstico Clínico:</strong> ${diag}</p>
+            <p><strong>Condiciones / Contraindicaciones:</strong> ${cond}</p>
+          </div>
+
+          ${phaseDetailsHtml}
+
+          <div style="margin-top: 15px; text-align: center;">
+            <p style="font-size: 7.5px; color: #666; font-style: italic;">*Nota de Consentimiento Clínico: Valoración cutánea autorizada y aceptada por el paciente.</p>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 40px; margin-top: 30px; text-align: center;">
+            <div>
+              <div style="border-b: 1px solid #ccc; height: 35px;">
+                ${data.firmas?.especialista ? `<img src="${data.firmas.especialista}" style="height: 35px; max-width: 100%;">` : ''}
+              </div>
+              <span style="font-size: 8px; font-weight: bold; display: block; margin-top: 5px;">Firma del Especialista</span>
+            </div>
+            <div>
+              <div style="border-b: 1px solid #ccc; height: 35px;">
+                ${data.firmas?.paciente ? `<img src="${data.firmas.paciente}" style="height: 35px; max-width: 100%;">` : ''}
+              </div>
+              <span style="font-size: 8px; font-weight: bold; display: block; margin-top: 5px;">Firma del Paciente</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+    
+    const opt = {
+      margin:       0,
+      filename:     `Expediente_${folio}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true },
+      jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
+    };
+
+    await html2pdf().from(container).set(opt).save();
+    container.remove();
+    showToast(`PDF del expediente ${folio} exportado.`, 'success');
+  } catch (err) {
+    console.error("Error exporting PDF: ", err);
+    showToast("Error al exportar PDF.", "error");
+  }
+};
+
+window.archiveRecord = async function(folio) {
+  if (!confirm(`¿Está seguro de archivar/eliminar permanentemente el expediente ${folio}?`)) {
+    return;
+  }
+  try {
+    await db.expedientes_clinicos.delete(folio);
+    if (navigator.onLine) {
+      await executeQuery("DELETE FROM expedientes_clinicos WHERE folio = ?", [folio]);
+    }
+    showToast(`Expediente ${folio} eliminado con éxito.`, 'success');
+    loadRecordsList();
+  } catch (err) {
+    console.error("Error deleting record:", err);
+    showToast("Error al eliminar expediente.", "error");
+  }
+};
+
+// Sync background transactions for expedientes_clinicos
+async function syncExpedientesOffline() {
+  if (!navigator.onLine) return;
+  try {
+    const unsynced = await db.expedientes_clinicos.where('synced').equals(0).toArray();
+    if (unsynced.length === 0) return;
+
+    for (const record of unsynced) {
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS expedientes_clinicos (
+          folio TEXT PRIMARY KEY,
+          nombre TEXT,
+          fecha TEXT,
+          biotipo TEXT,
+          session_data TEXT,
+          synced INTEGER DEFAULT 0
+        )
+      `);
+
+      await executeQuery(`
+        INSERT INTO expedientes_clinicos (folio, nombre, fecha, biotipo, session_data) 
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(folio) DO UPDATE SET
+          nombre=excluded.nombre,
+          fecha=excluded.fecha,
+          biotipo=excluded.biotipo,
+          session_data=excluded.session_data
+      `, [record.folio, record.nombre, record.fecha, record.biotipo, record.session_data]);
+
+      await db.expedientes_clinicos.update(record.folio, { synced: 1 });
+    }
+    showToast(`${unsynced.length} expedientes clínicos offline sincronizados con éxito.`, 'success');
+    loadRecordsList();
+  } catch (err) {
+    console.error("Error syncing expedientes:", err);
+  }
+}
+
+// Hook offline synchronization
+window.addEventListener('online', async () => {
+  await syncExpedientesOffline();
+});
+
