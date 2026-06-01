@@ -2997,14 +2997,53 @@ const APPARATUS_REGISTRY = CONFIG.APPARATUS_REGISTRY;
 
 function updateApparatusSuggestions() {
   const diagText = document.getElementById('diagnostico').value;
-  const normalizedDiag = normalizeText(diagText);
-  const matched = [];
+  if (!diagText) {
+    const badge = document.getElementById('apparatus-recommendation-badge');
+    if (badge) badge.classList.add('hidden');
+    return;
+  }
 
+  const matched = [];
+  
+  // Flatten registry to a searchable structure for Fuse.js
+  const searchList = [];
   for (const [key, details] of Object.entries(APPARATUS_REGISTRY)) {
-    for (const target of details.targets) {
-      if (normalizedDiag.includes(normalizeText(target))) {
-        matched.push(key);
-        break;
+    details.targets.forEach(target => {
+      searchList.push({
+        apparatus: key,
+        target: target
+      });
+    });
+  }
+
+  // Use Fuse.js if available
+  if (typeof Fuse !== 'undefined') {
+    const fuse = new Fuse(searchList, {
+      keys: ['target'],
+      threshold: 0.4
+    });
+    
+    // Split diagnostics into words/segments to search
+    const words = diagText.split(/[\s,.:;()]+/);
+    words.forEach(word => {
+      if (word.length > 3) {
+        const results = fuse.search(word);
+        results.forEach(res => {
+          if (!matched.includes(res.item.apparatus)) {
+            matched.push(res.item.apparatus);
+          }
+        });
+      }
+    });
+  } else {
+    // Fallback direct match
+    const normalizedDiag = normalizeText(diagText);
+    for (const [key, details] of Object.entries(APPARATUS_REGISTRY)) {
+      for (const target of details.targets) {
+        if (normalizedDiag.includes(normalizeText(target))) {
+          matched.push(key);
+          break;
+        }
       }
     }
   }
