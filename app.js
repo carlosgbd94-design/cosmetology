@@ -266,8 +266,109 @@ async function initDatabaseTables() {
         synced INTEGER DEFAULT 0
       )
     `);
+
+    // Create and seed usuarios table if missing
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS usuarios (
+        usuario TEXT PRIMARY KEY,
+        contrasena TEXT NOT NULL,
+        rol TEXT DEFAULT 'especialista'
+      )
+    `);
+    
+    // Seed default user
+    await executeQuery(`
+      INSERT OR REPLACE INTO usuarios (usuario, contrasena, rol)
+      VALUES ('clinica_dermatique', 'Dermatique2026', 'especialista')
+    `);
   } catch (err) {
     console.error("Error initializing cloud database tables:", err);
+  }
+}
+
+// Session Lock & Logout Logic
+window.logoutSession = function() {
+  sessionStorage.removeItem('is_logged');
+  window.location.reload();
+};
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const usernameInput = document.getElementById('login-username');
+  const passwordInput = document.getElementById('login-password');
+  const errorMsg = document.getElementById('login-error-msg');
+  const btn = document.getElementById('btn-login-submit');
+  const loginOverlay = document.getElementById('login-screen');
+  const appWorkspace = document.getElementById('app-workspace');
+
+  if (!usernameInput || !passwordInput || !btn) return;
+
+  const originalBtnText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span>Verificando estación...</span>';
+  if (errorMsg) errorMsg.classList.add('hidden');
+
+  try {
+    // Authenticate direct secure query to Turso Cloud DB
+    const res = await executeQuery(
+      'SELECT usuario, rol FROM usuarios WHERE usuario = ? AND contrasena = ?',
+      [usernameInput.value.trim(), passwordInput.value]
+    );
+
+    if (res.rows && res.rows.length > 0) {
+      // Success: Save token and unlock workstation
+      sessionStorage.setItem('is_logged', 'true');
+      
+      // Smooth fade-out and slide-in transition
+      if (loginOverlay) {
+        loginOverlay.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => loginOverlay.remove(), 500);
+      }
+
+      if (appWorkspace) {
+        appWorkspace.classList.remove('hidden');
+        // Force reflow
+        void appWorkspace.offsetWidth;
+        appWorkspace.classList.remove('opacity-0', 'translate-y-3');
+        appWorkspace.classList.add('opacity-100', 'translate-y-0');
+      }
+
+      // Initialize system components dynamically
+      initCascadingDropdowns();
+      initCheckerTool();
+      initDragAndDrop();
+      initPatientForm();
+      initProductForm();
+      initSignatures();
+      initFacialCanvas();
+      
+      // Seed initial cloud ingestion
+      await initDatabaseTables();
+      loadCatalogList();
+      loadIngredientsList();
+      loadHistory();
+      updateSyncBadge();
+      
+      showToast('Estación de Diagnóstico Desbloqueada.', 'success');
+    } else {
+      throw new Error('Credenciales incorrectas');
+    }
+  } catch (err) {
+    console.error(err);
+    if (errorMsg) errorMsg.classList.remove('hidden');
+    passwordInput.value = '';
+    
+    // Shake card feedback
+    const loginCard = loginOverlay.querySelector('.liquid-glass');
+    if (loginCard) {
+      loginCard.classList.remove('shake-anim');
+      void loginCard.offsetWidth; // Trigger reflow
+      loginCard.classList.add('shake-anim');
+    }
+    showToast('Acceso denegado: Credenciales no válidas.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalBtnText;
   }
 }
 
@@ -281,25 +382,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (themeIconMobile) themeIconMobile.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
 
   lucide.createIcons();
-  document.getElementById('fecha').value = new Date().toISOString().substring(0, 10);
+  
+  // Attach login listener
+  const loginForm = document.getElementById('login-form');
+  if (loginForm) {
+    loginForm.addEventListener('submit', handleLogin);
+  }
 
-  // Initialize features
-  initCascadingDropdowns();
-  initCheckerTool();
-  initDragAndDrop();
-  initPatientForm();
-  initProductForm();
-  initSignatures();
-  initFacialCanvas();
-  updateSyncBadge();
+  const isLogged = sessionStorage.getItem('is_logged') === 'true';
+  const loginOverlay = document.getElementById('login-screen');
+  const appWorkspace = document.getElementById('app-workspace');
 
-  // Create tables in Turso cloud database on startup
-  await initDatabaseTables();
+  if (isLogged) {
+    // If already authenticated, bypass lock screen instantly
+    if (loginOverlay) loginOverlay.remove();
+    if (appWorkspace) {
+      appWorkspace.classList.remove('hidden', 'opacity-0', 'translate-y-3');
+      appWorkspace.classList.add('opacity-100', 'translate-y-0');
+    }
 
-  // Load database entities
-  loadCatalogList();
-  loadIngredientsList();
-  loadHistory();
+    // Initialize application immediately
+    initCascadingDropdowns();
+    initCheckerTool();
+    initDragAndDrop();
+    initPatientForm();
+    initProductForm();
+    initSignatures();
+    initFacialCanvas();
+    updateSyncBadge();
+
+    // Create tables in Turso cloud database on startup
+    await initDatabaseTables();
+
+    // Load database entities
+    loadCatalogList();
+    loadIngredientsList();
+    loadHistory();
+  } else {
+    // Lock workspace down
+    if (appWorkspace) appWorkspace.classList.add('hidden');
+    if (loginOverlay) loginOverlay.classList.remove('hidden');
+  }
 });
 
 // View Tabs Selector
