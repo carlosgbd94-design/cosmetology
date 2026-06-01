@@ -2143,17 +2143,7 @@ window.exportToPDF = function() {
         <!-- Header -->
         <div class="pdf-header">
           <div class="pdf-header-left">
-            <div class="pdf-logo">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C12 2 6 8.5 6 13C6 16.3137 8.68629 19 12 19C15.3137 19 18 16.3137 18 13C18 8.5 12 2 12 2Z" />
-                <path d="M12 8V15" stroke-linecap="round" />
-                <path d="M8.5 11.5H15.5" stroke-linecap="round" />
-              </svg>
-            </div>
-            <div>
-              <h1 class="pdf-brand-name">Dermatique Pro</h1>
-              <p class="pdf-brand-sub">Clinical Diagnostics & Prescriptions</p>
-            </div>
+            <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" style="height: 38px; width: auto; object-fit: contain;">
           </div>
           <div class="pdf-header-right">
             <h2 class="pdf-doc-title">${docTitle}</h2>
