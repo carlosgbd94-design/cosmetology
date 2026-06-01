@@ -187,8 +187,59 @@ function formatCurrency(val) {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(val);
 }
 
+async function initDatabaseTables() {
+  if (!navigator.onLine) return;
+  try {
+    // Create products table if missing
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        brand TEXT,
+        name TEXT,
+        category TEXT,
+        capacity TEXT,
+        price_aesthetic REAL,
+        price_public REAL,
+        active_ingredients TEXT,
+        skin_indication TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create fichas_pacientes table if missing
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS fichas_pacientes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT,
+        fecha TEXT,
+        biotipo TEXT,
+        diagnostico TEXT,
+        condicion TEXT,
+        protocolo_id TEXT,
+        firma_especialista TEXT,
+        firma_paciente TEXT
+      )
+    `);
+    
+    // Create expedientes_clinicos table if missing
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS expedientes_clinicos (
+        folio TEXT PRIMARY KEY,
+        nombre TEXT,
+        fecha TEXT,
+        biotipo TEXT,
+        session_data TEXT,
+        synced INTEGER DEFAULT 0
+      )
+    `);
+  } catch (err) {
+    console.error("Error initializing cloud database tables:", err);
+  }
+}
+
 // Bootstrapper
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Sync theme icon state with current document class
   const isDark = document.documentElement.classList.contains('dark');
   const themeIcon = document.getElementById('theme-icon');
@@ -208,6 +259,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initSignatures();
   initFacialCanvas();
   updateSyncBadge();
+
+  // Create tables in Turso cloud database on startup
+  await initDatabaseTables();
 
   // Load database entities
   loadCatalogList();
