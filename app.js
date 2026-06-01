@@ -343,7 +343,6 @@ async function handleLogin(e) {
       initFacialCanvas();
       
       // Seed initial cloud ingestion
-      await initDatabaseTables();
       loadCatalogList();
       loadIngredientsList();
       loadHistory();
@@ -389,6 +388,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     loginForm.addEventListener('submit', handleLogin);
   }
 
+  // Create tables in Turso cloud database on startup
+  await initDatabaseTables();
+
   const isLogged = sessionStorage.getItem('is_logged') === 'true';
   const loginOverlay = document.getElementById('login-screen');
   const appWorkspace = document.getElementById('app-workspace');
@@ -410,9 +412,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSignatures();
     initFacialCanvas();
     updateSyncBadge();
-
-    // Create tables in Turso cloud database on startup
-    await initDatabaseTables();
 
     // Load database entities
     loadCatalogList();
