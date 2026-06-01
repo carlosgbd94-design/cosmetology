@@ -139,32 +139,27 @@
       border: none;
     }
 
-    /* Pulse Shimmer Premium Animation */
-    @keyframes pulse-shimmer {
-      0% {
-        background-position: -200% 0;
-      }
-      100% {
-        background-position: 200% 0;
-      }
+    /* Premium Skeleton Shimmer Animation */
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
     }
-    .pulse-shimmer {
-      background: linear-gradient(90deg, 
-        rgba(212, 175, 55, 0.04) 25%, 
-        rgba(212, 175, 55, 0.12) 37%, 
-        rgba(212, 175, 55, 0.04) 63%
-      );
+    .skeleton-shimmer {
+      background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(212,175,55,0.08) 50%, rgba(255,255,255,0.03) 75%);
       background-size: 200% 100%;
-      animation: pulse-shimmer 1.8s infinite linear;
+      animation: shimmer 1.6s infinite linear;
       border-radius: 8px;
     }
-    html.dark .pulse-shimmer {
-      background: linear-gradient(90deg, 
-        rgba(255, 255, 255, 0.02) 25%, 
-        rgba(212, 175, 55, 0.08) 37%, 
-        rgba(255, 255, 255, 0.02) 63%
-      );
+    html.dark .skeleton-shimmer {
+      background: linear-gradient(90deg, rgba(18,18,21,0.4) 25%, rgba(212,175,55,0.12) 50%, rgba(18,18,21,0.4) 75%);
       background-size: 200% 100%;
+    }
+    /* Legacy alias */
+    .pulse-shimmer {
+      background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(212,175,55,0.08) 50%, rgba(255,255,255,0.03) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.6s infinite linear;
+      border-radius: 8px;
     }
 
     /* Masked Gradient Border logic */

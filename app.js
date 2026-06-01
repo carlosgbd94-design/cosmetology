@@ -54,6 +54,7 @@ let savedSignaturePac = null;
 let allProducts = [];
 let allIngredientsList = [];
 let uploadDataPreview = [];
+let activeRipples = [];
 
 // Dexie Local Database setup
 const db = new Dexie('DermatiqueLocalDB');
@@ -303,39 +304,66 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // View Tabs Selector
 window.switchTab = function(tabName) {
-  const tabGen = document.getElementById('tab-generator');
-  const tabInv = document.getElementById('tab-inventory');
-  const tabRec = document.getElementById('tab-records');
+  const tabs = {
+    generator: document.getElementById('tab-generator'),
+    inventory: document.getElementById('tab-inventory'),
+    records: document.getElementById('tab-records')
+  };
 
-  const btnGen = document.getElementById('tab-btn-generator');
-  const btnInv = document.getElementById('tab-btn-inventory');
-  const btnRec = document.getElementById('tab-btn-records');
-
-  // Hide all
-  if (tabGen) tabGen.classList.add('hidden');
-  if (tabInv) tabInv.classList.add('hidden');
-  if (tabRec) tabRec.classList.add('hidden');
+  const buttons = {
+    generator: document.getElementById('tab-btn-generator'),
+    inventory: document.getElementById('tab-btn-inventory'),
+    records: document.getElementById('tab-btn-records')
+  };
 
   // Reset button styles
   const inactiveClass = "flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-semibold transition-all text-slate-500 dark:text-luxe-300 hover:text-slate-800 dark:hover:text-white";
   const activeClass = "flex-1 md:flex-none px-5 py-2 rounded-xl text-xs font-semibold transition-all bg-white text-slate-800 dark:bg-white/10 dark:text-white shadow-sm";
 
-  if (btnGen) btnGen.className = inactiveClass;
-  if (btnInv) btnInv.className = inactiveClass;
-  if (btnRec) btnRec.className = inactiveClass;
+  Object.keys(buttons).forEach(key => {
+    if (buttons[key]) buttons[key].className = inactiveClass;
+  });
 
-  if (tabName === 'generator') {
-    if (tabGen) tabGen.classList.remove('hidden');
-    if (btnGen) btnGen.className = activeClass;
-  } else if (tabName === 'inventory') {
-    if (tabInv) tabInv.classList.remove('hidden');
-    if (btnInv) btnInv.className = activeClass;
-    loadCatalogList();
-  } else if (tabName === 'records') {
-    if (tabRec) tabRec.classList.remove('hidden');
-    if (btnRec) btnRec.className = activeClass;
-    loadRecordsList();
+  if (buttons[tabName]) {
+    buttons[tabName].className = activeClass;
   }
+
+  // Fade out current visible tabs with slide down
+  Object.keys(tabs).forEach(key => {
+    const el = tabs[key];
+    if (el && !el.classList.contains('hidden')) {
+      el.classList.remove('opacity-100', 'translate-y-0');
+      el.classList.add('opacity-0', 'translate-y-2', 'transition-all', 'duration-400', 'transform');
+    }
+  });
+
+  // Delay actual hidden class swap to let fade animation complete
+  setTimeout(() => {
+    Object.keys(tabs).forEach(key => {
+      const el = tabs[key];
+      if (el) el.classList.add('hidden');
+    });
+
+    const targetEl = tabs[tabName];
+    if (targetEl) {
+      targetEl.classList.remove('hidden');
+      // Force repaint to trigger CSS animation
+      void targetEl.offsetWidth;
+      targetEl.classList.add('transition-all', 'duration-400', 'transform', 'opacity-0', 'translate-y-2');
+      
+      // Animate to visible state
+      requestAnimationFrame(() => {
+        targetEl.classList.remove('opacity-0', 'translate-y-2');
+        targetEl.classList.add('opacity-100', 'translate-y-0');
+      });
+    }
+
+    if (tabName === 'inventory') {
+      loadCatalogList();
+    } else if (tabName === 'records') {
+      loadRecordsList();
+    }
+  }, 150);
 };
 
 // Theme Toggler Logic
@@ -1559,10 +1587,53 @@ window.clearSignature = function(who) {
 let activeFacialZones = {
   forehead: false,
   nose: false,
-  leftCheek: false,
+  chin: false,
   rightCheek: false,
-  chin: false
+  leftCheek: false,
+  rightEye: false,
+  leftEye: false,
+  lips: false,
+  neck: false
 };
+
+let canvasAnimationId = null;
+
+function animateCanvas() {
+  const canvas = document.getElementById('facial-diagnostic-canvas');
+  if (!canvas) {
+    canvasAnimationId = null;
+    return;
+  }
+  const ctx = canvas.getContext('2d');
+
+  // Redraw face silhouette and active markers first
+  drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
+
+  if (activeRipples.length === 0) {
+    canvasAnimationId = null;
+    return;
+  }
+
+  // Render and update each ripple ring
+  activeRipples = activeRipples.filter(ripple => {
+    ctx.save();
+    ctx.strokeStyle = `rgba(212, 175, 55, ${ripple.opacity})`;
+    ctx.lineWidth = 2.0;
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = '#D4AF37';
+    ctx.beginPath();
+    ctx.arc(ripple.x, ripple.y, ripple.radius, 0, 2 * Math.PI);
+    ctx.stroke();
+    ctx.restore();
+
+    ripple.radius += 1.3;
+    ripple.opacity -= 0.025;
+
+    return ripple.opacity > 0;
+  });
+
+  canvasAnimationId = requestAnimationFrame(animateCanvas);
+}
 
 function drawFacialSilhouette(ctx, width, height, activeZones) {
   ctx.clearRect(0, 0, width, height);
@@ -1850,13 +1921,17 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
 
   ctx.setLineDash([]); // reset line dash
 
-  // --- 7. Hotspot Diagnostic Interactive Zones ---
+  // --- 7. Hotspot Diagnostic Interactive Zones (9 Clinical Zones) ---
   const zones = {
     forehead: p(0, -60),
     nose: p(0, 0),
-    leftCheek: p(-31, 8),
+    chin: p(0, 62),
     rightCheek: p(31, 8),
-    chin: p(0, 62)
+    leftCheek: p(-31, 8),
+    rightEye: p(27, -23),
+    leftEye: p(-27, -23),
+    lips: p(0, 36),
+    neck: p(0, 95)
   };
 
   // Draw pins
@@ -1925,11 +2000,15 @@ function initFacialCanvas() {
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
   const zoneTags = {
-    forehead: '[Zona T: Grasa]',
-    nose: '[Zona T: Grasa]',
-    leftCheek: '[Mejilla Izq: Deshidratada]',
-    rightCheek: '[Mejilla Der: Deshidratada]',
-    chin: '[Mentón: Seca]'
+    forehead: '[Frente: Línea Frontal]',
+    nose: '[Nariz: Cresta Nasal]',
+    leftCheek: '[Mejilla Derecha: Zona Malar]',
+    rightCheek: '[Mejilla Izquierda: Zona Malar]',
+    chin: '[Mentón: Región Mental]',
+    leftEye: '[Contorno de Ojos Izquierdo: Rim Orbital]',
+    rightEye: '[Contorno de Ojos Derecho: Rim Orbital]',
+    lips: '[Contorno de Labios: Zona Perioral]',
+    neck: '[Cuello y Escote: Región Cervical]'
   };
 
   canvas.addEventListener('click', (e) => {
@@ -1945,9 +2024,13 @@ function initFacialCanvas() {
     const zones = {
       forehead: { x: cx + 0 * scaleX, y: cy - 60 * scaleY },
       nose: { x: cx + 0 * scaleX, y: cy + 0 * scaleY },
-      leftCheek: { x: cx - 31 * scaleX, y: cy + 8 * scaleY },
+      chin: { x: cx + 0 * scaleX, y: cy + 62 * scaleY },
       rightCheek: { x: cx + 31 * scaleX, y: cy + 8 * scaleY },
-      chin: { x: cx + 0 * scaleX, y: cy + 62 * scaleY }
+      leftCheek: { x: cx - 31 * scaleX, y: cy + 8 * scaleY },
+      rightEye: { x: cx + 27 * scaleX, y: cy - 23 * scaleY },
+      leftEye: { x: cx - 27 * scaleX, y: cy - 23 * scaleY },
+      lips: { x: cx + 0 * scaleX, y: cy + 36 * scaleY },
+      neck: { x: cx + 0 * scaleX, y: cy + 95 * scaleY }
     };
 
     let closestZone = null;
@@ -1961,9 +2044,24 @@ function initFacialCanvas() {
       }
     }
 
-    if (closestZone && minDist < 35) {
+    if (closestZone && minDist < 25) {
       activeFacialZones[closestZone] = !activeFacialZones[closestZone];
-      drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
+      
+      // Push hardware-accelerated scanning pulse ripple
+      const targetPt = zones[closestZone];
+      if (typeof activeRipples === 'undefined') {
+        window.activeRipples = [];
+      }
+      activeRipples.push({
+        x: targetPt.x,
+        y: targetPt.y,
+        radius: 8,
+        opacity: 0.6
+      });
+
+      if (!canvasAnimationId) {
+        canvasAnimationId = requestAnimationFrame(animateCanvas);
+      }
 
       const textarea = document.getElementById('diagnostico');
       if (textarea) {
@@ -2613,9 +2711,23 @@ window.generarPrescripcionIA = async function() {
   const activeZonesList = Object.keys(activeFacialZones)
     .filter(k => activeFacialZones[k])
     .map(k => {
-      const zNames = { forehead: 'Frente', nose: 'Nariz', leftCheek: 'Mejilla Izq', rightCheek: 'Mejilla Der', chin: 'Mentón' };
+      const zNames = { 
+        forehead: 'Frente', 
+        nose: 'Nariz', 
+        leftCheek: 'Mejilla Derecha', // Map to Mejilla Derecha / Izquierda as per 9-zone spec
+        rightCheek: 'Mejilla Izquierda',
+        chin: 'Mentón',
+        leftEye: 'Contorno de Ojos Izquierdo',
+        rightEye: 'Contorno de Ojos Derecho',
+        lips: 'Contorno de Labios',
+        neck: 'Cuello y Escote'
+      };
       return zNames[k] || k;
     }).join(', ');
+
+  // Check if forehead, nose, or chin are selected to set background flag for Zona T profile
+  const hasZonaT = activeFacialZones.forehead || activeFacialZones.nose || activeFacialZones.chin;
+  const zonaTFlag = hasZonaT ? "\n[BACKGROUND FLAG: El paciente presenta afecciones activas en la Zona T (Frente, Nariz o Mentón), considera este perfil en las recomendaciones de equilibrio de sebo.]" : "";
 
   // Format products context
   const productsCtx = allProducts.map(p => `- ID: ${p.id} | Marca: ${p.brand} | Nombre: ${p.name} | Activos: ${p.active_ingredients} | Indicación: ${p.skin_indication}`).join('\n');
@@ -2625,7 +2737,7 @@ Analiza la siguiente información del paciente:
 - Biotipo Cutáneo: ${biotipo}
 - Diagnóstico Clínico: ${diagnostico}
 - Condición / Contraindicaciones: ${condicion}
-- Zonas faciales con afecciones activas: ${activeZonesList || 'Ninguna específica'}
+- Zonas faciales con afecciones activas: ${activeZonesList || 'Ninguna específica'}${zonaTFlag}
 
 El catálogo de productos disponibles en inventario es el siguiente:
 ${productsCtx}
@@ -2648,10 +2760,10 @@ Escribe la respuesta directamente.`;
   if (content) {
     content.innerHTML = `
       <div class="space-y-3">
-        <div class="h-4 pulse-shimmer rounded w-3/4"></div>
-        <div class="h-4 pulse-shimmer rounded w-5/6"></div>
-        <div class="h-4 pulse-shimmer rounded w-1/2"></div>
-        <div class="h-4 pulse-shimmer rounded w-2/3"></div>
+        <div class="h-4 skeleton-shimmer rounded w-3/4"></div>
+        <div class="h-4 skeleton-shimmer rounded w-5/6"></div>
+        <div class="h-4 skeleton-shimmer rounded w-1/2"></div>
+        <div class="h-4 skeleton-shimmer rounded w-2/3"></div>
       </div>
     `;
   }
