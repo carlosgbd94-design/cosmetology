@@ -139,6 +139,34 @@
       border: none;
     }
 
+    /* Pulse Shimmer Premium Animation */
+    @keyframes pulse-shimmer {
+      0% {
+        background-position: -200% 0;
+      }
+      100% {
+        background-position: 200% 0;
+      }
+    }
+    .pulse-shimmer {
+      background: linear-gradient(90deg, 
+        rgba(212, 175, 55, 0.04) 25%, 
+        rgba(212, 175, 55, 0.12) 37%, 
+        rgba(212, 175, 55, 0.04) 63%
+      );
+      background-size: 200% 100%;
+      animation: pulse-shimmer 1.8s infinite linear;
+      border-radius: 8px;
+    }
+    html.dark .pulse-shimmer {
+      background: linear-gradient(90deg, 
+        rgba(255, 255, 255, 0.02) 25%, 
+        rgba(212, 175, 55, 0.08) 37%, 
+        rgba(255, 255, 255, 0.02) 63%
+      );
+      background-size: 200% 100%;
+    }
+
     /* Masked Gradient Border logic */
     .liquid-glass::before, .liquid-glass-light::before {
       content: "";

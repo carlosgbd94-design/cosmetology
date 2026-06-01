@@ -1,6 +1,50 @@
-// Turso Database Credentials (Direct Client-Side Connection)
-const TURSO_URL = 'https://cosmetics-prodcts-carlos-becerra.aws-us-west-2.turso.io';
-const TURSO_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODAyNTc5MzEsImlkIjoiMDE5ZTdmOWUtMmEwMS03OWMxLTg3N2YtN2RkY2FkZjg1ZDk5IiwicmlkIjoiM2VhNTAwMzUtMjIwZS00MWM2LWI3NjItNTM2NjQ1NzJhM2EzIn0.7-B8dPeRempyRbJBif_dZYDmoKizAwHz9F9RTv-WGNmpniIRicU3GkcENXOi2k0n1_rKfDuL69f1cLAOyeFnBg';
+// Global Configuration Namespace (Immutable Clinical Setup)
+const CONFIG = Object.freeze({
+  TURSO_URL: 'https://cosmetics-prodcts-carlos-becerra.aws-us-west-2.turso.io',
+  TURSO_TOKEN: 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODAyNTc5MzEsImlkIjoiMDE5ZTdmOWUtMmEwMS03OWMxLTg3N2YtN2RkY2FkZjg1ZDk5IiwicmlkIjoiM2VhNTAwMzUtMjIwZS00MWM2LWI3NjItNTM2NjQ1NzJhM2EzIn0.7-B8dPeRempyRbJBif_dZYDmoKizAwHz9F9RTv-WGNmpniIRicU3GkcENXOi2k0n1_rKfDuL69f1cLAOyeFnBg',
+  PRODUCT_MAPPING: Object.freeze({
+    "ID / Clave": "id",
+    "Marca": "brand",
+    "Nombre del Producto": "name",
+    "Categoría": "category",
+    "Capacidad": "capacity",
+    "Precio Esteticista (MXN)": "price_aesthetic",
+    "Precio Público (MXN)": "price_public",
+    "Activos Clave": "active_ingredients",
+    "Biotipo / Indicación": "skin_indication"
+  }),
+  APPARATUS_REGISTRY: Object.freeze({
+    "Alta Frecuencia (Electrodo de Neón/Argón)": {
+      targets: ['cicatrizacion', 'acneica', 'bactericida', 'pustulas', 'seborrea'],
+      intensityRange: "Bajo - Medio (mA / Nivel)",
+      defaultTime: 10
+    },
+    "Corriente Galvanica (Desincrustacion/Iontoforesis)": {
+      targets: ['profunda', 'seborreica', 'saponificacion', 'introduccion de activos'],
+      intensityRange: "0.5 - 2.0 mA",
+      defaultTime: 15
+    },
+    "Microcorrientes (EMS / Lifting Facial)": {
+      targets: ['flacidez', 'tonificacion', 'muscular', 'madura', 'lineas de expresion'],
+      intensityRange: "100 - 400 uA",
+      defaultTime: 20
+    },
+    "Radiofrecuencia Termica": {
+      targets: ['colageno', 'elastina', 'reafirmacion', 'arrugas', 'densidad'],
+      intensityRange: "Nivel 1 - 5 (Térmica)",
+      defaultTime: 25
+    },
+    "Peeling Ultrasonico / Microdermabrasion": {
+      targets: ['exfoliacion mecanica', 'celulas muertas', 'pigmentada', 'poros obstruidos'],
+      intensityRange: "Modo Continuo / Pulsado",
+      defaultTime: 15
+    }
+  })
+});
+
+const TURSO_URL = CONFIG.TURSO_URL;
+const TURSO_TOKEN = CONFIG.TURSO_TOKEN;
+const productMapping = CONFIG.PRODUCT_MAPPING;
 
 // Mappings and State
 let signaturePadEspecialista = null;
@@ -21,18 +65,6 @@ db.version(2).stores({
 
 // Fuse.js Fuzzy Search state
 let fuseInstance = null;
-
-const productMapping = {
-  "ID / Clave": "id",
-  "Marca": "brand",
-  "Nombre del Producto": "name",
-  "Categoría": "category",
-  "Capacidad": "capacity",
-  "Precio Esteticista (MXN)": "price_aesthetic",
-  "Precio Público (MXN)": "price_public",
-  "Activos Clave": "active_ingredients",
-  "Biotipo / Indicación": "skin_indication"
-};
 
 // --- Turso Hrana-over-HTTP Decoder & Encoder ---
 function encodeValue(v) {
@@ -2615,11 +2647,11 @@ Escribe la respuesta directamente.`;
   if (container) container.classList.remove('hidden');
   if (content) {
     content.innerHTML = `
-      <div class="space-y-3 animate-pulse">
-        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-3/4"></div>
-        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-5/6"></div>
-        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-1/2"></div>
-        <div class="h-4 bg-slate-200 dark:bg-white/10 rounded w-2/3"></div>
+      <div class="space-y-3">
+        <div class="h-4 pulse-shimmer rounded w-3/4"></div>
+        <div class="h-4 pulse-shimmer rounded w-5/6"></div>
+        <div class="h-4 pulse-shimmer rounded w-1/2"></div>
+        <div class="h-4 pulse-shimmer rounded w-2/3"></div>
       </div>
     `;
   }
@@ -2727,33 +2759,7 @@ window.addEventListener('offline', () => {
 
 // --- Enterprise-Grade Clinical Apparatus Modules ---
 
-const APPARATUS_REGISTRY = {
-  "Alta Frecuencia (Electrodo de Neón/Argón)": {
-    targets: ['cicatrizacion', 'acneica', 'bactericida', 'pustulas', 'seborrea'],
-    intensityRange: "Bajo - Medio (mA / Nivel)",
-    defaultTime: 10
-  },
-  "Corriente Galvanica (Desincrustacion/Iontoforesis)": {
-    targets: ['profunda', 'seborreica', 'saponificacion', 'introduccion de activos'],
-    intensityRange: "0.5 - 2.0 mA",
-    defaultTime: 15
-  },
-  "Microcorrientes (EMS / Lifting Facial)": {
-    targets: ['flacidez', 'tonificacion', 'muscular', 'madura', 'lineas de expresion'],
-    intensityRange: "100 - 400 uA",
-    defaultTime: 20
-  },
-  "Radiofrecuencia Termica": {
-    targets: ['colageno', 'elastina', 'reafirmacion', 'arrugas', 'densidad'],
-    intensityRange: "Nivel 1 - 5 (Térmica)",
-    defaultTime: 25
-  },
-  "Peeling Ultrasonico / Microdermabrasion": {
-    targets: ['exfoliacion mecanica', 'celulas muertas', 'pigmentada', 'poros obstruidos'],
-    intensityRange: "Modo Continuo / Pulsado",
-    defaultTime: 15
-  }
-};
+const APPARATUS_REGISTRY = CONFIG.APPARATUS_REGISTRY;
 
 function updateApparatusSuggestions() {
   const diagText = document.getElementById('diagnostico').value;
