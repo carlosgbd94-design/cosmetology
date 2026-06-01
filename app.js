@@ -158,13 +158,13 @@ async function updateSyncBadge(status) {
   const badge = document.getElementById('sync-status-badge');
   if (!badge) return;
 
-  const dot = badge.querySelector('.w-1.5');
+  const dot = badge.querySelector('.sync-dot');
   const text = badge.querySelector('.badge-text');
   if (!dot || !text) return;
 
   // Reset classes
   badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase backdrop-blur-md shadow-sm ml-2 transition-all";
-  dot.className = "w-1.5 h-1.5 rounded-full";
+  dot.className = "sync-dot w-1.5 h-1.5 rounded-full";
 
   if (status === 'syncing') {
     badge.classList.add('border-amber-500/20', 'bg-amber-500/5', 'dark:bg-amber-500/10', 'text-amber-600', 'dark:text-amber-400');
