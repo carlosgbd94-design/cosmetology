@@ -1757,6 +1757,11 @@ function animateCanvas() {
   canvasAnimationId = requestAnimationFrame(animateCanvas);
 }
 
+// Keep track of the hovered zone key
+let hoveredZoneKey = null;
+let canvasMouseX = 0;
+let canvasMouseY = 0;
+
 function drawFacialSilhouette(ctx, width, height, activeZones) {
   ctx.clearRect(0, 0, width, height);
 
@@ -1764,12 +1769,10 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
   const accentColor = '#D4AF37';
 
   // Adaptive palette
-  const baseGradStart = isDark ? 'rgba(30, 30, 35, 0.95)' : 'rgba(250, 249, 246, 0.95)';
-  const baseGradEnd = isDark ? 'rgba(18, 18, 22, 0.95)' : 'rgba(235, 230, 220, 0.95)';
-  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.85)' : 'rgba(15, 23, 42, 0.75)';
-  const thinColor = isDark ? 'rgba(212, 175, 55, 0.4)' : 'rgba(15, 23, 42, 0.35)';
-  const shadowColor = isDark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(15, 23, 42, 0.08)';
-  const guideColor = isDark ? 'rgba(212, 175, 55, 0.15)' : 'rgba(15, 23, 42, 0.1)';
+  const strokeColor = isDark ? 'rgba(212, 175, 55, 0.25)' : 'rgba(71, 85, 105, 0.3)';
+  const activeGlow = isDark ? 'rgba(212, 175, 55, 0.15)' : 'rgba(212, 175, 55, 0.08)';
+  const hoverGlow = isDark ? 'rgba(212, 175, 55, 0.08)' : 'rgba(212, 175, 55, 0.04)';
+  const pinOutline = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(15, 23, 42, 0.45)';
 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -1784,56 +1787,78 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
     y: cy + y * scaleY
   });
 
-  // --- 1. Base 3D Shading (Face Volume) ---
-  const faceGrad = ctx.createRadialGradient(
-    p(0, -10).x, p(0, -10).y, 10 * scaleX,
-    p(0, 0).x, p(0, 0).y, 90 * Math.max(scaleX, scaleY)
-  );
-  faceGrad.addColorStop(0, isDark ? 'rgba(45, 42, 38, 1)' : 'rgba(255, 253, 248, 1)');
-  faceGrad.addColorStop(0.5, isDark ? 'rgba(28, 26, 24, 1)' : 'rgba(247, 243, 233, 1)');
-  faceGrad.addColorStop(1, isDark ? 'rgba(16, 16, 18, 1)' : 'rgba(230, 223, 210, 1)');
+  // Name map for tooltip display
+  const zoneNamesFriendly = {
+    forehead: 'Frente',
+    nose: 'Nariz',
+    chin: 'Mentón',
+    rightCheek: 'Mejilla Derecha',
+    leftCheek: 'Mejilla Izquierda',
+    rightEye: 'Contorno de Ojos Derecho',
+    leftEye: 'Contorno de Ojos Izquierdo',
+    lips: 'Contorno de Labios',
+    neck: 'Cuello y Escote'
+  };
 
-  // Draw Face Base with Shadow
-  ctx.shadowColor = shadowColor;
-  ctx.shadowBlur = 15;
-  ctx.fillStyle = faceGrad;
+  // Define polygons for all 9 zones
+  const zonePolygons = {
+    forehead: [p(-50, -85), p(-45, -75), p(-25, -77), p(25, -77), p(45, -75), p(50, -85), p(40, -92), p(0, -95), p(-40, -92)],
+    nose: [p(-9, -23), p(9, -23), p(12, 10), p(0, 18), p(-12, 10)],
+    chin: [p(-18, 48), p(18, 48), p(28, 62), p(15, 82), p(-15, 82), p(-28, 62)],
+    rightCheek: [p(9, -23), p(25, -23), p(42, -10), p(62, -10), p(45, 55), p(18, 48), p(12, 10)],
+    leftCheek: [p(-9, -23), p(-25, -23), p(-42, -10), p(-62, -10), p(-45, 55), p(-18, 48), p(-12, 10)],
+    rightEye: [p(10, -28), p(40, -28), p(40, -18), p(10, -18)],
+    leftEye: [p(-10, -28), p(-40, -28), p(-40, -18), p(-10, -18)],
+    lips: [p(-22, 30), p(22, 30), p(22, 48), p(-22, 48)],
+    neck: [p(-35, 58), p(35, 58), p(60, 110), p(55, 115), p(5, 122), p(-5, 122), p(-55, 115), p(-60, 110)]
+  };
+
+  // 1. Draw Glassmorphic Fills for zones (hover / active states)
+  Object.keys(zonePolygons).forEach(key => {
+    const poly = zonePolygons[key];
+    const active = activeZones[key];
+    const hovered = (key === hoveredZoneKey);
+
+    if (active || hovered) {
+      ctx.save();
+      ctx.fillStyle = active ? activeGlow : hoverGlow;
+      ctx.strokeStyle = active ? accentColor : 'transparent';
+      ctx.lineWidth = 1;
+      
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x, poly[0].y);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo(poly[i].x, poly[i].y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      if (active) ctx.stroke();
+      ctx.restore();
+    }
+  });
+
+  // 2. Draw Diagnostic Wireframe Paths (Face Contour lines)
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.2;
+
+  // Face Silhouette
   ctx.beginPath();
-  
-  // Head path
   const start = p(-40, -85);
   ctx.moveTo(start.x, start.y);
-  const fTopRight = p(40, -85);
-  ctx.bezierCurveTo(p(-15, -95).x, p(-15, -95).y, p(15, -95).x, p(15, -95).y, fTopRight.x, fTopRight.y);
-  const rTemple = p(55, -60);
-  ctx.bezierCurveTo(p(50, -78).x, p(50, -78).y, p(55, -70).x, p(55, -70).y, rTemple.x, rTemple.y);
-  const rCheek = p(62, -10);
-  ctx.bezierCurveTo(p(55, -45).x, p(55, -45).y, p(62, -28).x, p(62, -28).y, rCheek.x, rCheek.y);
-  const rJaw = p(45, 55);
-  ctx.bezierCurveTo(p(62, 15).x, p(62, 15).y, p(58, 38).x, p(58, 38).y, rJaw.x, rJaw.y);
-  const chinRight = p(15, 82);
-  ctx.bezierCurveTo(p(35, 70).x, p(35, 70).y, p(25, 80).x, p(25, 80).y, chinRight.x, chinRight.y);
-  const chinLeft = p(-15, 82);
-  ctx.bezierCurveTo(p(0, 85).x, p(0, 85).y, p(-5, 85).x, p(-5, 85).y, chinLeft.x, chinLeft.y);
-  const lJaw = p(-45, 55);
-  ctx.bezierCurveTo(p(-25, 80).x, p(-25, 80).y, p(-35, 70).x, p(-35, 70).y, lJaw.x, lJaw.y);
-  const lCheek = p(-62, -10);
-  ctx.bezierCurveTo(p(-58, 38).x, p(-58, 38).y, p(-62, 15).x, p(-62, 15).y, lCheek.x, lCheek.y);
-  const lTemple = p(-55, -60);
-  ctx.bezierCurveTo(p(-62, -28).x, p(-62, -28).y, p(-55, -45).x, p(-55, -45).y, lTemple.x, lTemple.y);
+  ctx.bezierCurveTo(p(-15, -95).x, p(-15, -95).y, p(15, -95).x, p(15, -95).y, p(40, -85).x, p(40, -85).y);
+  ctx.bezierCurveTo(p(50, -78).x, p(50, -78).y, p(55, -70).x, p(55, -70).y, p(55, -60).x, p(55, -60).y);
+  ctx.bezierCurveTo(p(55, -45).x, p(55, -45).y, p(62, -28).x, p(62, -28).y, p(62, -10).x, p(62, -10).y);
+  ctx.bezierCurveTo(p(62, 15).x, p(62, 15).y, p(58, 38).x, p(58, 38).y, p(45, 55).x, p(45, 55).y);
+  ctx.bezierCurveTo(p(35, 70).x, p(35, 70).y, p(25, 80).x, p(25, 80).y, p(15, 82).x, p(15, 82).y);
+  ctx.bezierCurveTo(p(0, 85).x, p(0, 85).y, p(-5, 85).x, p(-5, 85).y, p(-15, 82).x, p(-15, 82).y);
+  ctx.bezierCurveTo(p(-25, 80).x, p(-25, 80).y, p(-35, 70).x, p(-35, 70).y, p(-45, 55).x, p(-45, 55).y);
+  ctx.bezierCurveTo(p(-58, 38).x, p(-58, 38).y, p(-62, 15).x, p(-62, 15).y, p(-62, -10).x, p(-62, -10).y);
+  ctx.bezierCurveTo(p(-62, -28).x, p(-62, -28).y, p(-55, -45).x, p(-55, -45).y, p(-55, -60).x, p(-55, -60).y);
   ctx.bezierCurveTo(p(-55, -70).x, p(-55, -70).y, p(-50, -78).x, p(-50, -78).y, start.x, start.y);
   ctx.closePath();
-  ctx.fill();
-
-  ctx.shadowBlur = 0; // reset shadow
-
-  // Outline of head
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 2.2;
   ctx.stroke();
 
-  // --- Neck & Collarbone ---
-  ctx.strokeStyle = thinColor;
-  ctx.lineWidth = 1.5;
+  // Neck lines
   ctx.beginPath();
   ctx.moveTo(p(-35, 58).x, p(-35, 58).y);
   ctx.bezierCurveTo(p(-38, 80).x, p(-38, 80).y, p(-48, 95).x, p(-48, 95).y, p(-60, 110).x, p(-60, 110).y);
@@ -1841,210 +1866,49 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
   ctx.bezierCurveTo(p(38, 80).x, p(38, 80).y, p(48, 95).x, p(48, 95).y, p(60, 110).x, p(60, 110).y);
   ctx.stroke();
 
-  ctx.beginPath();
-  ctx.moveTo(p(-55, 115).x, p(-55, 115).y);
-  ctx.quadraticCurveTo(p(-20, 115).x, p(-20, 115).y, p(-5, 122).x, p(-5, 122).y);
-  ctx.moveTo(p(55, 115).x, p(55, 115).y);
-  ctx.quadraticCurveTo(p(20, 115).x, p(20, 115).y, p(5, 122).x, p(5, 122).y);
-  ctx.stroke();
-
-  // --- Ears ---
-  ctx.strokeStyle = thinColor;
-  ctx.beginPath();
-  ctx.moveTo(p(-57, -35).x, p(-57, -35).y);
-  ctx.bezierCurveTo(p(-68, -35).x, p(-68, -35).y, p(-68, 5).x, p(-68, 5).y, p(-50, 15).x, p(-50, 15).y);
-  ctx.moveTo(p(57, -35).x, p(57, -35).y);
-  ctx.bezierCurveTo(p(68, -35).x, p(68, -35).y, p(68, 5).x, p(68, 5).y, p(50, 15).x, p(50, 15).y);
-  ctx.stroke();
-
-  // Internal Ear details
-  ctx.beginPath();
-  ctx.moveTo(p(-57, -25).x, p(-57, -25).y);
-  ctx.quadraticCurveTo(p(-63, -20).x, p(-63, -20).y, p(-60, -5).x, p(-60, -5).y);
-  ctx.moveTo(p(57, -25).x, p(57, -25).y);
-  ctx.quadraticCurveTo(p(63, -20).x, p(63, -20).y, p(60, -5).x, p(60, -5).y);
-  ctx.stroke();
-
-  // --- Hairline contour ---
-  ctx.strokeStyle = thinColor;
-  ctx.beginPath();
-  ctx.moveTo(p(-48, -75).x, p(-48, -75).y);
-  ctx.bezierCurveTo(p(-30, -78).x, p(-30, -78).y, p(30, -78).x, p(30, -78).y, p(48, -75).x, p(48, -75).y);
-  ctx.stroke();
-
-  // --- 2. Eyebrows (Realistic Hair Strokes Simulation) ---
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 1.8;
-  ctx.beginPath();
-  // Left eyebrow
-  ctx.moveTo(p(-45, -35).x, p(-45, -35).y);
-  ctx.bezierCurveTo(p(-30, -42).x, p(-30, -42).y, p(-18, -36).x, p(-18, -36).y, p(-10, -32).x, p(-10, -32).y);
-  ctx.stroke();
-  // Right eyebrow
-  ctx.beginPath();
-  ctx.moveTo(p(45, -35).x, p(45, -35).y);
-  ctx.bezierCurveTo(p(30, -42).x, p(30, -42).y, p(18, -36).x, p(18, -36).y, p(10, -32).x, p(10, -32).y);
-  ctx.stroke();
-
-  // --- 3. Realistic Eyes (Eyelids, Pupil, Iris, Highlight) ---
-  const drawEye = (side) => {
-    const s = side === 'left' ? -1 : 1;
-    const baseWidth = 27;
-    const eC = p(27 * s, -23); // center of eye
-    
-    // Eyelid path
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 1.5;
+  // Eyes (Simple diagnostic wireframe representation)
+  const drawWireframeEye = (s) => {
     ctx.beginPath();
     ctx.moveTo(p(40 * s, -23).x, p(40 * s, -23).y);
-    ctx.bezierCurveTo(p(32 * s, -30).x, p(32 * s, -30).y, p(22 * s, -30).x, p(22 * s, -30).y, p(14 * s, -23).x, p(14 * s, -23).y);
-    ctx.bezierCurveTo(p(22 * s, -16).x, p(22 * s, -16).y, p(32 * s, -16).x, p(32 * s, -16).y, p(40 * s, -23).x, p(40 * s, -23).y);
-    ctx.stroke();
-
-    // Eyelid crease
-    ctx.strokeStyle = thinColor;
-    ctx.lineWidth = 0.9;
-    ctx.beginPath();
-    ctx.moveTo(p(38 * s, -26).x, p(38 * s, -26).y);
-    ctx.quadraticCurveTo(p(27 * s, -32).x, p(27 * s, -32).y, p(16 * s, -26).x, p(16 * s, -26).y);
-    ctx.stroke();
-
-    // Iris and Pupil
-    ctx.save();
-    // Clip inside the eyelid path
-    ctx.beginPath();
-    ctx.moveTo(p(40 * s, -23).x, p(40 * s, -23).y);
-    ctx.bezierCurveTo(p(32 * s, -30).x, p(32 * s, -30).y, p(22 * s, -30).x, p(22 * s, -30).y, p(14 * s, -23).x, p(14 * s, -23).y);
-    ctx.bezierCurveTo(p(22 * s, -16).x, p(22 * s, -16).y, p(32 * s, -16).x, p(32 * s, -16).y, p(40 * s, -23).x, p(40 * s, -23).y);
-    ctx.clip();
-
-    // Iris
-    ctx.fillStyle = isDark ? 'rgba(212, 175, 55, 0.45)' : 'rgba(15, 23, 42, 0.35)';
-    ctx.beginPath();
-    ctx.arc(eC.x, eC.y, 5.5, 0, 2 * Math.PI);
-    ctx.fill();
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 1;
+    ctx.bezierCurveTo(p(32 * s, -28).x, p(32 * s, -28).y, p(22 * s, -28).x, p(22 * s, -28).y, p(14 * s, -23).x, p(14 * s, -23).y);
+    ctx.bezierCurveTo(p(22 * s, -18).x, p(22 * s, -18).y, p(32 * s, -18).x, p(32 * s, -18).y, p(40 * s, -23).x, p(40 * s, -23).y);
+    ctx.closePath();
     ctx.stroke();
 
     // Pupil
-    ctx.fillStyle = isDark ? '#D4AF37' : '#0F172A';
     ctx.beginPath();
-    ctx.arc(eC.x, eC.y, 2.5, 0, 2 * Math.PI);
-    ctx.fill();
-
-    // Reflection Highlight
-    ctx.fillStyle = '#FFFFFF';
-    ctx.beginPath();
-    ctx.arc(eC.x - 1.2 * s, eC.y - 1.2, 1, 0, 2 * Math.PI);
-    ctx.fill();
-
-    ctx.restore();
+    ctx.arc(p(27 * s, -23).x, p(27 * s, -23).y, 2.5, 0, 2 * Math.PI);
+    ctx.stroke();
   };
+  drawWireframeEye(-1);
+  drawWireframeEye(1);
 
-  drawEye('left');
-  drawEye('right');
-
-  // --- 4. Detailed 3D-shaded Nose ---
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 1.6;
+  // Eyebrows
   ctx.beginPath();
-  // Bridge side shadow
-  ctx.moveTo(p(-8, -26).x, p(-8, -26).y);
-  ctx.quadraticCurveTo(p(-7, -8).x, p(-7, -8).y, p(-6, 10).x, p(-6, 10).y);
-  // Nose tip bulb
-  ctx.bezierCurveTo(p(-6, 17).x, p(-6, 17).y, p(6, 17).x, p(6, 17).y, p(6, 10).x, p(6, 10).y);
+  ctx.moveTo(p(-43, -34).x, p(-43, -34).y);
+  ctx.quadraticCurveTo(p(-27, -39).x, p(-27, -39).y, p(-12, -31).x, p(-12, -31).y);
+  ctx.moveTo(p(43, -34).x, p(43, -34).y);
+  ctx.quadraticCurveTo(p(27, -39).x, p(27, -39).y, p(12, -31).x, p(12, -31).y);
   ctx.stroke();
 
-  // Nostril flares
+  // Nose Bridge & Flares
   ctx.beginPath();
-  ctx.arc(p(-9, 10).x, p(-9, 10).y, 2.2, Math.PI * 0.75, Math.PI * 1.8);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(p(9, 10).x, p(9, 10).y, 2.2, Math.PI * 1.2, Math.PI * 0.25);
-  ctx.stroke();
-
-  // Soft nose tip highlight curve
-  ctx.strokeStyle = thinColor;
-  ctx.beginPath();
-  ctx.arc(p(0, 9).x, p(0, 9).y, 3, 0, Math.PI, true);
+  ctx.moveTo(p(-6, -23).x, p(-6, -23).y);
+  ctx.lineTo(p(-5, 8).x, p(-5, 8).y);
+  ctx.bezierCurveTo(p(-5, 14).x, p(-5, 14).y, p(5, 14).x, p(5, 14).y, p(5, 8).x, p(5, 8).y);
+  ctx.lineTo(p(6, -23).x, p(6, -23).y);
   ctx.stroke();
 
-  // --- 5. Beautiful Lips (Proportional and Detailed) ---
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = 1.6;
-  
-  // Philtrum guide
+  // Lips
   ctx.beginPath();
-  ctx.moveTo(p(-3, 17).x, p(-3, 17).y);
-  ctx.quadraticCurveTo(p(-2, 23).x, p(-2, 23).y, p(-4, 30).x, p(-4, 30).y);
-  ctx.moveTo(p(3, 17).x, p(3, 17).y);
-  ctx.quadraticCurveTo(p(2, 23).x, p(2, 23).y, p(4, 30).x, p(4, 30).y);
-  ctx.stroke();
-
-  // Lips outline
-  ctx.fillStyle = isDark ? 'rgba(212, 175, 55, 0.15)' : 'rgba(212, 175, 55, 0.08)';
-  ctx.beginPath();
-  ctx.moveTo(p(-22, 35).x, p(-22, 35).y);
-  ctx.quadraticCurveTo(p(-11, 29).x, p(-11, 29).y, p(-5, 31).x, p(-5, 31).y);
-  ctx.lineTo(p(0, 34).x, p(0, 34).y);
-  ctx.lineTo(p(5, 31).x, p(5, 31).y);
-  ctx.quadraticCurveTo(p(11, 29).x, p(11, 29).y, p(22, 35).x, p(22, 35).y);
-  ctx.quadraticCurveTo(p(12, 48).x, p(12, 48).y, p(0, 48).x, p(0, 48).y);
-  ctx.quadraticCurveTo(p(-12, 48).x, p(-12, 48).y, p(-22, 35).x, p(-22, 35).y);
+  ctx.moveTo(p(-20, 36).x, p(-20, 36).y);
+  ctx.quadraticCurveTo(p(0, 30).x, p(0, 30).y, p(20, 36).x, p(20, 36).y);
+  ctx.quadraticCurveTo(p(0, 44).x, p(0, 44).y, p(-20, 36).x, p(-20, 36).y);
   ctx.closePath();
-  ctx.fill();
-
-  // Lips dividing line
-  ctx.beginPath();
-  ctx.moveTo(p(-22, 35).x, p(-22, 35).y);
-  ctx.quadraticCurveTo(p(-11, 33).x, p(-11, 33).y, p(-5, 34).x, p(-5, 34).y);
-  ctx.lineTo(p(0, 35.5).x, p(0, 35.5).y);
-  ctx.lineTo(p(5, 34).x, p(5, 34).y);
-  ctx.quadraticCurveTo(p(11, 33).x, p(11, 33).y, p(22, 35).x, p(22, 35).y);
   ctx.stroke();
 
-  // Lower lip bottom boundary
-  ctx.beginPath();
-  ctx.moveTo(p(-22, 35).x, p(-22, 35).y);
-  ctx.quadraticCurveTo(p(0, 47).x, p(0, 47).y, p(22, 35).x, p(22, 35).y);
-  ctx.stroke();
-
-  // --- 6. Clinical Proportions & Aesthetic Grid Guides ---
-  ctx.strokeStyle = guideColor;
-  ctx.lineWidth = 0.7;
-  ctx.setLineDash([3, 4]);
-
-  // Center line of symmetry
-  ctx.beginPath();
-  ctx.moveTo(p(0, -92).x, p(0, -92).y);
-  ctx.lineTo(p(0, 120).x, p(0, 120).y);
-  ctx.stroke();
-
-  // Eye line guide (horizontal)
-  ctx.beginPath();
-  ctx.moveTo(p(-58, -23).x, p(-58, -23).y);
-  ctx.lineTo(p(58, -23).x, p(58, -23).y);
-  ctx.stroke();
-
-  // Cheekbone contour guides (realistic cheek curve)
-  ctx.beginPath();
-  ctx.moveTo(p(-40, -10).x, p(-40, -10).y);
-  ctx.quadraticCurveTo(p(-20, -5).x, p(-20, -5).y, p(-15, 20).x, p(-15, 20).y);
-  ctx.moveTo(p(40, -10).x, p(40, -10).y);
-  ctx.quadraticCurveTo(p(20, -5).x, p(20, -5).y, p(15, 20).x, p(15, 20).y);
-  ctx.stroke();
-
-  // Forehead horizontal grid
-  ctx.beginPath();
-  ctx.moveTo(p(-42, -58).x, p(-42, -58).y);
-  ctx.lineTo(p(42, -58).x, p(42, -58).y);
-  ctx.stroke();
-
-  ctx.setLineDash([]); // reset line dash
-
-  // --- 7. Hotspot Diagnostic Interactive Zones (9 Clinical Zones) ---
-  const zones = {
+  // 3. Render Active Diagnostic Indicators (Pins & Circles)
+  const pinCenters = {
     forehead: p(0, -60),
     nose: p(0, 0),
     chin: p(0, 62),
@@ -2056,43 +1920,65 @@ function drawFacialSilhouette(ctx, width, height, activeZones) {
     neck: p(0, 95)
   };
 
-  // Draw pins
-  for (const [key, val] of Object.entries(zones)) {
+  for (const [key, val] of Object.entries(pinCenters)) {
     const active = activeZones[key];
     
     if (active) {
-      // Glow shadow
       ctx.save();
+      // Glowing focus indicator core
       ctx.shadowBlur = 15;
       ctx.shadowColor = accentColor;
-      
-      // Pin fill
       ctx.fillStyle = accentColor;
       ctx.beginPath();
-      ctx.arc(val.x, val.y, 7, 0, 2 * Math.PI);
+      ctx.arc(val.x, val.y, 6, 0, 2 * Math.PI);
       ctx.fill();
       ctx.restore();
 
-      // Outer rings
+      // Sharp accent outer ring
       ctx.strokeStyle = accentColor;
-      ctx.lineWidth = 1.8;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(val.x, val.y, 13, 0, 2 * Math.PI);
+      ctx.arc(val.x, val.y, 11, 0, 2 * Math.PI);
       ctx.stroke();
     } else {
-      // Glassmorphic neutral indicator
-      ctx.shadowBlur = 0;
+      // Neutral glassmorphic indicator
+      ctx.save();
       ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)';
       ctx.beginPath();
-      ctx.arc(val.x, val.y, 7, 0, 2 * Math.PI);
+      ctx.arc(val.x, val.y, 5, 0, 2 * Math.PI);
       ctx.fill();
 
-      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(15, 23, 42, 0.3)';
-      ctx.lineWidth = 1.3;
-      ctx.beginPath();
-      ctx.arc(val.x, val.y, 7, 0, 2 * Math.PI);
+      ctx.strokeStyle = pinOutline;
+      ctx.lineWidth = 1.0;
       ctx.stroke();
+      ctx.restore();
     }
+  }
+
+  // 4. Render Dynamic Hovered Tooltip Tag
+  if (hoveredZoneKey && zoneNamesFriendly[hoveredZoneKey]) {
+    ctx.save();
+    const tooltipText = zoneNamesFriendly[hoveredZoneKey];
+    ctx.font = '10px Urbanist, sans-serif';
+    const textWidth = ctx.measureText(tooltipText).width;
+    
+    const tx = canvasMouseX + 12;
+    const ty = canvasMouseY - 12;
+
+    // Draw glass card background
+    ctx.fillStyle = isDark ? 'rgba(18, 18, 21, 0.85)' : 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeStyle = isDark ? 'rgba(212, 175, 55, 0.4)' : 'rgba(71, 85, 105, 0.25)';
+    ctx.lineWidth = 1;
+    
+    ctx.beginPath();
+    ctx.roundRect(tx - 6, ty - 15, textWidth + 12, 20, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw text
+    ctx.fillStyle = isDark ? '#FAF9F6' : '#1E293B';
+    ctx.fillText(tooltipText, tx, ty - 1);
+    ctx.restore();
   }
 }
 
@@ -2199,6 +2085,66 @@ function initFacialCanvas() {
         textarea.dispatchEvent(new Event('input'));
       }
     }
+  });
+
+  // Track hover state for polygonal highlighting and tooltips
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    canvasMouseX = x;
+    canvasMouseY = y;
+
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const scaleX = canvas.width / 250;
+    const scaleY = canvas.height / 250;
+
+    const p = (x, y) => ({
+      x: cx + x * scaleX,
+      y: cy + y * scaleY
+    });
+
+    const zones = {
+      forehead: { x: cx + 0 * scaleX, y: cy - 60 * scaleY },
+      nose: { x: cx + 0 * scaleX, y: cy + 0 * scaleY },
+      chin: { x: cx + 0 * scaleX, y: cy + 62 * scaleY },
+      rightCheek: { x: cx + 31 * scaleX, y: cy + 8 * scaleY },
+      leftCheek: { x: cx - 31 * scaleX, y: cy + 8 * scaleY },
+      rightEye: { x: cx + 27 * scaleX, y: cy - 23 * scaleY },
+      leftEye: { x: cx - 27 * scaleX, y: cy - 23 * scaleY },
+      lips: { x: cx + 0 * scaleX, y: cy + 36 * scaleY },
+      neck: { x: cx + 0 * scaleX, y: cy + 95 * scaleY }
+    };
+
+    let closestZone = null;
+    let minDist = Infinity;
+
+    for (const [key, val] of Object.entries(zones)) {
+      const d = Math.hypot(x - val.x, y - val.y);
+      if (d < minDist) {
+        minDist = d;
+        closestZone = key;
+      }
+    }
+
+    const prevHovered = hoveredZoneKey;
+    if (closestZone && minDist < 25) {
+      hoveredZoneKey = closestZone;
+      canvas.style.cursor = 'pointer';
+    } else {
+      hoveredZoneKey = null;
+      canvas.style.cursor = 'default';
+    }
+
+    if (hoveredZoneKey !== prevHovered || hoveredZoneKey !== null) {
+      drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    hoveredZoneKey = null;
+    drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
   });
 }
 
