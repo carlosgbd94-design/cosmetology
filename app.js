@@ -313,7 +313,12 @@ async function initDatabaseTables() {
       ['MIG-LIM001', 'Miguett', 'Amalesh', 'Limpiador', '60 ml', null, 390.00, 'Aceite de tomillo, Melissa officinalis, Dimeticona', 'Aceite desincrustante y calmante antiséptico para todo biotipo'],
       ['NS-LOC001', 'Natural Secret Xpatl', 'Zhunkah', 'Loción', '150 ml', null, 410.00, 'Propilenglicol, Imidazolidinil urea, Aceite de ricino', 'Loción humectante, disolvente y antiinflamatoria'],
       ['MAR-SRM001', 'Marant', 'H.S.C Fase 1 / Fase 2', 'Serum/Vial', '30 ml', null, 680.00, 'Ácido ferúlico, Metilisotiazolinona', 'Sérum despigmentante, antioxidante y antibacteriano'],
-      ['MIG-MAS001', 'Miguett', 'Skinfusion', 'Mascarilla', '120 g', null, 520.00, 'Triptófano, Niacinamida, L-arginina', 'Mascarilla hidratante, antiinflamatoria y reguladora del pH']
+      ['MIG-MAS001', 'Miguett', 'Skinfusion', 'Mascarilla', '120 g', null, 520.00, 'Triptófano, Niacinamida, L-arginina', 'Mascarilla hidratante, antiinflamatoria y reguladora del pH'],
+      ['CAS-ARM01', 'Casmara', 'Harmonizing Balance Cream', 'Armonizador', '50 ml', 490.00, 980.00, 'Extracto de Flor de Loto, Goji Berries, Alantoína', 'Equilibrante, calmante y antioxidante para piel mixta, grasa o sensible con tendencia a rojeces.'],
+      ['GDC-ARM02', 'Germaine de Capuccini', 'Royal Jelly Comforting Harmonizing Emulsion', 'Armonizador', '200 ml', 580.00, 1160.00, 'Jalea Real, Extracto de Poria Cocos, Pantenol', 'Nutritiva, armonizadora y revitalizante para piel apagada, estresada y sensible.'],
+      ['MES-ARM03', 'Mesoestetic', 'Balancing & Harmonizing Skin Repair', 'Armonizador', '50 ml', 650.00, 1300.00, 'Centella Asiática, Extracto de Caléndula, Alfa-bisabolol', 'Reparador y desensibilizante intensivo para piel sensible, irritada o post-tratamiento.'],
+      ['SKE-ARM04', 'Skeyndor', 'Aquatherm Harmonizing Cream F1', 'Armonizador', '50 ml', 520.00, 1040.00, 'Agua Termal, Prebióticos azucarados, Ceramidas', 'Calmante, restaurador de la barrera cutánea para pieles muy sensibles y reactivas.'],
+      ['LID-ARM05', 'Lidherma', 'Sense Control Harmonizing Treatment', 'Armonizador', '50 ml', 310.00, 620.00, 'Péptidos desensibilizantes, Aloe Vera, Extracto de Avena', 'Disminuye la rojez, descongestiona y equilibra pieles con rosácea o sensible.']
     ];
 
     for (const p of baseProducts) {
@@ -756,6 +761,10 @@ function updateProductsDropdown(brandVal, catVal, resetSelection = false) {
 
 function loadBrandsLocal() {
   updateCascadingDropdowns(false);
+}
+
+function loadBrands() {
+  loadBrandsLocal();
 }
 
 // --- Clinical Product Fuzzy Search Engine ---
