@@ -55,12 +55,13 @@ let allProducts = [];
 let allIngredientsList = [];
 let uploadDataPreview = [];
 let activeRipples = [];
+let currentProcedureSteps = [];
 
 // Dexie Local Database setup
 const db = new Dexie('DermatiqueLocalDB');
-db.version(3).stores({
+db.version(4).stores({
   products: 'id, brand, category, name, active_ingredients, skin_indication',
-  fichas_pacientes: '++id, nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente, synced',
+  fichas_pacientes: '++id, nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente, synced, titulo_ficha, autor_ficha, pasos_preliminares, procedimiento_json',
   expedientes_clinicos: 'folio, nombre, fecha, biotipo, synced'
 });
 
@@ -256,6 +257,12 @@ async function initDatabaseTables() {
         firma_paciente TEXT
       )
     `);
+
+    // Alter table schemas on Turso for newer clinical columns
+    try { await executeQuery("ALTER TABLE fichas_pacientes ADD COLUMN titulo_ficha TEXT"); } catch(e){}
+    try { await executeQuery("ALTER TABLE fichas_pacientes ADD COLUMN autor_ficha TEXT"); } catch(e){}
+    try { await executeQuery("ALTER TABLE fichas_pacientes ADD COLUMN pasos_preliminares TEXT"); } catch(e){}
+    try { await executeQuery("ALTER TABLE fichas_pacientes ADD COLUMN procedimiento_json TEXT"); } catch(e){}
     
     // Create expedientes_clinicos table if missing
     await executeQuery(`
@@ -619,7 +626,16 @@ function initCascadingDropdowns() {
     }
 
     const product = allProducts.find(p => p.id === prodId);
-    renderResultsTable(product);
+    if (product) {
+      document.getElementById('step-product-name').value = product.name || '';
+      document.getElementById('step-product-brand').value = product.brand || '';
+      document.getElementById('step-product-actives').value = product.active_ingredients || '';
+      document.getElementById('step-product-action').value = product.skin_indication || '';
+      document.getElementById('step-product-application').value = '';
+      
+      // Update financial summary if present
+      renderResultsTable(product);
+    }
   });
 }
 
@@ -640,26 +656,146 @@ function loadBrandsLocal() {
   });
 }
 
-function clearResultsTable() {
-  const tbody = document.getElementById('results-table-body');
-  tbody.innerHTML = `
-    <tr>
-      <td colspan="2" class="py-8 px-5 text-center text-slate-400 dark:text-luxe-400 text-sm">
-        Seleccione una marca, categoría y producto para poblar la ficha técnica.
+// --- Dynamic Procedure Table Actions ---
+window.handleFasePresetChange = function() {
+  const preset = document.getElementById('step-fase-preset').value;
+  const customInput = document.getElementById('step-fase-custom');
+  if (!customInput) return;
+  if (preset === 'Otro') {
+    customInput.value = '';
+    customInput.focus();
+  } else {
+    customInput.value = preset;
+  }
+};
+
+window.addProcedureStep = function() {
+  const presetVal = document.getElementById('step-fase-preset').value;
+  const customVal = document.getElementById('step-fase-custom').value.trim();
+  const fase = presetVal === 'Otro' ? customVal : (customVal || presetVal);
+  
+  const name = document.getElementById('step-product-name').value.trim();
+  const brand = document.getElementById('step-product-brand').value.trim();
+  const actives = document.getElementById('step-product-actives').value.trim();
+  const action = document.getElementById('step-product-action').value.trim();
+  const application = document.getElementById('step-product-application').value.trim();
+
+  if (!fase) {
+    showToast('Escriba o seleccione una Fase/Protocolo.', 'error');
+    return;
+  }
+  if (!name) {
+    showToast('El nombre del producto es obligatorio.', 'error');
+    return;
+  }
+
+  const step = { fase, name, brand, actives, action, application };
+  currentProcedureSteps.push(step);
+  
+  // Clear inputs (except custom phase if desired, but we clear it to keep workflow smooth)
+  document.getElementById('step-product-name').value = '';
+  document.getElementById('step-product-brand').value = '';
+  document.getElementById('step-product-actives').value = '';
+  document.getElementById('step-product-action').value = '';
+  document.getElementById('step-product-application').value = '';
+  
+  // Reset cascade
+  const selProd = document.getElementById('sel-producto');
+  if (selProd) selProd.value = '';
+
+  renderFormProcedureTable();
+  syncPrintView();
+  showToast('Paso agregado al procedimiento.', 'success');
+};
+
+window.deleteProcedureStep = function(index) {
+  currentProcedureSteps.splice(index, 1);
+  renderFormProcedureTable();
+  syncPrintView();
+  showToast('Paso eliminado.', 'info');
+};
+
+window.moveProcedureStep = function(index, direction) {
+  const newIndex = index + direction;
+  if (newIndex < 0 || newIndex >= currentProcedureSteps.length) return;
+  
+  const temp = currentProcedureSteps[index];
+  currentProcedureSteps[index] = currentProcedureSteps[newIndex];
+  currentProcedureSteps[newIndex] = temp;
+  
+  renderFormProcedureTable();
+  syncPrintView();
+};
+
+function renderFormProcedureTable() {
+  const tbody = document.getElementById('form-procedure-tbody');
+  if (!tbody) return;
+
+  if (currentProcedureSteps.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="py-8 px-4 text-center text-slate-400 dark:text-luxe-400 text-xs italic">
+          No se han agregado pasos al procedimiento. Use el "Diseñador de Procedimiento" de arriba para agregar productos.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = '';
+  currentProcedureSteps.forEach((step, idx) => {
+    // Principal Row
+    const trMain = document.createElement('tr');
+    trMain.className = 'border-b border-slate-200/50 dark:border-white/5 bg-slate-500/5 dark:bg-white/5';
+    trMain.innerHTML = `
+      <td class="py-3 px-4 font-bold text-slate-800 dark:text-white border-r border-slate-200/20">${step.fase}</td>
+      <td class="py-3 px-4 text-slate-700 dark:text-luxe-100 font-semibold border-r border-slate-200/20">${step.name}</td>
+      <td class="py-3 px-4 text-slate-500 dark:text-luxe-300 border-r border-slate-200/20">${step.brand || '-'}</td>
+      <td class="py-3 px-4 text-slate-600 dark:text-luxe-200 border-r border-slate-200/20">${step.actives || '-'}</td>
+      <td class="py-3 px-4 text-slate-700 dark:text-white font-medium border-r border-slate-200/20">${step.action || '-'}</td>
+      <td class="py-3 px-4 text-center no-print">
+        <div class="flex items-center justify-center gap-1.5">
+          <button type="button" onclick="moveProcedureStep(${idx}, -1)" class="p-1 hover:text-bronze-500 transition-colors ${idx === 0 ? 'opacity-30 cursor-not-allowed' : ''}" ${idx === 0 ? 'disabled' : ''}>
+            ▲
+          </button>
+          <button type="button" onclick="moveProcedureStep(${idx}, 1)" class="p-1 hover:text-bronze-500 transition-colors ${idx === currentProcedureSteps.length - 1 ? 'opacity-30 cursor-not-allowed' : ''}" ${idx === currentProcedureSteps.length - 1 ? 'disabled' : ''}>
+            ▼
+          </button>
+          <button type="button" onclick="deleteProcedureStep(${idx})" class="p-1 text-red-500 hover:text-red-600 transition-colors ml-1" title="Eliminar paso">
+            ✖
+          </button>
+        </div>
       </td>
-    </tr>
-  `;
-  const badge = document.getElementById('product-info-badge');
-  if (badge) badge.classList.add('hidden');
+    `;
+    
+    // Application Row
+    const trApp = document.createElement('tr');
+    trApp.className = 'border-b border-slate-200/50 dark:border-white/5';
+    trApp.innerHTML = `
+      <td colspan="6" class="py-2.5 px-4 text-xs text-slate-500 dark:text-luxe-300 bg-white/20 dark:bg-luxe-950/20">
+        <strong class="text-slate-600 dark:text-luxe-400">Aplicación:</strong> ${step.application || 'No especificada.'}
+      </td>
+    `;
+    
+    tbody.appendChild(trMain);
+    tbody.appendChild(trApp);
+  });
+}
+
+function clearResultsTable() {
+  // Reset step builder product details
+  document.getElementById('step-product-name').value = '';
+  document.getElementById('step-product-brand').value = '';
+  document.getElementById('step-product-actives').value = '';
+  document.getElementById('step-product-action').value = '';
+  document.getElementById('step-product-application').value = '';
+
   const finCard = document.getElementById('financial-summary-card');
   if (finCard) finCard.classList.add('hidden');
 }
 
 function renderResultsTable(p) {
-  const tbody = document.getElementById('results-table-body');
-  const badge = document.getElementById('product-info-badge');
   const finCard = document.getElementById('financial-summary-card');
-
   if (!p) {
     clearResultsTable();
     return;
@@ -854,6 +990,13 @@ function initPatientForm() {
   btnReset.addEventListener('click', () => {
     form.reset();
     document.getElementById('fecha').value = new Date().toISOString().substring(0, 10);
+    document.getElementById('titulo_ficha').value = 'Limpieza piel sensible práctica 7';
+    document.getElementById('autor_ficha').value = '';
+    document.getElementById('pasos_preliminares').value = '';
+    
+    currentProcedureSteps = [];
+    renderFormProcedureTable();
+
     document.getElementById('sel-marca').value = '';
     
     const selCat = document.getElementById('sel-categoria');
@@ -894,12 +1037,15 @@ function initPatientForm() {
     const biotipo = document.getElementById('biotipo').value;
     const diagnostico = document.getElementById('diagnostico').value;
     const condicion = document.getElementById('condicion').value;
-    const prodId = document.getElementById('sel-producto').value;
+    
+    // Read new fields
+    const tituloFichaVal = document.getElementById('titulo_ficha').value.trim();
+    const autorFichaVal = document.getElementById('autor_ficha').value.trim();
+    const pasosPreliminaresVal = document.getElementById('pasos_preliminares').value.trim();
+    const procedimientoJson = JSON.stringify(currentProcedureSteps);
 
-    if (!prodId) {
-      showToast('Debe asignar un producto para guardar la ficha.', 'error');
-      return;
-    }
+    // Fallback/Backward-compatible single product ID: first product's name or empty
+    const prodId = currentProcedureSteps.length > 0 ? (currentProcedureSteps[0].name || '') : '';
 
     const firmaEsp = signaturePadEspecialista && !signaturePadEspecialista.isEmpty() ? signaturePadEspecialista.toDataURL() : null;
     const firmaPac = signaturePadPaciente && !signaturePadPaciente.isEmpty() ? signaturePadPaciente.toDataURL() : null;
@@ -918,6 +1064,10 @@ function initPatientForm() {
       protocolo_id: prodId,
       firma_especialista: firmaEsp,
       firma_paciente: firmaPac,
+      titulo_ficha: tituloFichaVal,
+      autor_ficha: autorFichaVal,
+      pasos_preliminares: pasosPreliminaresVal,
+      procedimiento_json: procedimientoJson,
       synced: 0
     };
 
@@ -928,8 +1078,8 @@ function initPatientForm() {
       if (navigator.onLine) {
         // Direct cloud write if online
         await executeQuery(
-          'INSERT INTO fichas_pacientes (nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [nombre, edadVal, fecha, biotipo, diagnostico, condicion, protocoloVal, prodId, firmaEsp, firmaPac]
+          'INSERT INTO fichas_pacientes (nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente, titulo_ficha, autor_ficha, pasos_preliminares, procedimiento_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [nombre, edadVal, fecha, biotipo, diagnostico, condicion, protocoloVal, prodId, firmaEsp, firmaPac, tituloFichaVal, autorFichaVal, pasosPreliminaresVal, procedimientoJson]
         );
         // Mark as synced
         await db.fichas_pacientes.update(localId, { synced: 1 });
@@ -940,9 +1090,14 @@ function initPatientForm() {
       
       // Also save the consolidated Expediente Clínico!
       await saveExpedienteClinico({
-        nombre, edad: edadVal, fecha, biotipo, diagnostico, condicion, protocolo: protocoloVal, prodId, firmaEsp, firmaPac
+        nombre, edad: edadVal, fecha, biotipo, diagnostico, condicion, protocolo: protocoloVal, prodId, firmaEsp, firmaPac,
+        titulo_ficha: tituloFichaVal, autor_ficha: autorFichaVal, pasos_preliminares: pasosPreliminaresVal, procedimiento_json: procedimientoJson
       });
 
+      // Clear form inputs & current steps
+      currentProcedureSteps = [];
+      renderFormProcedureTable();
+      
       if (signaturePadEspecialista) {
         signaturePadEspecialista.clear();
         savedSignatureEsp = null;
@@ -951,6 +1106,11 @@ function initPatientForm() {
         signaturePadPaciente.clear();
         savedSignaturePac = null;
       }
+
+      // Restore form defaults
+      document.getElementById('patient-form').reset();
+      document.getElementById('titulo_ficha').value = 'Limpieza piel sensible práctica 7';
+      document.getElementById('fecha').value = new Date().toISOString().split('T')[0];
 
       loadHistory();
       scrollToSection('history-section');
@@ -1019,7 +1179,33 @@ window.loadFichaToForm = function(f) {
   document.getElementById('diagnostico').value = f.diagnostico || '';
   document.getElementById('condicion').value = f.condicion || '';
   document.getElementById('protocolo').value = f.protocolo || '';
+  
+  // Hydrate new fields
+  document.getElementById('titulo_ficha').value = f.titulo_ficha || 'Limpieza piel sensible práctica 7';
+  document.getElementById('autor_ficha').value = f.autor_ficha || '';
+  document.getElementById('pasos_preliminares').value = f.pasos_preliminares || '';
   document.getElementById('current-doc-id').textContent = `Ficha Nº ${f.id} (Historial)`;
+
+  // Parse procedure steps
+  if (f.procedimiento_json) {
+    try {
+      currentProcedureSteps = JSON.parse(f.procedimiento_json);
+    } catch (e) {
+      currentProcedureSteps = [];
+    }
+  } else if (f.producto) {
+    currentProcedureSteps = [{
+      fase: f.protocolo || 'Fase Única',
+      name: f.producto,
+      brand: f.linea || '',
+      actives: '',
+      action: '',
+      application: ''
+    }];
+  } else {
+    currentProcedureSteps = [];
+  }
+  renderFormProcedureTable();
 
   if (signaturePadEspecialista) signaturePadEspecialista.clear();
   if (signaturePadPaciente) signaturePadPaciente.clear();
@@ -1604,23 +1790,59 @@ function normalizeText(text) {
 
 // Automatically sync the interactive form values into the high-contrast clean printable template before print dialog launches.
 function syncPrintView() {
+  document.getElementById('print-val-titulo').textContent = document.getElementById('titulo_ficha').value || 'Limpieza piel sensible práctica 7';
+  document.getElementById('print-val-autor').textContent = document.getElementById('autor_ficha').value || 'Especialista';
+  document.getElementById('print-val-pasos-preliminares').textContent = document.getElementById('pasos_preliminares').value || 'No especificado.';
+
   document.getElementById('print-val-nombre').textContent = document.getElementById('nombre').value || '__________________________________';
   document.getElementById('print-val-edad').textContent = (document.getElementById('edad').value ? document.getElementById('edad').value + ' años' : '___');
   document.getElementById('print-val-fecha').textContent = document.getElementById('fecha').value || '__________________';
   document.getElementById('print-val-biotipo').textContent = document.getElementById('biotipo').value || '__________________';
   
-  document.getElementById('print-val-protocolo').textContent = document.getElementById('protocolo').value || 'No especificado.';
-  document.getElementById('print-val-diagnostico').textContent = document.getElementById('diagnostico').value || 'No especificado.';
-  document.getElementById('print-val-condicion').textContent = document.getElementById('condicion').value || 'Ninguna.';
-  
-  const currentDocText = document.getElementById('current-doc-id').textContent;
-  document.getElementById('print-doc-id').textContent = currentDocText || 'Prescripción de Activos';
+  // Combine Diagnosis and Conditions/Contraindications into one Conditions box for print Cabecera
+  const diag = document.getElementById('diagnostico').value || '';
+  const cond = document.getElementById('condicion').value || '';
+  let condCompleto = '';
+  if (diag) condCompleto += `Diagnóstico: ${diag}\n`;
+  if (cond) condCompleto += `Condiciones: ${cond}`;
+  document.getElementById('print-val-condiciones-completo').textContent = condCompleto || 'Ninguna.';
 
-  const mainTableBody = document.getElementById('results-table-body');
-  const printTableBody = document.getElementById('print-results-body');
-  
-  if (mainTableBody && printTableBody) {
-    printTableBody.innerHTML = mainTableBody.innerHTML;
+  // Render Procedure Steps in Print Template
+  const printProcedureTableBody = document.getElementById('print-procedure-table-body');
+  if (printProcedureTableBody) {
+    if (currentProcedureSteps.length === 0) {
+      printProcedureTableBody.innerHTML = `
+        <tr>
+          <td colspan="5" class="py-6 px-3 text-center text-slate-400 italic">
+            Ningún paso añadido al protocolo.
+          </td>
+        </tr>
+      `;
+    } else {
+      printProcedureTableBody.innerHTML = '';
+      currentProcedureSteps.forEach(step => {
+        const trMain = document.createElement('tr');
+        trMain.className = 'border-b border-slate-300';
+        trMain.innerHTML = `
+          <td class="py-2 px-3 font-bold text-slate-800 border-r border-slate-300">${step.fase}</td>
+          <td class="py-2 px-3 font-semibold border-r border-slate-300">${step.name}</td>
+          <td class="py-2 px-3 text-slate-600 border-r border-slate-300">${step.brand || '-'}</td>
+          <td class="py-2 px-3 text-slate-650 border-r border-slate-300">${step.actives || '-'}</td>
+          <td class="py-2 px-3 text-slate-700">${step.action || '-'}</td>
+        `;
+        
+        const trApp = document.createElement('tr');
+        trApp.className = 'border-b border-slate-300 bg-slate-50';
+        trApp.innerHTML = `
+          <td colspan="5" class="py-1.5 px-3 text-[9px] text-slate-500 italic">
+            <strong>Descripción de aplicación:</strong> ${step.application || 'No especificada.'}
+          </td>
+        `;
+        
+        printProcedureTableBody.appendChild(trMain);
+        printProcedureTableBody.appendChild(trApp);
+      });
+    }
   }
 
   // Handle signature images rendering in print view
@@ -2939,8 +3161,8 @@ window.addEventListener('online', async () => {
     const unsynced = await db.fichas_pacientes.where('synced').equals(0).toArray();
     for (const record of unsynced) {
       await executeQuery(
-        'INSERT INTO fichas_pacientes (nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [record.nombre, record.edad, record.fecha, record.biotipo, record.diagnostico, record.condicion, record.protocolo, record.protocolo_id, record.firma_especialista, record.firma_paciente]
+        'INSERT INTO fichas_pacientes (nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente, titulo_ficha, autor_ficha, pasos_preliminares, procedimiento_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [record.nombre, record.edad, record.fecha, record.biotipo, record.diagnostico, record.condicion, record.protocolo, record.protocolo_id, record.firma_especialista, record.firma_paciente, record.titulo_ficha, record.autor_ficha, record.pasos_preliminares, record.procedimiento_json]
       );
       await db.fichas_pacientes.update(record.id, { synced: 1 });
     }

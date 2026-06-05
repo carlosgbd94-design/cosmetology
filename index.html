@@ -229,11 +229,11 @@
 
     /* Custom Dropdown Chevron Indicator */
     select.smart-input {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B5902B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-      background-size: 1.1rem;
-      background-position: right 1rem center;
-      background-repeat: no-repeat;
-      padding-right: 2.5rem;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B5902B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+      background-size: 1.1rem !important;
+      background-position: right 1rem center !important;
+      background-repeat: no-repeat !important;
+      padding-right: 2.5rem !important;
       appearance: none !important;
       -webkit-appearance: none !important;
       -moz-appearance: none !important;
@@ -243,7 +243,7 @@
     }
     
     html.dark select.smart-input {
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D4AF37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D4AF37' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
       background-repeat: no-repeat !important;
       background-position: right 1rem center !important;
       background-size: 1.1rem !important;
@@ -333,6 +333,9 @@
       td {
         border: 1px solid #cbd5e1 !important;
         padding: 6px 10px !important;
+      }
+    }
+
     @keyframes shake {
       0%, 100% { transform: translateX(0); }
       10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
@@ -460,69 +463,65 @@
       <div id="clinical-print-template" class="hidden print:flex flex-col justify-between w-full max-w-4xl mx-auto p-12 bg-white text-slate-900 min-h-[279.4mm] box-border">
         <div>
           <!-- Header -->
-          <div class="flex justify-between items-center border-b-2 border-bronze-500 pb-4 mb-6">
-            <div class="flex items-center gap-3">
-              <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" alt="Logo" style="height: 38px; width: auto; object-fit: contain;">
+          <div class="flex justify-between items-start border-b-2 border-bronze-500 pb-3 mb-6">
+            <div>
+              <h1 class="text-sm font-bold text-slate-950 uppercase tracking-widest font-sora animate-none" id="print-val-titulo">Limpieza piel sensible práctica 7</h1>
+              <p class="text-[9px] text-slate-500">Protocolo de Cuidado Clínico</p>
             </div>
             <div class="text-right">
-              <h2 class="text-sm font-bold text-slate-950 uppercase tracking-widest font-sora" id="print-doc-id">Prescripción de Activos</h2>
-              <p class="text-[9px] text-slate-500">Clínica de Estética Especializada</p>
+              <span class="text-xs font-bold text-slate-900 uppercase block" id="print-val-autor">Especialista</span>
+              <p class="text-[8px] text-slate-400">Autor del Documento</p>
             </div>
           </div>
 
-          <!-- Demographics Grid -->
-          <div class="grid grid-cols-5 gap-6 mb-6 pb-6 border-b border-slate-200">
-            <div class="col-span-2">
-              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Paciente</span>
-              <span class="text-xs font-bold text-slate-950 font-sora mt-0.5 block animate-none" id="print-val-nombre">-</span>
+          <!-- Demographics Table (Double Row) -->
+          <table class="w-full border-collapse border border-slate-300 text-[10px] mb-6">
+            <tbody>
+              <tr class="border-b border-slate-300">
+                <td class="p-2 bg-slate-50 font-bold border-r border-slate-300 w-[15%]">Paciente:</td>
+                <td class="p-2 border-r border-slate-300 w-[50%] font-semibold" colspan="3" id="print-val-nombre">-</td>
+                <td class="p-2 bg-slate-50 font-bold border-r border-slate-300 w-[15%]">Fecha:</td>
+                <td class="p-2 w-[20%] font-semibold" id="print-val-fecha">-</td>
+              </tr>
+              <tr>
+                <td class="p-2 bg-slate-50 font-bold border-r border-slate-300 w-[15%]">Biotipo Cutáneo:</td>
+                <td class="p-2 border-r border-slate-300 w-[20%] font-semibold" id="print-val-biotipo">-</td>
+                <td class="p-2 bg-slate-50 font-bold border-r border-slate-300 w-[15%]">Condiciones:</td>
+                <td class="p-2 border-r border-slate-300 w-[35%] font-medium text-slate-800 leading-relaxed" colspan="2" id="print-val-condiciones-completo">-</td>
+                <td class="p-2 bg-slate-50 font-bold border-r border-slate-300 w-[7%]">Edad:</td>
+                <td class="p-2 w-[8%] font-semibold" id="print-val-edad">-</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Sección de Protocolo: Pasos Preliminares -->
+          <div class="mb-6 border border-slate-300 rounded-lg overflow-hidden">
+            <div class="bg-slate-50 p-2 border-b border-slate-300 font-bold text-[9px] uppercase tracking-wider">
+              Pasos Preliminares del Protocolo (Recepción, Preparación de Entorno y del Cliente)
             </div>
-            <div>
-              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Edad</span>
-              <span class="text-xs font-medium text-slate-900 mt-0.5 block" id="print-val-edad">-</span>
-            </div>
-            <div>
-              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Fecha de Consulta</span>
-              <span class="text-xs font-medium text-slate-900 mt-0.5 block" id="print-val-fecha">-</span>
-            </div>
-            <div>
-              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Biotipo Cutáneo</span>
-              <span class="text-xs font-semibold text-slate-900 mt-0.5 block" id="print-val-biotipo">-</span>
+            <div class="p-3 text-[10px] text-slate-850 whitespace-pre-wrap leading-relaxed min-h-[60px]" id="print-val-pasos-preliminares">
+              -
             </div>
           </div>
 
-          <!-- Protocolo Grid -->
-          <div class="mb-6 pb-6 border-b border-slate-200">
-            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Protocolo Recomendado</span>
-            <span class="text-xs font-semibold text-slate-900 mt-0.5 block" id="print-val-protocolo">-</span>
-          </div>
-
-          <!-- Clinical Details -->
-          <div class="grid grid-cols-2 gap-6 mb-6">
-            <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
-              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Diagnóstico Clínico</span>
-              <p class="text-xs text-slate-850 leading-relaxed font-semibold whitespace-pre-wrap" id="print-val-diagnostico">-</p>
-            </div>
-            <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
-              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Condición / Contraindicaciones</span>
-              <p class="text-xs text-slate-850 leading-relaxed font-semibold whitespace-pre-wrap" id="print-val-condicion">-</p>
-            </div>
-          </div>
-
-          <!-- Product Technical Specifications -->
+          <!-- Cuerpo Principal (Tabla de Procedimiento) -->
           <div class="mb-8">
-            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-2">Detalles Técnicos del Producto Prescrito</span>
-            <div class="border border-slate-200 rounded-xl overflow-hidden">
-              <table class="w-full text-left border-collapse text-xs">
+            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-2">Tabla de Procedimiento Clínico</span>
+            <div class="border border-slate-300 rounded-lg overflow-hidden">
+              <table class="w-full text-left border-collapse text-[10px]">
                 <thead>
-                  <tr class="bg-slate-50 border-b border-slate-200">
-                    <th class="py-2.5 px-4 font-bold text-slate-600 uppercase tracking-wider w-1/3">Parámetro</th>
-                    <th class="py-2.5 px-4 font-bold text-slate-600 uppercase tracking-wider">Valor Técnico</th>
+                  <tr class="bg-slate-50 border-b border-slate-300">
+                    <th class="py-2 px-3 font-bold text-slate-700 uppercase tracking-wider w-[20%] border-r border-slate-300">Protocolo / Fase</th>
+                    <th class="py-2 px-3 font-bold text-slate-700 uppercase tracking-wider w-[25%] border-r border-slate-300">Nombre del producto</th>
+                    <th class="py-2 px-3 font-bold text-slate-700 uppercase tracking-wider w-[15%] border-r border-slate-300">Marca</th>
+                    <th class="py-2 px-3 font-bold text-slate-700 uppercase tracking-wider w-[20%] border-r border-slate-300">Activos</th>
+                    <th class="py-2 px-3 font-bold text-slate-700 uppercase tracking-wider w-[20%]">Acción</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-200" id="print-results-body">
+                <tbody class="divide-y divide-slate-300" id="print-procedure-table-body">
                   <tr>
-                    <td colspan="2" class="py-6 px-4 text-center text-slate-400 italic">
-                      Ningún producto seleccionado
+                    <td colspan="5" class="py-6 px-3 text-center text-slate-450 italic">
+                      Ningún paso añadido al protocolo.
                     </td>
                   </tr>
                 </tbody>
@@ -575,8 +574,27 @@
 
         <!-- Demographics Form -->
         <form id="patient-form" class="space-y-6">
+          
+          <!-- Encabezado del Formato (Título y Autor) -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="flex flex-col gap-2">
+              <label for="titulo_ficha" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                Título del Protocolo / Ficha
+              </label>
+              <input type="text" id="titulo_ficha" name="titulo_ficha" value="Limpieza piel sensible práctica 7" required
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <label for="autor_ficha" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                Autor del Protocolo (Quien realiza)
+              </label>
+              <input type="text" id="autor_ficha" name="autor_ficha" placeholder="Nombre del especialista..." required
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+            </div>
+          </div>
+
           <div class="print-grid grid grid-cols-1 md:grid-cols-5 gap-6">
-            
             <!-- Nombre -->
             <div class="md:col-span-2 flex flex-col gap-2">
               <label for="nombre" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
@@ -594,7 +612,7 @@
               <input type="number" id="edad" name="edad" placeholder="Edad..." required min="1" max="120"
                 class="smart-input w-full px-4 py-3 rounded-xl text-sm">
             </div>
- 
+
             <!-- Fecha -->
             <div class="flex flex-col gap-2">
               <label for="fecha" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
@@ -603,7 +621,7 @@
               <input type="date" id="fecha" name="fecha" required
                 class="smart-input w-full px-4 py-3 rounded-xl text-sm">
             </div>
- 
+
             <!-- Biotipo Cutaneo -->
             <div class="flex flex-col gap-2">
               <label for="biotipo" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
@@ -616,22 +634,36 @@
                 <option value="Seca / Alípica">Seca / Alípica</option>
                 <option value="Grasa deshidratada">Grasa deshidratada</option>
                 <option value="Grasa seborreica">Grasa seborreica</option>
+                <option value="Grasa deshidratada y sensible">Grasa deshidratada y sensible</option>
+                <option value="Grasa ocluida / Asfíctica">Grasa ocluida / Asfíctica</option>
                 <option value="Mixta">Mixta</option>
                 <option value="Sensible / Rosácea">Sensible / Rosácea</option>
+                <option value="Acneica / Con tendencia al acné">Acneica / Con tendencia al acné</option>
+                <option value="Desvitalizada / Senil">Desvitalizada / Senil</option>
+                <option value="Hiperpigmentada / Con manchas">Hiperpigmentada / Con manchas</option>
               </select>
             </div>
- 
           </div>
 
-          <!-- Protocolo / Objetivo del Tratamiento -->
-          <div class="print-grid grid grid-cols-1 gap-2">
-            <label for="protocolo" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
-              Protocolo Recomendo / Objetivo del Tratamiento (Ej: Limpieza, Exfoliación, Despigmentante, etc...)
-            </label>
-            <input type="text" id="protocolo" name="protocolo" placeholder="Ej: Limpieza profunda, hidratación y control de grasa..." required
-              class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+          <!-- Protocolo / Objetivo del Tratamiento & Pasos Preliminares -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="flex flex-col gap-2">
+              <label for="protocolo" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                Objetivo del Tratamiento
+              </label>
+              <input type="text" id="protocolo" name="protocolo" placeholder="Ej: Limpieza profunda, control sebáceo..." required
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <label for="pasos_preliminares" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                Pasos Preliminares (Recepción, Entorno y Cliente)
+              </label>
+              <textarea id="pasos_preliminares" name="pasos_preliminares" rows="1" placeholder="Ej: Asepsia de manos, preparación de cabina y cliente..." required
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm resize-none"></textarea>
+            </div>
           </div>
- 
+
           <div class="print-grid grid grid-cols-1 md:grid-cols-2 gap-6">
             <!-- Textareas Column (Diagnóstico + Condición) -->
             <div class="flex flex-col gap-6">
@@ -643,7 +675,7 @@
                 <textarea id="diagnostico" name="diagnostico" rows="3" placeholder="Detalles de la valoración cutánea..." required
                   class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
               </div>
- 
+
               <!-- Condicion -->
               <div class="flex flex-col gap-2">
                 <label for="condicion" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
@@ -679,64 +711,110 @@
             </div>
           </div>
 
-          <!-- Cascading Selector Section (iOS Glass Card) -->
-          <div class="no-print liquid-glass-light rounded-2xl p-6 border border-slate-200/50 dark:border-white/5">
-            <h3 class="font-outfit text-sm font-bold text-slate-800 dark:text-white mb-6 uppercase tracking-wider flex items-center gap-2">
+          <!-- Dynamic Procedure Table Builder (no-print) -->
+          <div class="no-print liquid-glass-light rounded-2xl p-6 border border-slate-200/50 dark:border-white/5 space-y-6">
+            <h3 class="font-outfit text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
               <i data-lucide="layers" class="w-4 h-4 text-bronze-500" stroke-width="1.5"></i>
-              Asignación de Producto Cosmético
+              Diseñador de Procedimiento (Tabla Dinámica)
             </h3>
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <!-- Cascade 1: Marca -->
-              <div class="flex flex-col">
-                <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-2 ml-1">1. Marca</label>
-                <select id="sel-marca" class="smart-input w-full px-4 py-3.5 rounded-xl text-xs appearance-none">
-                  <option value="">Seleccionar marca...</option>
-                </select>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-500/5 p-4 rounded-2xl border border-slate-200/20">
+              <!-- Fase / Protocolo -->
+              <div class="flex flex-col gap-1.5">
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fase / Protocolo</label>
+                <div class="flex gap-2">
+                  <select id="step-fase-preset" onchange="handleFasePresetChange()" class="smart-input text-xs w-1/2">
+                    <option value="Limpieza">Limpieza / Higiene</option>
+                    <option value="Shampoo">Shampoo Facial</option>
+                    <option value="Exfoliación">Exfoliación / Peeling</option>
+                    <option value="Tonificación">Tonificación / Loción</option>
+                    <option value="Armonizador">Armonizador</option>
+                    <option value="Principio Activo">Sérum / Activo</option>
+                    <option value="Mascarilla">Mascarilla</option>
+                    <option value="Crema de Sellado">Crema de Sellado</option>
+                    <option value="Protección Solar">Protección Solar</option>
+                    <option value="Apoyo en Casa">Apoyo en Casa</option>
+                    <option value="Otro" selected>Otro (Escribir...)</option>
+                  </select>
+                  <input type="text" id="step-fase-custom" placeholder="Ej: Armonizador..." class="smart-input text-xs w-1/2">
+                </div>
               </div>
 
-              <!-- Cascade 2: Categoría -->
-              <div class="flex flex-col">
-                <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-2 ml-1">2. Categoría</label>
-                <select id="sel-categoria" class="smart-input w-full px-4 py-3.5 rounded-xl text-xs appearance-none" disabled>
-                  <option value="">Seleccione marca primero...</option>
-                </select>
+              <!-- Cascade Selectors -->
+              <div class="flex flex-col gap-1.5">
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Autocompletar desde Catálogo</label>
+                <div class="grid grid-cols-3 gap-2">
+                  <select id="sel-marca" class="smart-input text-xs">
+                    <option value="">Marca...</option>
+                  </select>
+                  <select id="sel-categoria" class="smart-input text-xs" disabled>
+                    <option value="">Cat...</option>
+                  </select>
+                  <select id="sel-producto" class="smart-input text-xs" disabled>
+                    <option value="">Prod...</option>
+                  </select>
+                </div>
               </div>
 
-              <!-- Cascade 3: Producto -->
-              <div class="flex flex-col">
-                <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-2 ml-1">3. Producto</label>
-                <select id="sel-producto" class="smart-input w-full px-4 py-3.5 rounded-xl text-xs appearance-none" disabled>
-                  <option value="">Seleccione categoría primero...</option>
-                </select>
+              <!-- Product Details to Edit -->
+              <div class="flex flex-col gap-1.5">
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nombre del Producto</label>
+                <input type="text" id="step-product-name" placeholder="Nombre comercial..." class="smart-input text-xs">
+              </div>
+
+              <div class="flex flex-col gap-1.5">
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Marca</label>
+                <input type="text" id="step-product-brand" placeholder="Marca del producto..." class="smart-input text-xs">
+              </div>
+
+              <div class="flex flex-col gap-1.5 md:col-span-2">
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ingredientes Activos</label>
+                <input type="text" id="step-product-actives" placeholder="Activos clave..." class="smart-input text-xs">
+              </div>
+
+              <div class="flex flex-col gap-1.5 md:col-span-2">
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Acción / Efecto esperado</label>
+                <input type="text" id="step-product-action" placeholder="Efectos terapéuticos esperados..." class="smart-input text-xs">
+              </div>
+
+              <div class="flex flex-col gap-1.5 md:col-span-2">
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Descripción de Aplicación (Instrucciones Técnicas)</label>
+                <textarea id="step-product-application" rows="2" placeholder="Detalles de aplicación y masaje..." class="smart-input text-xs resize-none"></textarea>
+              </div>
+
+              <div class="md:col-span-2 flex justify-end pt-2">
+                <button type="button" onclick="addProcedureStep()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5">
+                  <i data-lucide="plus" class="w-4 h-4"></i> Agregar Paso al Procedimiento
+                </button>
               </div>
             </div>
           </div>
 
-          <!-- Technical Specs Printable Area -->
+          <!-- Procedure Table Preview Area -->
           <div class="space-y-4">
             <div class="flex justify-between items-center">
               <label class="block text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">
-                Descripción Técnica del Producto Seleccionado
+                Procedimiento del Protocolo Clínico
               </label>
-              <div id="product-info-badge" class="hidden text-[10px] border border-bronze-500/30 bg-bronze-500/5 text-bronze-600 dark:text-bronze-500 px-3 py-1 rounded-full font-bold tracking-wide">
-                <!-- Name -->
-              </div>
             </div>
             
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div class="md:col-span-2 border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/40 dark:bg-luxe-950/20 backdrop-blur">
-                <table class="w-full text-left border-collapse">
+                <table class="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr class="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5">
-                      <th class="py-3 px-5 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider w-1/3">Parámetro</th>
-                      <th class="py-3 px-5 text-[10px] font-bold text-slate-600 dark:text-luxe-300 uppercase tracking-wider">Valor Técnico</th>
+                    <tr class="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider text-slate-650 dark:text-luxe-300">
+                      <th class="py-3 px-4 w-[20%] border-r border-slate-200/20">Protocolo / Fase</th>
+                      <th class="py-3 px-4 w-[25%] border-r border-slate-200/20">Nombre</th>
+                      <th class="py-3 px-4 w-[15%] border-r border-slate-200/20">Marca</th>
+                      <th class="py-3 px-4 w-[20%] border-r border-slate-200/20">Activos</th>
+                      <th class="py-3 px-4 w-[20%] border-r border-slate-200/20">Acción</th>
+                      <th class="py-3 px-4 text-center w-[10%] no-print">Acción</th>
                     </tr>
                   </thead>
-                  <tbody id="results-table-body" class="text-sm">
+                  <tbody id="form-procedure-tbody" class="divide-y divide-slate-200/50 dark:divide-white/5">
                     <tr>
-                      <td colspan="2" class="py-8 px-5 text-center text-slate-400 dark:text-luxe-400 text-xs italic">
-                        Por favor, asigne un producto en el filtro de cascada para visualizar su descripción técnica.
+                      <td colspan="6" class="py-8 px-4 text-center text-slate-400 dark:text-luxe-400 text-xs italic">
+                        No se han agregado pasos al procedimiento. Use el "Diseñador de Procedimiento" de arriba para agregar productos.
                       </td>
                     </tr>
                   </tbody>
