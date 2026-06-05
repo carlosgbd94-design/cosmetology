@@ -740,9 +740,16 @@
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-500/5 p-6 rounded-[24px] border border-slate-200/20">
               <!-- Left Column: Search & Dropdowns -->
               <div class="lg:col-span-5 space-y-4 flex flex-col justify-between">
+                <!-- Buscador Rápido de Producto -->
+                <div class="flex flex-col gap-2 relative">
+                  <label for="step-product-search" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">1. Buscar Producto (Buscador Rápido)</label>
+                  <input type="text" id="step-product-search" placeholder="🔍 Escriba para buscar producto..." class="smart-input w-full">
+                  <div id="step-search-suggestions" class="hidden absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border max-h-52 overflow-y-auto"></div>
+                </div>
+
                 <!-- Fase / Protocolo -->
-                <div class="flex flex-col gap-2">
-                  <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Fase / Protocolo</label>
+                <div class="flex flex-col gap-2 border-t border-slate-200/10 pt-4">
+                  <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">2. Fase / Protocolo Clínico</label>
                   <div class="flex flex-col sm:flex-row gap-2">
                     <select id="step-fase-preset" onchange="handleFasePresetChange()" class="smart-input w-full sm:w-1/2">
                       <option value="Limpieza">Limpieza / Higiene</option>
@@ -761,16 +768,9 @@
                   </div>
                 </div>
 
-                <!-- Buscador Rápido de Producto -->
-                <div class="flex flex-col gap-2 relative">
-                  <label for="step-product-search" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Buscador Rápido de Producto</label>
-                  <input type="text" id="step-product-search" placeholder="🔍 Escriba para buscar producto..." class="smart-input w-full">
-                  <div id="step-search-suggestions" class="hidden absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border max-h-52 overflow-y-auto"></div>
-                </div>
-
                 <!-- Autocompletar por Categorías -->
-                <div class="flex flex-col gap-2 border-t border-slate-200/10 pt-4 mt-2">
-                  <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Filtrar por Categorías del Catálogo</label>
+                <div class="flex flex-col gap-2 border-t border-slate-200/10 pt-4">
+                  <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">O explorar por Categorías del Catálogo</label>
                   <div class="grid grid-cols-3 gap-2">
                     <select id="sel-marca" class="smart-input text-xs w-full">
                       <option value="">Marca...</option>
@@ -1007,7 +1007,7 @@
             <button type="button" id="btn-reset" class="px-5 py-3 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
               Limpiar Ficha
             </button>
-            <button type="button" onclick="exportToPDF()" class="bg-gradient-to-r from-amber-500 to-bronze-600 hover:brightness-110 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-lg shadow-bronze-500/10 transition-all flex items-center gap-2">
+            <button type="button" onclick="openPDFChoiceModal()" class="bg-gradient-to-r from-amber-500 to-bronze-600 hover:brightness-110 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-lg shadow-bronze-500/10 transition-all flex items-center gap-2">
               <i data-lucide="file-text" class="w-4 h-4" stroke-width="1.5"></i> Exportar PDF Directo
             </button>
             <button type="submit" class="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white dark:text-luxe-950 px-8 py-3 rounded-xl text-xs font-bold shadow-lg shadow-bronze-500/10 transition-all flex items-center gap-2">
@@ -1221,19 +1221,60 @@
                 </div>
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Activos Clave -->
-                <div class="flex flex-col gap-2">
-                  <label for="prod-actives" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Activos Clave</label>
-                  <textarea id="prod-actives" rows="3" placeholder="Ingredientes activos clave..."
-                    class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
+              <!-- Laboratorio de Formulación de Activos -->
+              <div class="border border-slate-200/50 dark:border-white/5 bg-white/20 dark:bg-luxe-950/20 p-5 rounded-3xl space-y-4">
+                <h4 class="font-outfit text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <i data-lucide="beaker" class="w-4 h-4 text-bronze-500"></i>
+                  Laboratorio de Activos y Formulación del Producto
+                </h4>
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <!-- Buscador o Creador de Activos -->
+                  <div class="md:col-span-4 flex flex-col gap-1.5 relative">
+                    <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Ingrediente Activo</label>
+                    <input type="text" id="new-prod-ingredient" placeholder="Ej: Centella..."
+                      class="smart-input w-full px-4 py-2.5 rounded-xl text-sm" oninput="onProductIngredientInput()">
+                    <div id="new-prod-ingredient-suggestions" class="hidden absolute left-0 right-0 top-full mt-1 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-xl max-h-40 overflow-y-auto"></div>
+                  </div>
+
+                  <!-- Acción / Efecto de este activo -->
+                  <div class="md:col-span-6 flex flex-col gap-1.5">
+                    <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Acción / Efecto Clínico de este Activo</label>
+                    <input type="text" id="new-prod-ingredient-action" placeholder="Ej: Estimula colágeno y repara la barrera..."
+                      class="smart-input w-full px-4 py-2.5 rounded-xl text-sm">
+                  </div>
+
+                  <!-- Botón Ligar -->
+                  <div class="md:col-span-2">
+                    <button type="button" onclick="addIngredientToFormProduct()"
+                      class="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white dark:text-luxe-950 w-full py-2.5 rounded-xl text-xs font-bold shadow transition-all hover:brightness-110 flex items-center justify-center gap-1.5">
+                      <i data-lucide="plus" class="w-4 h-4"></i> Ligar Activo
+                    </button>
+                  </div>
                 </div>
 
-                <!-- Biotipo / Indicacion -->
-                <div class="flex flex-col gap-2">
-                  <label for="prod-indication" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo / Indicación de Piel</label>
-                  <textarea id="prod-indication" rows="3" placeholder="Indicaciones para biotipos de piel..."
+                <!-- Lista de Activos Ligados -->
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Fórmula Activa Ligada</label>
+                  <div id="form-ingredients-list" class="flex flex-wrap gap-2 p-4 rounded-xl border border-slate-200/50 dark:border-white/5 bg-slate-500/5 min-h-[50px] items-center">
+                    <div id="form-ingredients-empty-msg" class="text-xs text-slate-400 italic">No se han añadido activos a la formulación.</div>
+                  </div>
+                </div>
+
+                <!-- Botón Auto-generar y Resumen de Indicaciones -->
+                <div class="flex flex-col gap-2 pt-2">
+                  <div class="flex items-center justify-between">
+                    <label for="prod-indication" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo / Indicación de Piel (Efecto Clínico Global)</label>
+                    <button type="button" onclick="autoGenerateClinicalSummary()"
+                      class="bg-slate-700/30 hover:bg-slate-700/60 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white text-[10px] font-bold px-3 py-1 rounded-lg flex items-center gap-1.5 transition-all">
+                      <i data-lucide="wand-2" class="w-3 h-3 text-bronze-500"></i> Auto-generar Resumen Clínico
+                    </button>
+                  </div>
+                  <textarea id="prod-indication" rows="2" placeholder="Describa el efecto clínico esperado y biotipos indicados..."
                     class="smart-input w-full p-4 rounded-xl text-sm resize-none"></textarea>
+                  
+                  <!-- Hidden inputs for backward-compatibility -->
+                  <input type="hidden" id="prod-actives">
                 </div>
               </div>
 
@@ -1436,6 +1477,46 @@
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Selección de PDF (Ficha vs Receta) -->
+  <div id="pdf-choice-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm transition-all duration-300 opacity-0">
+    <div class="liquid-glass rounded-3xl p-8 max-w-sm w-full mx-4 border border-slate-200/50 dark:border-white/5 space-y-6 transform scale-95 transition-transform duration-300">
+      <div class="text-center space-y-2">
+        <h3 class="font-outfit text-lg font-bold text-slate-800 dark:text-white">Exportar Documento</h3>
+        <p class="text-xs text-slate-500 dark:text-luxe-300">Selecciona el tipo de documento PDF que deseas exportar.</p>
+      </div>
+
+      <div class="flex flex-col gap-3">
+        <!-- Opción 1: Ficha Clínica -->
+        <button type="button" onclick="triggerPDFExport('ficha')" class="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white dark:text-luxe-950 p-4 rounded-2xl text-xs font-bold shadow-md transition-all flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+            <i data-lucide="folder-heart" class="w-4.5 h-4.5 text-white dark:text-luxe-950"></i>
+          </div>
+          <div class="flex flex-col text-left">
+            <span class="font-bold leading-tight">Ficha Clínica Completa</span>
+            <span class="text-[10px] opacity-75 font-normal">Historial técnico, biotipo, zonas faciales y protocolo completo.</span>
+          </div>
+        </button>
+
+        <!-- Opción 2: Receta Médica -->
+        <button type="button" onclick="triggerPDFExport('receta')" class="bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white dark:text-luxe-950 p-4 rounded-2xl text-xs font-bold shadow-md transition-all flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+            <i data-lucide="file-signature" class="w-4.5 h-4.5 text-white dark:text-luxe-950"></i>
+          </div>
+          <div class="flex flex-col text-left">
+            <span class="font-bold leading-tight">Receta Médica del Paciente</span>
+            <span class="text-[10px] opacity-75 font-normal">Indicaciones de apoyo en casa, modo de uso y folios secuenciales.</span>
+          </div>
+        </button>
+      </div>
+
+      <div class="flex justify-end pt-2 border-t border-slate-200/10">
+        <button type="button" onclick="closePDFChoiceModal()" class="px-4 py-2 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide transition-colors">
+          Cancelar
+        </button>
       </div>
     </div>
   </div>

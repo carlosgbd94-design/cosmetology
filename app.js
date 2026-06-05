@@ -69,13 +69,16 @@ let allIngredientsList = [];
 let uploadDataPreview = [];
 let activeRipples = [];
 let currentProcedureSteps = [];
+let currentFormIngredients = [];
 
 // Dexie Local Database setup
 const db = new Dexie('DermatiqueLocalDB');
-db.version(4).stores({
+db.version(5).stores({
   products: 'id, brand, category, name, active_ingredients, skin_indication',
   fichas_pacientes: '++id, nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente, synced, titulo_ficha, autor_ficha, pasos_preliminares, procedimiento_json',
-  expedientes_clinicos: 'folio, nombre, fecha, biotipo, synced'
+  expedientes_clinicos: 'folio, nombre, fecha, biotipo, synced',
+  ingredients: 'name, action',
+  product_ingredients: '[product_id+ingredient_name], product_id, ingredient_name'
 });
 
 // Fuse.js Fuzzy Search state
@@ -254,6 +257,24 @@ async function initDatabaseTables() {
       )
     `);
 
+    // Create ingredients table if missing
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS ingredients (
+        name TEXT PRIMARY KEY,
+        action TEXT
+      )
+    `);
+
+    // Create product_ingredients table if missing
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS product_ingredients (
+        product_id TEXT,
+        ingredient_name TEXT,
+        action TEXT,
+        PRIMARY KEY (product_id, ingredient_name)
+      )
+    `);
+
     // Create fichas_pacientes table if missing
     await executeQuery(`
       CREATE TABLE IF NOT EXISTS fichas_pacientes (
@@ -304,6 +325,55 @@ async function initDatabaseTables() {
       VALUES ('clinica_dermatique', 'Dermatique2026', 'especialista')
     `);
 
+    // Seed default ingredients dictionary
+    const baseIngredients = [
+      ['Vetiveria zizanioides', 'Calmante y descongestivo'],
+      ['Santalum album', 'Calmante y antiinflamatorio'],
+      ['Rosmarinus officinalis', 'Antioxidante y estimulante de la circulación'],
+      ['Lauriléter sulfato de sodio', 'Tensoactivo purificante'],
+      ['Cocoato de glicerilo', 'Emoliente suavizante'],
+      ['Extracto de nopal', 'Hidratante y antioxidante'],
+      ['Ácido esteárico', 'Emoliente estructurante'],
+      ['Ácido acrílico', 'Gelificante estabilizador'],
+      ['Palmitato de retinilo', 'Regenerador celular y antiedad (Vitamina A)'],
+      ['Hamamelis virginiana', 'Astringente y descongestivo'],
+      ['Saponaria officinalis', 'Purificante y limpiador sebáceo'],
+      ['Opuntia ficus-indica', 'Humectante y reparador de barrera'],
+      ['Aceite de tomillo', 'Antiséptico y purificante de poros'],
+      ['Melissa officinalis', 'Calmante y descongestivo'],
+      ['Dimeticona', 'Emoliente oclusivo protector'],
+      ['Propilenglicol', 'Humectante y vehículo de activos'],
+      ['Imidazolidinil urea', 'Conservador antimicrobiano'],
+      ['Aceite de ricino', 'Emoliente y lubricante suave'],
+      ['Ácido ferúlico', 'Antioxidante y despigmentante potente'],
+      ['Metilisotiazolinona', 'Conservador de amplio espectro'],
+      ['Triptófano', 'Aminoácido regulador y reparador'],
+      ['Niacinamida', 'Despigmentante, seborregulador y antiinflamatorio'],
+      ['L-arginina', 'Aminoácido hidratante y regenerador'],
+      ['Extracto de Flor de Loto', 'Equilibrante y calmante'],
+      ['Goji Berries', 'Antioxidante protector del colágeno'],
+      ['Alantoína', 'Epitelizante, cicatrizante y calmante'],
+      ['Jalea Real', 'Nutritiva, revitalizante y reparadora'],
+      ['Extracto de Poria Cocos', 'Desensibilizante e inmunoprotector'],
+      ['Pantenol', 'Humectante y regenerador tisular (Vitamina B5)'],
+      ['Centella Asiática', 'Estimulante de colágeno y cicatrizante'],
+      ['Extracto de Caléndula', 'Calmante, regenerador y reparador de rojeces'],
+      ['Alfa-bisabolol', 'Calmante y desensibilizante cutáneo'],
+      ['Agua Termal', 'Calma, descongestiona y remineraliza'],
+      ['Prebióticos azucarados', 'Equilibra y protege la microbiota cutánea'],
+      ['Ceramidas', 'Restaura la barrera lipídica protectora'],
+      ['Péptidos desensibilizantes', 'Disminuye rojeces y reactividad vascular'],
+      ['Aloe Vera', 'Hidratante, cicatrizante y regenerador celular'],
+      ['Extracto de Avena', 'Calmante, antipruriginoso y emoliente']
+    ];
+
+    for (const ing of baseIngredients) {
+      await executeQuery(`
+        INSERT OR IGNORE INTO ingredients (name, action)
+        VALUES (?, ?)
+      `, ing);
+    }
+
     // Seed default products from base_datos_cosmetica if not already present
     const baseProducts = [
       ['MIG-ARM01', 'Miguett', 'Ambar', 'Armonizador', '150 ml', null, 450.00, 'Vetiveria zizanioides, Santalum album, Rosmarinus officinalis', 'Antioxidante, calmante y antiinflamatorio para todo biotipo'],
@@ -326,6 +396,25 @@ async function initDatabaseTables() {
         INSERT OR IGNORE INTO products (id, brand, name, category, capacity, price_aesthetic, price_public, active_ingredients, skin_indication)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, p);
+
+      // Seed product_ingredients many-to-many links for base products
+      const pId = p[0];
+      const activesStr = p[7];
+      const indicationStr = p[8];
+      if (activesStr) {
+        const names = activesStr.split(',').map(n => n.trim()).filter(Boolean);
+        for (const name of names) {
+          let action = indicationStr;
+          const matched = baseIngredients.find(bi => bi[0].toLowerCase() === name.toLowerCase());
+          if (matched) {
+            action = matched[1];
+          }
+          await executeQuery(`
+            INSERT OR IGNORE INTO product_ingredients (product_id, ingredient_name, action)
+            VALUES (?, ?, ?)
+          `, [pId, name, action]);
+        }
+      }
     }
   } catch (err) {
     console.error("Error initializing cloud database tables:", err);
@@ -1163,34 +1252,6 @@ function renderResultsTable(p) {
     return;
   }
 
-  if (badge) {
-    badge.textContent = `${p.brand} - ${p.name}`;
-    badge.classList.remove('hidden');
-  }
-
-  tbody.innerHTML = `
-    <tr class="border-b border-slate-200/50 dark:border-white/5">
-      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400 w-1/3">ID / Clave</td>
-      <td class="py-3.5 px-5 font-bold text-slate-800 dark:text-white">${p.id}</td>
-    </tr>
-    <tr class="border-b border-slate-200/50 dark:border-white/5">
-      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Capacidad</td>
-      <td class="py-3.5 px-5 text-slate-700 dark:text-luxe-200">${p.capacity || '-'}</td>
-    </tr>
-    <tr class="border-b border-slate-200/50 dark:border-white/5">
-      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Precio Público (MXN)</td>
-      <td class="py-3.5 px-5 text-emerald-600 dark:text-emerald-400 font-bold">${formatCurrency(p.price_public)}</td>
-    </tr>
-    <tr class="border-b border-slate-200/50 dark:border-white/5">
-      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Biotipo / Indicación</td>
-      <td class="py-3.5 px-5 text-slate-700 dark:text-luxe-200 font-medium">${p.skin_indication || '-'}</td>
-    </tr>
-    <tr class="border-b border-slate-200/50 dark:border-white/5">
-      <td class="py-3.5 px-5 font-semibold text-slate-500 dark:text-luxe-400">Activos Clave</td>
-      <td class="py-3.5 px-5 text-slate-800 dark:text-white font-semibold">${p.active_ingredients || '-'}</td>
-    </tr>
-  `;
-
   // Render financial analytics (Specialist only)
   if (finCard) {
     finCard.classList.remove('hidden');
@@ -1614,6 +1675,8 @@ window.toggleProductForm = function() {
     document.getElementById('mutation-form-title').textContent = 'Crear Nuevo Producto';
     document.getElementById('is_edit').value = 'false';
     document.getElementById('product-form').reset();
+    currentFormIngredients = [];
+    renderFormIngredientsList();
   } else {
     formCard.classList.add('hidden');
   }
@@ -1784,7 +1847,7 @@ window.filterCatalog = function() {
   renderCatalogTable(filtered);
 };
 
-window.editProduct = function(p) {
+window.editProduct = async function(p) {
   const formCard = document.getElementById('product-mutation-card');
   formCard.classList.remove('hidden');
   
@@ -1803,7 +1866,177 @@ window.editProduct = function(p) {
   document.getElementById('prod-actives').value = p.active_ingredients || '';
   document.getElementById('prod-indication').value = p.skin_indication || '';
 
+  // Load ingredients from relational database
+  currentFormIngredients = [];
+  try {
+    let relations = [];
+    if (navigator.onLine) {
+      const res = await executeQuery("SELECT * FROM product_ingredients WHERE product_id = ?", [p.id]);
+      relations = res.rows;
+    } else {
+      relations = await db.product_ingredients.where('product_id').equals(p.id).toArray();
+    }
+
+    if (relations && relations.length > 0) {
+      currentFormIngredients = relations.map(r => ({
+        name: r.ingredient_name,
+        action: r.action
+      }));
+    } else if (p.active_ingredients) {
+      // Fallback: Parse active_ingredients text
+      const names = p.active_ingredients.split(',').map(n => n.trim()).filter(Boolean);
+      for (const name of names) {
+        let action = p.skin_indication || '';
+        try {
+          let ingRow = null;
+          if (navigator.onLine) {
+            const ingRes = await executeQuery("SELECT action FROM ingredients WHERE name = ?", [name]);
+            if (ingRes.rows && ingRes.rows.length > 0) ingRow = ingRes.rows[0];
+          } else {
+            ingRow = await db.ingredients.get(name);
+          }
+          if (ingRow) action = ingRow.action;
+        } catch(e) {
+          console.error("Error looking up individual ingredient during edit load:", e);
+        }
+        currentFormIngredients.push({ name, action });
+      }
+    }
+  } catch (err) {
+    console.error("Error loading product ingredients for editing:", err);
+  }
+
+  renderFormIngredientsList();
   scrollToSection('product-mutation-card');
+};
+
+// --- Laboratory of Formulation (Active Ingredients & Actions Relation) ---
+window.onProductIngredientInput = async function() {
+  const input = document.getElementById('new-prod-ingredient');
+  const suggestionsDiv = document.getElementById('new-prod-ingredient-suggestions');
+  if (!input || !suggestionsDiv) return;
+
+  const query = input.value.trim();
+  if (query.length === 0) {
+    suggestionsDiv.innerHTML = '';
+    suggestionsDiv.classList.add('hidden');
+    return;
+  }
+
+  // Load all unique ingredients from local Dexie database for autocomplete suggestions
+  let matches = [];
+  try {
+    const list = await db.ingredients.toArray();
+    const normQuery = normalizeText(query);
+    matches = list.filter(ing => normalizeText(ing.name).includes(normQuery)).slice(0, 5);
+  } catch(e) {
+    console.error("Error fetching ingredient suggestions:", e);
+  }
+
+  if (matches.length === 0) {
+    suggestionsDiv.innerHTML = '';
+    suggestionsDiv.classList.add('hidden');
+  } else {
+    suggestionsDiv.innerHTML = matches.map(ing => `
+      <div class="p-2.5 hover:bg-slate-100 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5 last:border-0 cursor-pointer text-xs text-left"
+        onclick="selectFormIngredient('${ing.name.replace(/'/g, "\\'")}', '${ing.action.replace(/'/g, "\\'")}')">
+        <span class="font-bold text-slate-800 dark:text-white">${ing.name}</span>
+        <div class="text-[10px] text-slate-500 dark:text-luxe-400 truncate">${ing.action}</div>
+      </div>
+    `).join('');
+    suggestionsDiv.classList.remove('hidden');
+  }
+};
+
+window.selectFormIngredient = function(name, action) {
+  const nameInput = document.getElementById('new-prod-ingredient');
+  const actionInput = document.getElementById('new-prod-ingredient-action');
+  const suggestionsDiv = document.getElementById('new-prod-ingredient-suggestions');
+
+  if (nameInput) nameInput.value = name;
+  if (actionInput) actionInput.value = action;
+  if (suggestionsDiv) {
+    suggestionsDiv.innerHTML = '';
+    suggestionsDiv.classList.add('hidden');
+  }
+};
+
+window.addIngredientToFormProduct = function() {
+  const nameInput = document.getElementById('new-prod-ingredient');
+  const actionInput = document.getElementById('new-prod-ingredient-action');
+  if (!nameInput || !actionInput) return;
+
+  const name = nameInput.value.trim();
+  const action = actionInput.value.trim();
+
+  if (!name) {
+    showToast('Por favor, ingresa el nombre de un ingrediente activo.', 'error');
+    return;
+  }
+
+  // Check if already exists in list
+  if (currentFormIngredients.some(i => i.name.toLowerCase() === name.toLowerCase())) {
+    showToast('Este ingrediente ya está añadido a la fórmula.', 'warning');
+    return;
+  }
+
+  currentFormIngredients.push({ name, action: action || 'Efecto no especificado.' });
+  
+  // Render and clear inputs
+  renderFormIngredientsList();
+  nameInput.value = '';
+  actionInput.value = '';
+
+  // Trigger micro-animation on list
+  const listDiv = document.getElementById('form-ingredients-list');
+  if (listDiv) {
+    listDiv.classList.add('scale-[1.02]');
+    setTimeout(() => listDiv.classList.remove('scale-[1.02]'), 150);
+  }
+};
+
+window.removeIngredientFromFormProduct = function(idx) {
+  currentFormIngredients.splice(idx, 1);
+  renderFormIngredientsList();
+};
+
+window.renderFormIngredientsList = function() {
+  const container = document.getElementById('form-ingredients-list');
+  if (!container) return;
+
+  if (currentFormIngredients.length === 0) {
+    container.innerHTML = `<div id="form-ingredients-empty-msg" class="text-xs text-slate-400 italic">No se han añadido activos a la formulación.</div>`;
+    return;
+  }
+
+  container.innerHTML = currentFormIngredients.map((ing, idx) => `
+    <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-bronze-500/20 bg-bronze-500/5 text-bronze-600 dark:text-bronze-400 text-xs font-medium animate-fade-in">
+      <div class="flex flex-col text-left">
+        <span class="font-bold text-slate-800 dark:text-white leading-tight">${ing.name}</span>
+        <span class="text-[9px] opacity-75">${ing.action}</span>
+      </div>
+      <button type="button" onclick="removeIngredientFromFormProduct(${idx})" class="p-0.5 hover:text-red-500 transition-colors ml-1 font-bold">
+        ✕
+      </button>
+    </div>
+  `).join('');
+};
+
+window.autoGenerateClinicalSummary = function() {
+  const indicationTextarea = document.getElementById('prod-indication');
+  if (!indicationTextarea) return;
+
+  if (currentFormIngredients.length === 0) {
+    showToast('Añada al menos un ingrediente activo en el laboratorio para generar el resumen clínico.', 'warning');
+    return;
+  }
+
+  // Generate nice aggregated medical text
+  const actions = currentFormIngredients.map(i => `${i.name} (acción: ${i.action.toLowerCase()})`).join(', ');
+  const combined = `Fórmula cosmetológica de alta tolerancia terapéutica. Contiene ${actions}. Indicado para restaurar el equilibrio cutáneo y potenciar los resultados del biotipo correspondiente.`;
+  
+  indicationTextarea.value = combined;
+  showToast('Resumen Clínico auto-generado con éxito.', 'success');
 };
 
 window.deleteProduct = async function(id) {
@@ -1888,7 +2121,8 @@ function initProductForm() {
     const capacity = document.getElementById('prod-capacity').value;
     const price_aesthetic = document.getElementById('prod-price-aesthetic').value;
     const price_public = document.getElementById('prod-price-public').value;
-    const active_ingredients = document.getElementById('prod-actives').value;
+    
+    const active_ingredients = currentFormIngredients.map(i => i.name).join(', ');
     const skin_indication = document.getElementById('prod-indication').value;
     const is_edit = document.getElementById('is_edit').value === 'true';
 
@@ -1897,25 +2131,69 @@ function initProductForm() {
       const pricePub = sanitizePrice(price_public);
 
       if (is_edit) {
-        await executeQuery(
-          `UPDATE products SET brand = ?, name = ?, category = ?, capacity = ?, 
-           price_aesthetic = ?, price_public = ?, active_ingredients = ?, skin_indication = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [brand, name, category, capacity || null, priceAes, pricePub, active_ingredients || null, skin_indication || null, id]
-        );
-        showToast('Producto actualizado.', 'success');
-      } else {
-        const check = await executeQuery("SELECT id FROM products WHERE id = ?", [id]);
-        if (check.rows.length > 0) {
-          showToast(`El ID/Clave '${id}' ya está registrado.`, 'error');
-          return;
+        if (navigator.onLine) {
+          await executeQuery(
+            `UPDATE products SET brand = ?, name = ?, category = ?, capacity = ?, 
+             price_aesthetic = ?, price_public = ?, active_ingredients = ?, skin_indication = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [brand, name, category, capacity || null, priceAes, pricePub, active_ingredients || null, skin_indication || null, id]
+          );
+
+          await executeQuery("DELETE FROM product_ingredients WHERE product_id = ?", [id]);
+          for (const ing of currentFormIngredients) {
+            await executeQuery("INSERT OR IGNORE INTO ingredients (name, action) VALUES (?, ?)", [ing.name, ing.action]);
+            await executeQuery("INSERT INTO product_ingredients (product_id, ingredient_name, action) VALUES (?, ?, ?)", [id, ing.name, ing.action]);
+          }
         }
 
-        await executeQuery(
-          `INSERT INTO products (id, brand, name, category, capacity, price_aesthetic, price_public, active_ingredients, skin_indication) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [id, brand, name, category, capacity || null, priceAes, pricePub, active_ingredients || null, skin_indication || null]
-        );
+        await db.products.put({
+          id, brand, name, category, capacity: capacity || null,
+          price_aesthetic: priceAes, price_public: pricePub,
+          active_ingredients: active_ingredients || null, skin_indication: skin_indication || null
+        });
+        await db.product_ingredients.where('product_id').equals(id).delete();
+        for (const ing of currentFormIngredients) {
+          await db.ingredients.put({ name: ing.name, action: ing.action });
+          await db.product_ingredients.put({ product_id: id, ingredient_name: ing.name, action: ing.action });
+        }
+
+        showToast('Producto actualizado.', 'success');
+      } else {
+        if (navigator.onLine) {
+          const check = await executeQuery("SELECT id FROM products WHERE id = ?", [id]);
+          if (check.rows.length > 0) {
+            showToast(`El ID/Clave '${id}' ya está registrado.`, 'error');
+            return;
+          }
+
+          await executeQuery(
+            `INSERT INTO products (id, brand, name, category, capacity, price_aesthetic, price_public, active_ingredients, skin_indication) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, brand, name, category, capacity || null, priceAes, pricePub, active_ingredients || null, skin_indication || null]
+          );
+
+          for (const ing of currentFormIngredients) {
+            await executeQuery("INSERT OR IGNORE INTO ingredients (name, action) VALUES (?, ?)", [ing.name, ing.action]);
+            await executeQuery("INSERT INTO product_ingredients (product_id, ingredient_name, action) VALUES (?, ?, ?)", [id, ing.name, ing.action]);
+          }
+        } else {
+          const localCheck = await db.products.get(id);
+          if (localCheck) {
+            showToast(`El ID/Clave '${id}' ya está registrado localmente.`, 'error');
+            return;
+          }
+        }
+
+        await db.products.put({
+          id, brand, name, category, capacity: capacity || null,
+          price_aesthetic: priceAes, price_public: pricePub,
+          active_ingredients: active_ingredients || null, skin_indication: skin_indication || null
+        });
+        for (const ing of currentFormIngredients) {
+          await db.ingredients.put({ name: ing.name, action: ing.action });
+          await db.product_ingredients.put({ product_id: id, ingredient_name: ing.name, action: ing.action });
+        }
+
         showToast('Producto creado.', 'success');
       }
 
@@ -2733,7 +3011,7 @@ function initFacialCanvas() {
       canvas.style.cursor = 'default';
     }
 
-    if (hoveredZoneKey !== prevHovered || hoveredZoneKey !== null) {
+    if (hoveredZoneKey !== prevHovered) {
       drawFacialSilhouette(ctx, canvas.width, canvas.height, activeFacialZones);
     }
   });
@@ -2749,7 +3027,42 @@ function escapeRegExp(string) {
 }
 
 // Export to Premium PDF via html2pdf
-window.exportToPDF = function() {
+// --- PDF Export Choice Modal Logic & Dual PDF Layouts ---
+window.openPDFChoiceModal = function() {
+  const modal = document.getElementById('pdf-choice-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  setTimeout(() => {
+    modal.classList.remove('opacity-0');
+    const card = modal.querySelector('.liquid-glass');
+    if (card) card.classList.remove('scale-95');
+  }, 10);
+};
+
+window.closePDFChoiceModal = function() {
+  const modal = document.getElementById('pdf-choice-modal');
+  if (!modal) return;
+  modal.classList.add('opacity-0');
+  const card = modal.querySelector('.liquid-glass');
+  if (card) card.classList.add('scale-95');
+  setTimeout(() => {
+    modal.classList.add('hidden');
+  }, 300);
+};
+
+window.triggerPDFExport = function(type) {
+  closePDFChoiceModal();
+  setTimeout(() => {
+    if (type === 'ficha') {
+      exportClinicalFichaPDF();
+    } else {
+      exportPatientRecipePDF();
+    }
+  }, 310);
+};
+
+// Exporter 1: Ficha Clínica Completa
+async function exportClinicalFichaPDF() {
   const nombre = document.getElementById('nombre').value || '__________________________________';
   const fecha = document.getElementById('fecha').value || '__________________';
   const biotipo = document.getElementById('biotipo').value || '__________________';
@@ -2757,12 +3070,49 @@ window.exportToPDF = function() {
   const condicion = document.getElementById('condicion').value || 'Ninguna.';
   const edad = document.getElementById('edad').value || '___';
   const protocolo = document.getElementById('protocolo').value || 'No especificado.';
-  const docTitle = document.getElementById('current-doc-id').textContent || 'Prescripción de Activos';
-  
-  const mainTableBody = document.getElementById('results-table-body');
+  const folio = await generateClinicalFolio();
+
+  // Active Zones Friendly list
+  const zoneTags = {
+    forehead: 'Frente',
+    nose: 'Nariz',
+    leftCheek: 'Mejilla Derecha',
+    rightCheek: 'Mejilla Izquierda',
+    chin: 'Mentón',
+    leftEye: 'Ojo Izquierdo',
+    rightEye: 'Ojo Derecho',
+    lips: 'Labios',
+    neck: 'Cuello'
+  };
+  const activeZonesList = Object.keys(activeFacialZones)
+    .filter(k => activeFacialZones[k])
+    .map(k => zoneTags[k] || k)
+    .join(', ') || 'Ninguna zona marcada';
+
   let tableRowsHtml = '';
-  if (mainTableBody) {
-    tableRowsHtml = mainTableBody.innerHTML;
+  if (currentProcedureSteps.length === 0) {
+    tableRowsHtml = `
+      <tr>
+        <td colspan="5" class="py-4 text-center text-slate-400 italic">No se han añadido pasos al protocolo clínico.</td>
+      </tr>
+    `;
+  } else {
+    currentProcedureSteps.forEach((step, idx) => {
+      tableRowsHtml += `
+        <tr class="border-b border-slate-300">
+          <td style="padding: 6px 12px; font-weight: 700; color: #121215;">${step.fase}</td>
+          <td style="padding: 6px 12px; font-weight: 600;">${step.name}</td>
+          <td style="padding: 6px 12px; color: #555;">${step.brand || '-'}</td>
+          <td style="padding: 6px 12px; color: #555;">${step.actives || '-'}</td>
+          <td style="padding: 6px 12px; color: #555;">${step.action || '-'}</td>
+        </tr>
+        <tr class="bg-slate-50 border-b border-slate-300">
+          <td colspan="5" style="padding: 4px 12px; font-size: 8px; color: #666; font-style: italic;">
+            <strong>Descripción de aplicación:</strong> ${step.application || 'No especificada.'}
+          </td>
+        </tr>
+      `;
+    });
   }
 
   let aiRoutineHtml = '';
@@ -2771,8 +3121,8 @@ window.exportToPDF = function() {
   if (aiContent && aiContainer && !aiContainer.classList.contains('hidden') && aiContent.textContent.trim() !== '') {
     aiRoutineHtml = `
       <div style="margin-top: 10px; padding: 10px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px;">
-        <span class="pdf-specs-title" style="margin-bottom: 4px; display: block;">Recomendación Inteligente de la IA</span>
-        <p style="font-size: 8px; color: #333; line-height: 1.25; margin: 0; white-space: pre-wrap; font-weight: 500;">${aiContent.innerText}</p>
+        <span class="pdf-specs-title" style="margin-bottom: 4px; display: block; font-size: 8px; font-weight:700; text-transform:uppercase; color:#999;">Recomendación IA</span>
+        <p style="font-size: 8.5px; color: #333; line-height: 1.3; margin: 0; white-space: pre-wrap; font-weight: 500;">${aiContent.innerText}</p>
       </div>
     `;
   }
@@ -2780,38 +3130,30 @@ window.exportToPDF = function() {
   let signatureEspImg = '';
   let signaturePacImg = '';
   if (signaturePadEspecialista && !signaturePadEspecialista.isEmpty()) {
-    signatureEspImg = `<img class="signature-img" src="${signaturePadEspecialista.toDataURL()}" alt="Firma Especialista">`;
+    signatureEspImg = `<img class="signature-img" src="${signaturePadEspecialista.toDataURL()}" style="max-height: 40px; max-width: 100%; object-fit: contain;">`;
   }
   if (signaturePadPaciente && !signaturePadPaciente.isEmpty()) {
-    signaturePacImg = `<img class="signature-img" src="${signaturePadPaciente.toDataURL()}" alt="Firma Paciente">`;
+    signaturePacImg = `<img class="signature-img" src="${signaturePadPaciente.toDataURL()}" style="max-height: 40px; max-width: 100%; object-fit: contain;">`;
   }
 
-  const filename = `Ficha_Estetica_${nombre.trim().replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`;
-
-  // Create isolated sandbox container for PDF generation to bypass any browser zoom or responsive screen dimensions
   const container = document.createElement('div');
   container.style.position = 'fixed';
   container.style.left = '-9999px';
   container.style.top = '0';
   container.style.width = '800px';
-  container.style.height = '1000px';
   container.style.zIndex = '-99999';
 
   container.innerHTML = `
     <div style="
       width: 800px;
-      height: 1000px !important;
-      padding: 25px 40px;
+      padding: 30px 40px;
       background: #ffffff;
       color: #121215;
       font-family: 'Urbanist', sans-serif;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      overflow: hidden !important;
     ">
-      <!-- Embedded custom styling independent of tailwind or print media query -->
       <style>
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Urbanist:wght@400;500;600;700&display=swap');
         .pdf-header {
@@ -2820,48 +3162,11 @@ window.exportToPDF = function() {
           align-items: center;
           border-bottom: 2px solid #D4AF37;
           padding-bottom: 8px;
-          margin-bottom: 12px;
-        }
-        .pdf-header-left {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        .pdf-logo {
-          width: 32px;
-          height: 32px;
-          border-radius: 6px;
-          background: #121215;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .pdf-logo svg {
-          width: 18px;
-          height: 18px;
-          color: #D4AF37;
-        }
-        .pdf-brand-name {
-          font-family: 'Sora', sans-serif;
-          font-size: 16px;
-          font-weight: 700;
-          margin: 0;
-          color: #121215;
-        }
-        .pdf-brand-sub {
-          font-size: 8px;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-          color: #666;
-          margin: 1px 0 0 0;
-          font-weight: 600;
-        }
-        .pdf-header-right {
-          text-align: right;
+          margin-bottom: 15px;
         }
         .pdf-doc-title {
           font-family: 'Sora', sans-serif;
-          font-size: 12px;
+          font-size: 14px;
           font-weight: 700;
           text-transform: uppercase;
           letter-spacing: 1.5px;
@@ -2894,7 +3199,7 @@ window.exportToPDF = function() {
           margin-bottom: 2px;
         }
         .pdf-demo-value {
-          font-size: 10.5px;
+          font-size: 10px;
           font-weight: 700;
           color: #121215;
         }
@@ -2909,7 +3214,7 @@ window.exportToPDF = function() {
           border: 1px solid #e5e5e0;
           border-radius: 8px;
           padding: 10px;
-          min-height: 70px;
+          min-height: 60px;
         }
         .pdf-detail-title {
           font-size: 7.5px;
@@ -2921,7 +3226,7 @@ window.exportToPDF = function() {
           display: block;
         }
         .pdf-detail-content {
-          font-size: 10px;
+          font-size: 9.5px;
           color: #333;
           line-height: 1.3;
           margin: 0;
@@ -2929,26 +3234,21 @@ window.exportToPDF = function() {
           font-weight: 500;
         }
         .pdf-specs-section {
-          margin-bottom: 12px;
+          margin-bottom: 15px;
         }
         .pdf-specs-title {
-          font-size: 7.5px;
+          font-size: 8px;
           font-weight: 750;
           color: #999;
           text-transform: uppercase;
           letter-spacing: 1px;
-          margin-bottom: 4px;
+          margin-bottom: 6px;
           display: block;
-        }
-        .pdf-specs-table-wrapper {
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
-          overflow: hidden;
         }
         .pdf-table {
           width: 100%;
           border-collapse: collapse;
-          font-size: 10px;
+          font-size: 9.5px;
         }
         .pdf-table th {
           background-color: #fafaf9;
@@ -2961,41 +3261,28 @@ window.exportToPDF = function() {
           padding: 6px 12px;
           text-align: left;
         }
-        .pdf-table td {
-          padding: 6px 12px !important;
-          border-bottom: 1px solid #e2e8f0 !important;
-          color: #333333 !important;
-          font-size: 10px !important;
-          font-weight: 500 !important;
-          background: transparent !important;
-        }
-        .pdf-table tr:last-child td {
-          border-bottom: none !important;
-        }
         .pdf-footer {
           border-top: 1px solid #e2e8f0;
-          padding-top: 10px;
-          page-break-inside: avoid !important;
+          padding-top: 8px;
+          margin-top: auto;
         }
         .pdf-consent {
           font-size: 7px;
           color: #999;
           line-height: 1.25;
           font-style: italic;
-          margin-bottom: 12px;
+          margin-bottom: 10px;
         }
         .pdf-sigs-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 40px;
-          page-break-inside: avoid !important;
         }
         .pdf-sig-col {
           display: flex;
           flex-direction: column;
           align-items: center;
           text-align: center;
-          page-break-inside: avoid !important;
         }
         .pdf-sig-box {
           width: 180px;
@@ -3005,12 +3292,6 @@ window.exportToPDF = function() {
           align-items: center;
           justify-content: center;
           overflow: hidden;
-          margin-bottom: 4px;
-        }
-        .pdf-sig-box img {
-          max-height: 100%;
-          max-width: 100%;
-          object-fit: contain;
           margin-bottom: 4px;
         }
         .pdf-sig-title {
@@ -3034,9 +3315,9 @@ window.exportToPDF = function() {
           <div class="pdf-header-left">
             <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" style="height: 38px; width: auto; object-fit: contain;">
           </div>
-          <div class="pdf-header-right">
-            <h2 class="pdf-doc-title">${docTitle}</h2>
-            <p class="pdf-doc-sub">Clínica de Estética Especializada</p>
+          <div class="pdf-header-right" style="text-align: right;">
+            <h2 class="pdf-doc-title">Ficha Clínica de Diagnóstico</h2>
+            <p class="pdf-doc-sub">Folio: ${folio} | Consulta Médica Estética</p>
           </div>
         </div>
 
@@ -3051,7 +3332,7 @@ window.exportToPDF = function() {
             <span class="pdf-demo-value">${edad} años</span>
           </div>
           <div class="pdf-demo-item">
-            <span class="pdf-demo-label">Fecha de Consulta</span>
+            <span class="pdf-demo-label">Fecha</span>
             <span class="pdf-demo-value">${fecha}</span>
           </div>
           <div class="pdf-demo-item">
@@ -3060,10 +3341,16 @@ window.exportToPDF = function() {
           </div>
         </div>
 
-        <!-- Protocolo -->
-        <div style="margin-bottom: 12px; padding: 10px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px;">
-          <span class="pdf-demo-label" style="display:block; margin-bottom: 2px;">Protocolo / Objetivo Recomendado</span>
-          <span class="pdf-demo-value" style="font-size: 11px;">${protocolo}</span>
+        <!-- Protocol & Zonas -->
+        <div style="display: grid; grid-template-columns: 3fr 2fr; gap: 12px; margin-bottom: 12px;">
+          <div style="padding: 10px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px;">
+            <span class="pdf-demo-label" style="display:block; margin-bottom: 2px;">Protocolo Clínico Recomendado</span>
+            <span class="pdf-demo-value" style="font-size: 10px;">${protocolo}</span>
+          </div>
+          <div style="padding: 10px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px;">
+            <span class="pdf-demo-label" style="display:block; margin-bottom: 2px;">Zonas Faciales Afectadas</span>
+            <span class="pdf-demo-value" style="font-size: 10px; color: #D4AF37;">${activeZonesList}</span>
+          </div>
         </div>
 
         <!-- Details -->
@@ -3078,15 +3365,18 @@ window.exportToPDF = function() {
           </div>
         </div>
 
-        <!-- Product Specs -->
+        <!-- Treatment Steps -->
         <div class="pdf-specs-section">
-          <span class="pdf-specs-title">Detalles Técnicos del Producto Prescrito</span>
-          <div class="pdf-specs-table-wrapper">
+          <span class="pdf-specs-title">Procedimiento / Protocolo de Cabina Aplicado</span>
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
             <table class="pdf-table">
               <thead>
                 <tr>
-                  <th style="width: 33%">Parámetro</th>
-                  <th>Valor Técnico</th>
+                  <th style="width: 20%">Fase</th>
+                  <th style="width: 25%">Producto</th>
+                  <th style="width: 15%">Marca</th>
+                  <th style="width: 20%">Activos</th>
+                  <th style="width: 20%">Acción / Efecto</th>
                 </tr>
               </thead>
               <tbody>
@@ -3101,7 +3391,7 @@ window.exportToPDF = function() {
       <!-- Footer -->
       <div class="pdf-footer">
         <p class="pdf-consent">
-          *Nota de Consentimiento Clínico: Al firmar esta ficha, el especialista confirma haber valorado clínicamente el biotipo cutáneo del paciente y haber seleccionado los activos recomendados. El paciente certifica estar de acuerdo con las recomendaciones cosméticas detalladas y declara no poseer alergias conocidas a los ingredientes descritos.
+          *Nota de Consentimiento Clínico: El especialista confirma haber valorado clínicamente el biotipo cutáneo del paciente y haber seleccionado los activos correspondientes. El paciente certifica estar de acuerdo con las recomendaciones cosmetológicas y declara no poseer alergias a los ingredientes descritos.
         </p>
         <div class="pdf-sigs-grid">
           <div class="pdf-sig-col">
@@ -3127,28 +3417,280 @@ window.exportToPDF = function() {
 
   const opt = {
     margin:       0,
-    filename:     filename,
+    filename:     `Ficha_Clinica_${nombre.replace(/\s+/g, '_')}_${folio}.pdf`,
     image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { 
-      scale: 2.5, 
-      useCORS: true, 
-      logging: false,
-      width: 800,
-      height: 1000
-    },
-    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' },
-    pagebreak:    { mode: 'avoid-all' }
+    html2canvas:  { scale: 2.5, useCORS: true, logging: false, width: 800 },
+    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
   };
 
   html2pdf().set(opt).from(container.firstElementChild).save().then(() => {
-    showToast('Ficha PDF descargada con éxito.', 'success');
+    showToast('Ficha Clínica PDF descargada con éxito.', 'success');
   }).catch(err => {
     console.error(err);
-    showToast('Error al generar PDF.', 'error');
+    showToast('Error al generar Ficha PDF.', 'error');
   }).finally(() => {
     container.remove();
   });
-};
+}
+
+// Exporter 2: Receta / Prescripción Médica de Apoyo en Casa
+async function exportPatientRecipePDF() {
+  const nombre = document.getElementById('nombre').value || '__________________________________';
+  const fecha = document.getElementById('fecha').value || '__________________';
+  const biotipo = document.getElementById('biotipo').value || '__________________';
+  const edad = document.getElementById('edad').value || '___';
+  const folio = await generateClinicalFolio();
+
+  // Filter steps for Apoyo en Casa. If none, render all as home-care recommendations
+  const homeSteps = currentProcedureSteps.filter(s => s.fase === 'Apoyo en Casa');
+  const stepsToRender = homeSteps.length > 0 ? homeSteps : currentProcedureSteps;
+
+  let tableRowsHtml = '';
+  if (stepsToRender.length === 0) {
+    tableRowsHtml = `
+      <tr>
+        <td colspan="4" class="py-4 text-center text-slate-400 italic">No hay productos recomendados prescritos en esta sesión.</td>
+      </tr>
+    `;
+  } else {
+    stepsToRender.forEach((step) => {
+      tableRowsHtml += `
+        <tr class="border-b border-slate-300">
+          <td style="padding: 10px 12px; font-weight: 700; color: #121215; font-size: 10px;">${step.name} <span style="font-size: 8px; color:#666; font-weight:normal;">(${step.brand || '-'})</span></td>
+          <td style="padding: 10px 12px; color: #333; font-size: 9.5px;">${step.actives || '-'}</td>
+          <td style="padding: 10px 12px; color: #333; font-size: 9.5px;">${step.action || '-'}</td>
+          <td style="padding: 10px 12px; color: #b45309; font-style: italic; font-weight: 600; font-size: 9.5px;">${step.application || 'Aplicar según indicaciones del especialista.'}</td>
+        </tr>
+      `;
+    });
+  }
+
+  let signatureEspImg = '';
+  if (signaturePadEspecialista && !signaturePadEspecialista.isEmpty()) {
+    signatureEspImg = `<img class="signature-img" src="${signaturePadEspecialista.toDataURL()}" style="max-height: 45px; max-width: 100%; object-fit: contain;">`;
+  }
+
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '800px';
+  container.style.zIndex = '-99999';
+
+  container.innerHTML = `
+    <div style="
+      width: 800px;
+      padding: 40px 45px;
+      background: #ffffff;
+      color: #121215;
+      font-family: 'Urbanist', sans-serif;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    ">
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Urbanist:wght@400;500;600;700&display=swap');
+        .pdf-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 2.5px solid #D4AF37;
+          padding-bottom: 10px;
+          margin-bottom: 20px;
+        }
+        .pdf-doc-title {
+          font-family: 'Sora', sans-serif;
+          font-size: 16px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 1.5px;
+          color: #121215;
+          margin: 0;
+        }
+        .pdf-doc-sub {
+          font-size: 8.5px;
+          color: #666;
+          margin: 1px 0 0 0;
+        }
+        .recipe-demo-grid {
+          display: grid;
+          grid-template-columns: 2fr 1fr 1fr 1fr;
+          gap: 12px;
+          margin-bottom: 20px;
+          background: #fafaf9;
+          border: 1px solid #e5e5e0;
+          border-radius: 12px;
+          padding: 12px 18px;
+        }
+        .recipe-demo-item {
+          display: flex;
+          flex-direction: column;
+        }
+        .recipe-demo-label {
+          font-size: 7.5px;
+          font-weight: 750;
+          color: #999;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin-bottom: 2px;
+        }
+        .recipe-demo-value {
+          font-size: 11px;
+          font-weight: 700;
+          color: #121215;
+        }
+        .pdf-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .pdf-table th {
+          background-color: #fafaf9;
+          border-bottom: 2px solid #e2e8f0;
+          color: #666;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          font-size: 8px;
+          padding: 8px 12px;
+          text-align: left;
+        }
+        .recipe-footer {
+          border-top: 1.5px solid #D4AF37;
+          padding-top: 15px;
+          margin-top: auto;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+        }
+        .recipe-disclaimer {
+          font-size: 7.5px;
+          color: #888;
+          line-height: 1.3;
+          max-width: 450px;
+        }
+        .recipe-sig-col {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          width: 200px;
+        }
+        .recipe-sig-box {
+          width: 160px;
+          height: 45px;
+          border-bottom: 1.5px solid #D4AF37;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          margin-bottom: 6px;
+        }
+        .recipe-sig-title {
+          font-size: 8px;
+          font-weight: 700;
+          color: #121215;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          margin: 0;
+        }
+        .recipe-sig-sub {
+          font-size: 7px;
+          color: #777;
+          margin: 1px 0 0 0;
+        }
+      </style>
+
+      <div>
+        <!-- Header -->
+        <div class="pdf-header">
+          <div class="pdf-header-left">
+            <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" style="height: 42px; width: auto; object-fit: contain;">
+          </div>
+          <div class="pdf-header-right" style="text-align: right;">
+            <h2 class="pdf-doc-title">Receta y Apoyo en Casa</h2>
+            <p class="pdf-doc-sub">Folio Recetario: ${folio} | Cuidado Dermatológico</p>
+          </div>
+        </div>
+
+        <!-- Demographics -->
+        <div class="recipe-demo-grid">
+          <div class="recipe-demo-item">
+            <span class="recipe-demo-label">Paciente</span>
+            <span class="recipe-demo-value" style="font-size:12px;">${nombre}</span>
+          </div>
+          <div class="recipe-demo-item">
+            <span class="recipe-demo-label">Edad</span>
+            <span class="recipe-demo-value">${edad} años</span>
+          </div>
+          <div class="recipe-demo-item">
+            <span class="recipe-demo-label">Fecha</span>
+            <span class="recipe-demo-value">${fecha}</span>
+          </div>
+          <div class="recipe-demo-item">
+            <span class="recipe-demo-label">Biotipo</span>
+            <span class="recipe-demo-value" style="color:#b45309;">${biotipo}</span>
+          </div>
+        </div>
+
+        <!-- Prescribed Products Table -->
+        <div style="margin-bottom: 25px;">
+          <span class="recipe-demo-label" style="display:block; margin-bottom: 8px; font-weight:700;">Prescripción y Guía de Uso de Productos</span>
+          <div style="border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+            <table class="pdf-table">
+              <thead>
+                <tr>
+                  <th style="width: 30%">Producto Recomendado</th>
+                  <th style="width: 20%">Activos Clave</th>
+                  <th style="width: 20%">Efecto Esperado</th>
+                  <th style="width: 30%">Instrucciones Clínicas / Modo de Uso</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer & Signature -->
+      <div class="recipe-footer">
+        <div class="recipe-disclaimer">
+          <span style="font-weight:700; display:block; margin-bottom:2px; color:#121215;">Indicaciones Generales de Apoyo:</span>
+          * Siga estrictamente el orden y cantidad prescrita por su especialista.<br>
+          * En caso de observar enrojecimiento extremo, picor o irritación persistente, suspenda el uso de forma inmediata y contacte a la clínica.<br>
+          * Mantenga los productos en un lugar fresco y alejado de la luz solar directa.
+        </div>
+        <div class="recipe-sig-col">
+          <div class="recipe-sig-box">
+            ${signatureEspImg}
+          </div>
+          <h3 class="recipe-sig-title">Especialista Firmante</h3>
+          <span class="recipe-sig-sub">Cédula Profesional: CE-DERM-2026</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(container);
+
+  const opt = {
+    margin:       0,
+    filename:     `Receta_Apoyo_${nombre.replace(/\s+/g, '_')}_${folio}.pdf`,
+    image:        { type: 'jpeg', quality: 0.98 },
+    html2canvas:  { scale: 2.5, useCORS: true, logging: false, width: 800 },
+    jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+  };
+
+  html2pdf().set(opt).from(container.firstElementChild).save().then(() => {
+    showToast('Receta Médica PDF descargada con éxito.', 'success');
+  }).catch(err => {
+    console.error(err);
+    showToast('Error al generar Receta PDF.', 'error');
+  }).finally(() => {
+    container.remove();
+  });
+}
 
 // --- ApexCharts Patient Diagnostics Analytics Dashboard ---
 let biotypeChartInstance = null;
@@ -3614,10 +4156,18 @@ function updateApparatusSuggestions() {
   }
 }
 
-function generateClinicalFolio(patientName) {
-  const datePart = new Date().toISOString().slice(0, 7).replace('-', '');
-  const hex = Math.floor(Date.now() % 65536).toString(16).toUpperCase().padStart(4, '0');
-  return `DP-${datePart}-${hex}`;
+async function generateClinicalFolio() {
+  try {
+    const count = await db.fichas_pacientes.count();
+    const year = new Date().getFullYear();
+    const seq = String(count + 1).padStart(4, '0');
+    return `DP-${year}-${seq}`;
+  } catch(e) {
+    console.error("Error generating sequential folio:", e);
+    const datePart = new Date().toISOString().slice(0, 7).replace('-', '');
+    const hex = Math.floor(Date.now() % 65536).toString(16).toUpperCase().padStart(4, '0');
+    return `DP-${datePart}-${hex}`;
+  }
 }
 
 function populateStepperDropdowns(products) {
@@ -3676,7 +4226,7 @@ window.resizeAndDrawFacial = function() {
 };
 
 async function saveExpedienteClinico(p) {
-  const folio = generateClinicalFolio(p.nombre);
+  const folio = await generateClinicalFolio();
   const phase1 = document.getElementById('stepper-phase-1-product').value;
   const phase2 = document.getElementById('stepper-phase-2-apparatus').value;
   const phase2Intensity = document.getElementById('stepper-phase-2-intensity').value;
