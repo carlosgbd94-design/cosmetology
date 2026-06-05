@@ -46,6 +46,19 @@ const TURSO_URL = CONFIG.TURSO_URL;
 const TURSO_TOKEN = CONFIG.TURSO_TOKEN;
 const productMapping = CONFIG.PRODUCT_MAPPING;
 
+const FASE_CATEGORY_MAPPING = Object.freeze({
+  "Limpieza": ["Limpiador"],
+  "Shampoo": ["Limpiador"],
+  "Exfoliación": ["Exfoliante"],
+  "Tonificación": ["Regulador pH", "Loción"],
+  "Armonizador": ["Armonizador", "Regulador pH", "Loción", "Crema/Gel"],
+  "Principio Activo": ["Serum/Vial", "Específico"],
+  "Mascarilla": ["Mascarilla"],
+  "Crema de Sellado": ["Crema/Gel"],
+  "Protección Solar": ["Crema/Gel", "Específico", "Biobotulina"],
+  "Apoyo en Casa": ["Alternative", "Rosa Mosq.", "Mulike", "Oro", "Clásica", "Diamante", "Biohelicina", "Biobotulina"]
+});
+
 // Mappings and State
 let signaturePadEspecialista = null;
 let signaturePadPaciente = null;
@@ -290,6 +303,25 @@ async function initDatabaseTables() {
       INSERT OR REPLACE INTO usuarios (usuario, contrasena, rol)
       VALUES ('clinica_dermatique', 'Dermatique2026', 'especialista')
     `);
+
+    // Seed default products from base_datos_cosmetica if not already present
+    const baseProducts = [
+      ['MIG-ARM01', 'Miguett', 'Ambar', 'Armonizador', '150 ml', null, 450.00, 'Vetiveria zizanioides, Santalum album, Rosmarinus officinalis', 'Antioxidante, calmante y antiinflamatorio para todo biotipo'],
+      ['NS-LIM001', 'Natural Secret Xpatl', 'Ameyal', 'Limpiador', '120 ml', null, 380.00, 'Lauriléter sulfato de sodio, Cocoato de glicerilo, Extracto de nopal', 'Emulsificante, regenerador y antioxidante para piel mixta a grasa'],
+      ['NS-EXF001', 'Natural Secret Xpatl', 'Yaretzi', 'Exfoliante', '100 g', null, 420.00, 'Ácido esteárico, Ácido acrílico, Palmitato de retinilo', 'Estabilizador, emoliente y antioxidante para exfoliación suave'],
+      ['NS-RPH001', 'Natural Secret Xpatl', 'Atzin', 'Regulador pH', '150 ml', null, 350.00, 'Hamamelis virginiana, Saponaria officinalis, Opuntia ficus-indica', 'Astringente, seborreguladora y calmante para piel sensible'],
+      ['MIG-LIM001', 'Miguett', 'Amalesh', 'Limpiador', '60 ml', null, 390.00, 'Aceite de tomillo, Melissa officinalis, Dimeticona', 'Aceite desincrustante y calmante antiséptico para todo biotipo'],
+      ['NS-LOC001', 'Natural Secret Xpatl', 'Zhunkah', 'Loción', '150 ml', null, 410.00, 'Propilenglicol, Imidazolidinil urea, Aceite de ricino', 'Loción humectante, disolvente y antiinflamatoria'],
+      ['MAR-SRM001', 'Marant', 'H.S.C Fase 1 / Fase 2', 'Serum/Vial', '30 ml', null, 680.00, 'Ácido ferúlico, Metilisotiazolinona', 'Sérum despigmentante, antioxidante y antibacteriano'],
+      ['MIG-MAS001', 'Miguett', 'Skinfusion', 'Mascarilla', '120 g', null, 520.00, 'Triptófano, Niacinamida, L-arginina', 'Mascarilla hidratante, antiinflamatoria y reguladora del pH']
+    ];
+
+    for (const p of baseProducts) {
+      await executeQuery(`
+        INSERT OR IGNORE INTO products (id, brand, name, category, capacity, price_aesthetic, price_public, active_ingredients, skin_indication)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, p);
+    }
   } catch (err) {
     console.error("Error initializing cloud database tables:", err);
   }
@@ -558,63 +590,26 @@ function initCascadingDropdowns() {
   const selMarca = document.getElementById('sel-marca');
   const selCategoria = document.getElementById('sel-categoria');
   const selProducto = document.getElementById('sel-producto');
+  const stepFasePreset = document.getElementById('step-fase-preset');
 
   if (!selMarca || !selCategoria || !selProducto) return;
 
+  if (stepFasePreset) {
+    stepFasePreset.addEventListener('change', () => {
+      handleFasePresetChange();
+      updateCascadingDropdowns(true);
+    });
+  }
+
   selMarca.addEventListener('change', (e) => {
     const brandVal = e.target.value;
-
-    selCategoria.innerHTML = '<option value="">Seleccione categoría...</option>';
-    selCategoria.disabled = true;
-    selProducto.innerHTML = '<option value="">Seleccione categoría primero...</option>';
-    selProducto.disabled = true;
-    clearResultsTable();
-
-    if (!brandVal) {
-      selCategoria.innerHTML = '<option value="">Seleccione marca primero...</option>';
-      return;
-    }
-
-    const categories = new Set();
-    allProducts.forEach(p => {
-      if (p.brand === brandVal && p.category) {
-        categories.add(p.category);
-      }
-    });
-
-    selCategoria.innerHTML = '<option value="">Seleccionar categoría...</option>';
-    Array.from(categories).sort().forEach(cat => {
-      const opt = document.createElement('option');
-      opt.value = cat;
-      opt.textContent = cat;
-      selCategoria.appendChild(opt);
-    });
-    selCategoria.disabled = false;
+    updateCategoriesDropdown(brandVal, true);
   });
 
   selCategoria.addEventListener('change', (e) => {
     const brandVal = selMarca.value;
     const catVal = e.target.value;
-
-    selProducto.innerHTML = '<option value="">Seleccione producto...</option>';
-    selProducto.disabled = true;
-    clearResultsTable();
-
-    if (!catVal) {
-      selProducto.innerHTML = '<option value="">Seleccione categoría primero...</option>';
-      return;
-    }
-
-    const products = allProducts.filter(p => p.brand === brandVal && p.category === catVal);
-
-    selProducto.innerHTML = '<option value="">Seleccionar producto...</option>';
-    products.sort((a, b) => a.name.localeCompare(b.name)).forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.name;
-      selProducto.appendChild(opt);
-    });
-    selProducto.disabled = false;
+    updateProductsDropdown(brandVal, catVal, true);
   });
 
   selProducto.addEventListener('change', (e) => {
@@ -622,6 +617,7 @@ function initCascadingDropdowns() {
 
     if (!prodId) {
       clearResultsTable();
+      updateClinicalCompatibilityPanel(null);
       return;
     }
 
@@ -633,27 +629,379 @@ function initCascadingDropdowns() {
       document.getElementById('step-product-action').value = product.skin_indication || '';
       document.getElementById('step-product-application').value = '';
       
-      // Update financial summary if present
       renderResultsTable(product);
+      updateClinicalCompatibilityPanel(product);
     }
   });
+
+  // Initialize fuzzy product search handler as well
+  initProductFuzzySearch();
 }
 
-function loadBrandsLocal() {
+window.updateCascadingDropdowns = function(resetSelection = false) {
   const selMarca = document.getElementById('sel-marca');
   if (!selMarca) return;
+
+  const presetVal = document.getElementById('step-fase-preset')?.value || 'Otro';
+  const allowedCategories = FASE_CATEGORY_MAPPING[presetVal] || [];
+
+  let filtered = allProducts;
+  if (allowedCategories.length > 0) {
+    filtered = allProducts.filter(p => allowedCategories.includes(p.category));
+  }
+
   const brands = new Set();
-  allProducts.forEach(p => {
+  filtered.forEach(p => {
     if (p.brand) brands.add(p.brand);
   });
+
+  const prevBrand = selMarca.value;
+  selMarca.innerHTML = '<option value="">Marca...</option>';
   
-  selMarca.innerHTML = '<option value="">Seleccionar marca...</option>';
   Array.from(brands).sort().forEach(b => {
     const opt = document.createElement('option');
     opt.value = b;
     opt.textContent = b;
     selMarca.appendChild(opt);
   });
+
+  if (!resetSelection && prevBrand && brands.has(prevBrand)) {
+    selMarca.value = prevBrand;
+    updateCategoriesDropdown(prevBrand, false);
+  } else {
+    selMarca.value = '';
+    updateCategoriesDropdown('', true);
+  }
+};
+
+function updateCategoriesDropdown(brandVal, resetSelection = false) {
+  const selCategoria = document.getElementById('sel-categoria');
+  const selProducto = document.getElementById('sel-producto');
+  if (!selCategoria || !selProducto) return;
+
+  selCategoria.innerHTML = '<option value="">Cat...</option>';
+  selCategoria.disabled = true;
+  selProducto.innerHTML = '<option value="">Prod...</option>';
+  selProducto.disabled = true;
+  clearResultsTable();
+  updateClinicalCompatibilityPanel(null);
+
+  if (!brandVal) {
+    selCategoria.innerHTML = '<option value="">Cat...</option>';
+    return;
+  }
+
+  const presetVal = document.getElementById('step-fase-preset')?.value || 'Otro';
+  const allowedCategories = FASE_CATEGORY_MAPPING[presetVal] || [];
+
+  const categories = new Set();
+  allProducts.forEach(p => {
+    if (p.brand === brandVal && p.category) {
+      if (allowedCategories.length === 0 || allowedCategories.includes(p.category)) {
+        categories.add(p.category);
+      }
+    }
+  });
+
+  selCategoria.innerHTML = '<option value="">Cat...</option>';
+  Array.from(categories).sort().forEach(cat => {
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    selCategoria.appendChild(opt);
+  });
+  selCategoria.disabled = false;
+
+  const prevCat = selCategoria.value;
+  if (!resetSelection && prevCat && categories.has(prevCat)) {
+    selCategoria.value = prevCat;
+    updateProductsDropdown(brandVal, prevCat, false);
+  } else {
+    selCategoria.value = '';
+  }
+}
+
+function updateProductsDropdown(brandVal, catVal, resetSelection = false) {
+  const selProducto = document.getElementById('sel-producto');
+  if (!selProducto) return;
+
+  selProducto.innerHTML = '<option value="">Prod...</option>';
+  selProducto.disabled = true;
+  clearResultsTable();
+  updateClinicalCompatibilityPanel(null);
+
+  if (!catVal) {
+    selProducto.innerHTML = '<option value="">Prod...</option>';
+    return;
+  }
+
+  const presetVal = document.getElementById('step-fase-preset')?.value || 'Otro';
+  const allowedCategories = FASE_CATEGORY_MAPPING[presetVal] || [];
+
+  const products = allProducts.filter(p => 
+    p.brand === brandVal && 
+    p.category === catVal &&
+    (allowedCategories.length === 0 || allowedCategories.includes(p.category))
+  );
+
+  selProducto.innerHTML = '<option value="">Prod...</option>';
+  products.sort((a, b) => a.name.localeCompare(b.name)).forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name;
+    selProducto.appendChild(opt);
+  });
+  selProducto.disabled = false;
+}
+
+function loadBrandsLocal() {
+  updateCascadingDropdowns(false);
+}
+
+// --- Clinical Product Fuzzy Search Engine ---
+function initProductFuzzySearch() {
+  const searchInput = document.getElementById('step-product-search');
+  const suggestionsDiv = document.getElementById('step-search-suggestions');
+  if (!searchInput || !suggestionsDiv) return;
+
+  // Hide suggestions when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!searchInput.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+      suggestionsDiv.classList.add('hidden');
+    }
+  });
+
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim().length > 0) {
+      suggestionsDiv.classList.remove('hidden');
+    }
+  });
+
+  searchInput.addEventListener('input', (e) => {
+    const query = e.target.value.trim();
+    if (query.length === 0) {
+      suggestionsDiv.innerHTML = '';
+      suggestionsDiv.classList.add('hidden');
+      return;
+    }
+
+    const presetVal = document.getElementById('step-fase-preset')?.value || 'Otro';
+    const allowedCategories = FASE_CATEGORY_MAPPING[presetVal] || [];
+
+    // Filter allProducts by category first
+    let candidates = allProducts;
+    if (allowedCategories.length > 0) {
+      candidates = allProducts.filter(p => allowedCategories.includes(p.category));
+    }
+
+    let matches = [];
+    if (fuseInstance) {
+      const results = fuseInstance.search(query);
+      const candidateIds = new Set(candidates.map(c => c.id));
+      matches = results
+        .filter(res => candidateIds.has(res.item.id))
+        .map(res => res.item)
+        .slice(0, 6);
+    } else {
+      const normQuery = normalizeText(query);
+      matches = candidates.filter(p => 
+        normalizeText(p.name).includes(normQuery) || 
+        normalizeText(p.brand).includes(normQuery) ||
+        normalizeText(p.active_ingredients).includes(normQuery)
+      ).slice(0, 6);
+    }
+
+    if (matches.length === 0) {
+      suggestionsDiv.innerHTML = `<div class="p-3 text-slate-400 dark:text-luxe-400 italic text-xs">Sin coincidencias para esta fase.</div>`;
+    } else {
+      suggestionsDiv.innerHTML = matches.map(p => `
+        <div class="suggestion-item p-3 hover:bg-slate-100 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5 last:border-0 cursor-pointer flex flex-col gap-0.5 text-xs text-left" data-id="${p.id}">
+          <span class="font-bold text-slate-800 dark:text-white">${p.name}</span>
+          <span class="text-[10px] text-slate-500 dark:text-luxe-400">Línea: ${p.brand} | Cat: ${p.category}</span>
+        </div>
+      `).join('');
+
+      const items = suggestionsDiv.querySelectorAll('.suggestion-item');
+      items.forEach(item => {
+        item.addEventListener('click', () => {
+          const prodId = item.getAttribute('data-id');
+          const p = allProducts.find(prod => prod.id === prodId);
+          if (p) {
+            document.getElementById('step-product-name').value = p.name || '';
+            document.getElementById('step-product-brand').value = p.brand || '';
+            document.getElementById('step-product-actives').value = p.active_ingredients || '';
+            document.getElementById('step-product-action').value = p.skin_indication || '';
+            document.getElementById('step-product-application').value = '';
+
+            const selMarca = document.getElementById('sel-marca');
+            const selCategoria = document.getElementById('sel-categoria');
+            const selProducto = document.getElementById('sel-producto');
+
+            if (selMarca && selCategoria && selProducto) {
+              selMarca.value = p.brand;
+              updateCategoriesDropdown(p.brand, false);
+              
+              setTimeout(() => {
+                selCategoria.value = p.category;
+                updateProductsDropdown(p.brand, p.category, false);
+                
+                setTimeout(() => {
+                  selProducto.value = p.id;
+                }, 100);
+              }, 100);
+            }
+
+            renderResultsTable(p);
+            updateClinicalCompatibilityPanel(p);
+            
+            searchInput.value = p.name;
+            suggestionsDiv.classList.add('hidden');
+          }
+        });
+      });
+    }
+
+    suggestionsDiv.classList.remove('hidden');
+  });
+}
+
+// --- Patient Biotype & Active Ingredients Clinical Bio-Validation ---
+function checkProductCompatibility(product, biotype) {
+  if (!product || !biotype) return {
+    status: 'info',
+    title: 'Información Clínica',
+    message: 'Seleccione un producto del catálogo para analizar su compatibilidad biológica con el biotipo del paciente.',
+    colorClass: 'border-slate-200/50 bg-slate-500/5 text-slate-500'
+  };
+
+  const indication = normalizeText(product.skin_indication || '');
+  const name = normalizeText(product.name || '');
+  const actives = normalizeText(product.active_ingredients || '');
+  const bio = normalizeText(biotype);
+
+  let status = 'info';
+  let title = 'Fórmula Neutra';
+  let message = 'Este producto tiene una fórmula general compatible con el biotipo del paciente.';
+  let colorClass = 'border-blue-500/20 bg-blue-500/5 text-blue-800 dark:text-blue-400';
+
+  if (bio.includes('sensible') || bio.includes('rosacea')) {
+    const isSoothing = indication.includes('sensible') || indication.includes('calmar') || 
+                       indication.includes('calmante') || indication.includes('delicada') || 
+                       indication.includes('reactiva') || indication.includes('rosacea') ||
+                       actives.includes('manzanilla') || actives.includes('alantoina') ||
+                       actives.includes('aloe') || actives.includes('calendula') ||
+                       actives.includes('vetiveria') || actives.includes('santalum') ||
+                       actives.includes('nara');
+                       
+    const isAggressive = indication.includes('peeling fuerte') || actives.includes('glicolico') || 
+                         indication.includes('abrasivo') || indication.includes('profunda');
+
+    if (isAggressive) {
+      status = 'warning';
+      title = 'Verificación Requerida';
+      message = 'Atención: Este producto contiene activos exfoliantes o fuertes (ej. ácido glicólico) que podrían irritar la piel sensible o con rosácea. Evaluar dilución o tiempo de exposición.';
+      colorClass = 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-500';
+    } else if (isSoothing) {
+      status = 'success';
+      title = 'Altamente Recomendado';
+      message = 'Fórmula Compatible: Contiene activos calmantes y desensibilizantes idóneos para el biotipo sensible del paciente.';
+      colorClass = 'border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400';
+    } else {
+      status = 'info';
+      title = 'Fórmula Segura';
+      message = 'Fórmula Neutra: No presenta contraindicaciones conocidas para piel sensible, pero vigile la reacción del paciente.';
+      colorClass = 'border-slate-200/50 bg-slate-500/5 text-slate-600 dark:text-luxe-300';
+    }
+  } 
+  else if (bio.includes('seca') || bio.includes('alipica')) {
+    const isHydrating = indication.includes('seca') || indication.includes('alipica') ||
+                        indication.includes('hidratante') || indication.includes('nutrir') ||
+                        indication.includes('nutritiva') || indication.includes('deshidratada') ||
+                        actives.includes('ricino') || actives.includes('almendra') ||
+                        actives.includes('nopal') || actives.includes('sorbitol');
+
+    const isSeboControl = indication.includes('control sebaceo') || indication.includes('antiseborreica') ||
+                          indication.includes('seborregulador') || indication.includes('matificante');
+
+    if (isSeboControl) {
+      status = 'warning';
+      title = 'Verificación Requerida';
+      message = 'Atención: Este producto está formulado para el control de sebo y podría deshidratar aún más la piel seca o alípica.';
+      colorClass = 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-500';
+    } else if (isHydrating) {
+      status = 'success';
+      title = 'Hidratación Óptima';
+      message = 'Fórmula Compatible: Aporta emolientes y lípidos humectantes que ayudan a restaurar la barrera hidrolipídica en piel alípica.';
+      colorClass = 'border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400';
+    }
+  }
+  else if (bio.includes('grasa') || bio.includes('acne') || bio.includes('seborreica')) {
+    const isPurifying = indication.includes('grasa') || indication.includes('seborreica') ||
+                        indication.includes('acne') || indication.includes('seborregulador') ||
+                        indication.includes('comedones') || indication.includes('pustulas') ||
+                        indication.includes('desincrustante') || indication.includes('antiseptica') ||
+                        actives.includes('tomillo') || actives.includes('saponaria') ||
+                        actives.includes('pepino') || actives.includes('te verde') ||
+                        actives.includes('salicilico');
+
+    const isComedogenic = actives.includes('almendra') || actives.includes('ricino') ||
+                          indication.includes('muy seca') || indication.includes('nutritiva pesada');
+
+    if (isComedogenic) {
+      status = 'warning';
+      title = 'Verificación Requerida';
+      message = 'Atención: Este producto contiene aceites densos o lípidos pesados que podrían resultar comedogénicos en piel grasa o acneica.';
+      colorClass = 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-500';
+    } else if (isPurifying) {
+      status = 'success';
+      title = 'Purificante Compatible';
+      message = 'Fórmula Compatible: Contiene activos seborreguladores y antisépticos perfectos para controlar el exceso de grasa o acné.';
+      colorClass = 'border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400';
+    }
+  }
+  else if (bio.includes('hiperpigmentada') || bio.includes('manchas')) {
+    const isBrightening = indication.includes('manchas') || indication.includes('hipercromia') ||
+                          indication.includes('despigmentante') || indication.includes('aclarante') ||
+                          actives.includes('ferulico') || actives.includes('niacina') ||
+                          actives.includes('nara');
+
+    if (isBrightening) {
+      status = 'success';
+      title = 'Efecto Aclarante';
+      message = 'Fórmula Compatible: Contiene activos inhibidores de melanogénesis ideales para tratar manchas e hiperpigmentación.';
+      colorClass = 'border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400';
+    }
+  }
+
+  return { status, title, message, colorClass };
+}
+
+function updateClinicalCompatibilityPanel(product) {
+  const panel = document.getElementById('clinical-compatibility-panel');
+  if (!panel) return;
+
+  const biotype = document.getElementById('biotipo').value;
+  const analysis = checkProductCompatibility(product, biotype);
+
+  panel.className = `p-4 rounded-2xl border ${analysis.colorClass} transition-all duration-300`;
+  
+  let icon = 'info';
+  if (analysis.status === 'success') icon = 'check-circle';
+  else if (analysis.status === 'warning') icon = 'alert-triangle';
+
+  panel.innerHTML = `
+    <div class="flex items-start gap-3">
+      <div class="mt-0.5">
+        <i data-lucide="${icon}" class="w-5 h-5"></i>
+      </div>
+      <div class="space-y-1">
+        <h4 class="text-xs font-bold uppercase tracking-wider font-outfit">${analysis.title}</h4>
+        <p class="text-xs leading-relaxed font-medium">${analysis.message}</p>
+        ${product ? `<p class="text-[10px] opacity-80 mt-1">Indicación: ${product.skin_indication || 'General'} | Activos: ${product.active_ingredients || 'Varios'}</p>` : ''}
+      </div>
+    </div>
+  `;
+  lucide.createIcons();
 }
 
 // --- Dynamic Procedure Table Actions ---
@@ -789,9 +1137,14 @@ function clearResultsTable() {
   document.getElementById('step-product-actives').value = '';
   document.getElementById('step-product-action').value = '';
   document.getElementById('step-product-application').value = '';
+  
+  const searchInput = document.getElementById('step-product-search');
+  if (searchInput) searchInput.value = '';
 
   const finCard = document.getElementById('financial-summary-card');
   if (finCard) finCard.classList.add('hidden');
+  
+  updateClinicalCompatibilityPanel(null);
 }
 
 function renderResultsTable(p) {
@@ -1486,7 +1839,8 @@ function initProductForm() {
     "Rosa Negra": "RNG",
     "Geles/Nuev.": "GEL",
     "Ojos/Labios": "EYE",
-    "Biotecnopl.": "TEC"
+    "Biotecnopl.": "TEC",
+    "Armonizador": "ARM"
   };
 
   catSelect.addEventListener('change', () => {

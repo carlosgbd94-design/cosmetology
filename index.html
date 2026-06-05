@@ -191,6 +191,9 @@
       background: rgba(255, 255, 255, 0.85);
       border: 1px solid rgba(18, 18, 21, 0.08);
       color: #121215;
+      padding: 0.625rem 0.875rem; /* Standardized clinical padding */
+      border-radius: 12px;       /* Uniform border rounded corners */
+      font-size: 0.8125rem;      /* Clear visual readability */
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
@@ -211,6 +214,22 @@
       background: rgba(10, 10, 13, 0.95);
       border-color: #D4AF37;
       box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+    }
+
+    /* Search Suggestions Dropdown Styling */
+    #step-search-suggestions {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(212, 175, 55, 0.2);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+    }
+    html.dark #step-search-suggestions {
+      background: rgba(18, 18, 21, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+    .suggestion-item {
+      transition: background-color 0.2s ease;
     }
 
     /* Floating label positioning */
@@ -718,74 +737,103 @@
               Diseñador de Procedimiento (Tabla Dinámica)
             </h3>
             
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-500/5 p-4 rounded-2xl border border-slate-200/20">
-              <!-- Fase / Protocolo -->
-              <div class="flex flex-col gap-1.5">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fase / Protocolo</label>
-                <div class="flex gap-2">
-                  <select id="step-fase-preset" onchange="handleFasePresetChange()" class="smart-input text-xs w-1/2">
-                    <option value="Limpieza">Limpieza / Higiene</option>
-                    <option value="Shampoo">Shampoo Facial</option>
-                    <option value="Exfoliación">Exfoliación / Peeling</option>
-                    <option value="Tonificación">Tonificación / Loción</option>
-                    <option value="Armonizador">Armonizador</option>
-                    <option value="Principio Activo">Sérum / Activo</option>
-                    <option value="Mascarilla">Mascarilla</option>
-                    <option value="Crema de Sellado">Crema de Sellado</option>
-                    <option value="Protección Solar">Protección Solar</option>
-                    <option value="Apoyo en Casa">Apoyo en Casa</option>
-                    <option value="Otro" selected>Otro (Escribir...)</option>
-                  </select>
-                  <input type="text" id="step-fase-custom" placeholder="Ej: Armonizador..." class="smart-input text-xs w-1/2">
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-500/5 p-6 rounded-[24px] border border-slate-200/20">
+              <!-- Left Column: Search & Dropdowns -->
+              <div class="lg:col-span-5 space-y-4 flex flex-col justify-between">
+                <!-- Fase / Protocolo -->
+                <div class="flex flex-col gap-2">
+                  <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Fase / Protocolo</label>
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <select id="step-fase-preset" onchange="handleFasePresetChange()" class="smart-input w-full sm:w-1/2">
+                      <option value="Limpieza">Limpieza / Higiene</option>
+                      <option value="Shampoo">Shampoo Facial</option>
+                      <option value="Exfoliación">Exfoliación / Peeling</option>
+                      <option value="Tonificación">Tonificación / Loción</option>
+                      <option value="Armonizador">Armonizador</option>
+                      <option value="Principio Activo">Sérum / Activo</option>
+                      <option value="Mascarilla">Mascarilla</option>
+                      <option value="Crema de Sellado">Crema de Sellado</option>
+                      <option value="Protección Solar">Protección Solar</option>
+                      <option value="Apoyo en Casa">Apoyo en Casa</option>
+                      <option value="Otro" selected>Otro (Escribir...)</option>
+                    </select>
+                    <input type="text" id="step-fase-custom" placeholder="Ej: Armonizador..." class="smart-input w-full sm:w-1/2">
+                  </div>
+                </div>
+
+                <!-- Buscador Rápido de Producto -->
+                <div class="flex flex-col gap-2 relative">
+                  <label for="step-product-search" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Buscador Rápido de Producto</label>
+                  <input type="text" id="step-product-search" placeholder="🔍 Escriba para buscar producto..." class="smart-input w-full">
+                  <div id="step-search-suggestions" class="hidden absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border max-h-52 overflow-y-auto"></div>
+                </div>
+
+                <!-- Autocompletar por Categorías -->
+                <div class="flex flex-col gap-2 border-t border-slate-200/10 pt-4 mt-2">
+                  <label class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Filtrar por Categorías del Catálogo</label>
+                  <div class="grid grid-cols-3 gap-2">
+                    <select id="sel-marca" class="smart-input text-xs w-full">
+                      <option value="">Marca...</option>
+                    </select>
+                    <select id="sel-categoria" class="smart-input text-xs w-full" disabled>
+                      <option value="">Cat...</option>
+                    </select>
+                    <select id="sel-producto" class="smart-input text-xs w-full" disabled>
+                      <option value="">Prod...</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <!-- Cascade Selectors -->
-              <div class="flex flex-col gap-1.5">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Autocompletar desde Catálogo</label>
-                <div class="grid grid-cols-3 gap-2">
-                  <select id="sel-marca" class="smart-input text-xs">
-                    <option value="">Marca...</option>
-                  </select>
-                  <select id="sel-categoria" class="smart-input text-xs" disabled>
-                    <option value="">Cat...</option>
-                  </select>
-                  <select id="sel-producto" class="smart-input text-xs" disabled>
-                    <option value="">Prod...</option>
-                  </select>
+              <!-- Right Column: Product Specs & Clinical Validation -->
+              <div class="lg:col-span-7 space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="flex flex-col gap-1.5">
+                    <label for="step-product-name" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider font-semibold">Nombre del Producto</label>
+                    <input type="text" id="step-product-name" placeholder="Nombre comercial..." class="smart-input w-full">
+                  </div>
+
+                  <div class="flex flex-col gap-1.5">
+                    <label for="step-product-brand" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider font-semibold">Marca</label>
+                    <input type="text" id="step-product-brand" placeholder="Marca del producto..." class="smart-input w-full">
+                  </div>
                 </div>
-              </div>
 
-              <!-- Product Details to Edit -->
-              <div class="flex flex-col gap-1.5">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nombre del Producto</label>
-                <input type="text" id="step-product-name" placeholder="Nombre comercial..." class="smart-input text-xs">
-              </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="flex flex-col gap-1.5">
+                    <label for="step-product-actives" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider font-semibold">Ingredientes Activos</label>
+                    <input type="text" id="step-product-actives" placeholder="Activos clave..." class="smart-input w-full">
+                  </div>
 
-              <div class="flex flex-col gap-1.5">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Marca</label>
-                <input type="text" id="step-product-brand" placeholder="Marca del producto..." class="smart-input text-xs">
-              </div>
+                  <div class="flex flex-col gap-1.5">
+                    <label for="step-product-action" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider font-semibold">Acción / Efecto esperado</label>
+                    <input type="text" id="step-product-action" placeholder="Efectos terapéuticos esperados..." class="smart-input w-full">
+                  </div>
+                </div>
 
-              <div class="flex flex-col gap-1.5 md:col-span-2">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ingredientes Activos</label>
-                <input type="text" id="step-product-actives" placeholder="Activos clave..." class="smart-input text-xs">
-              </div>
+                <div class="flex flex-col gap-1.5">
+                  <label for="step-product-application" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider font-semibold">Descripción de Aplicación (Instrucciones Técnicas)</label>
+                  <textarea id="step-product-application" rows="2" placeholder="Detalles de aplicación y masaje..." class="smart-input w-full resize-none"></textarea>
+                </div>
 
-              <div class="flex flex-col gap-1.5 md:col-span-2">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Acción / Efecto esperado</label>
-                <input type="text" id="step-product-action" placeholder="Efectos terapéuticos esperados..." class="smart-input text-xs">
-              </div>
+                <!-- Panel de Compatibilidad Clínica -->
+                <div id="clinical-compatibility-panel" class="p-4 rounded-2xl border border-slate-200/50 dark:border-white/5 bg-slate-500/5 text-slate-500 transition-all duration-300">
+                  <div class="flex items-start gap-3">
+                    <div class="mt-0.5 animate-pulse">
+                      <i data-lucide="info" class="w-5 h-5 text-bronze-500"></i>
+                    </div>
+                    <div class="space-y-1">
+                      <h4 class="text-xs font-bold uppercase tracking-wider font-outfit">Validación Biológica</h4>
+                      <p class="text-xs leading-relaxed font-medium">Seleccione un producto para evaluar la compatibilidad de activos con el biotipo del paciente.</p>
+                    </div>
+                  </div>
+                </div>
 
-              <div class="flex flex-col gap-1.5 md:col-span-2">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Descripción de Aplicación (Instrucciones Técnicas)</label>
-                <textarea id="step-product-application" rows="2" placeholder="Detalles de aplicación y masaje..." class="smart-input text-xs resize-none"></textarea>
-              </div>
-
-              <div class="md:col-span-2 flex justify-end pt-2">
-                <button type="button" onclick="addProcedureStep()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white px-6 py-2.5 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5">
-                  <i data-lucide="plus" class="w-4 h-4"></i> Agregar Paso al Procedimiento
-                </button>
+                <div class="flex justify-end pt-2">
+                  <button type="button" onclick="addProcedureStep()" class="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white px-8 py-3 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Agregar Paso al Procedimiento
+                  </button>
+                </div>
               </div>
             </div>
           </div>
