@@ -471,10 +471,14 @@
           </div>
 
           <!-- Demographics Grid -->
-          <div class="grid grid-cols-3 gap-6 mb-6 pb-6 border-b border-slate-200">
-            <div>
+          <div class="grid grid-cols-5 gap-6 mb-6 pb-6 border-b border-slate-200">
+            <div class="col-span-2">
               <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Paciente</span>
               <span class="text-xs font-bold text-slate-950 font-sora mt-0.5 block animate-none" id="print-val-nombre">-</span>
+            </div>
+            <div>
+              <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Edad</span>
+              <span class="text-xs font-medium text-slate-900 mt-0.5 block" id="print-val-edad">-</span>
             </div>
             <div>
               <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Fecha de Consulta</span>
@@ -484,6 +488,12 @@
               <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Biotipo Cutáneo</span>
               <span class="text-xs font-semibold text-slate-900 mt-0.5 block" id="print-val-biotipo">-</span>
             </div>
+          </div>
+
+          <!-- Protocolo Grid -->
+          <div class="mb-6 pb-6 border-b border-slate-200">
+            <span class="block text-[8px] font-bold text-slate-400 uppercase tracking-widest">Protocolo Recomendado</span>
+            <span class="text-xs font-semibold text-slate-900 mt-0.5 block" id="print-val-protocolo">-</span>
           </div>
 
           <!-- Clinical Details -->
@@ -565,14 +575,23 @@
 
         <!-- Demographics Form -->
         <form id="patient-form" class="space-y-6">
-          <div class="print-grid grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="print-grid grid grid-cols-1 md:grid-cols-5 gap-6">
             
             <!-- Nombre -->
-            <div class="flex flex-col gap-2">
+            <div class="md:col-span-2 flex flex-col gap-2">
               <label for="nombre" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
                 Nombre del Paciente
               </label>
               <input type="text" id="nombre" name="nombre" placeholder="Nombre completo..." required
+                class="smart-input w-full px-4 py-3 rounded-xl text-sm">
+            </div>
+
+            <!-- Edad -->
+            <div class="flex flex-col gap-2">
+              <label for="edad" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+                Edad
+              </label>
+              <input type="number" id="edad" name="edad" placeholder="Edad..." required min="1" max="120"
                 class="smart-input w-full px-4 py-3 rounded-xl text-sm">
             </div>
  
@@ -602,6 +621,15 @@
               </select>
             </div>
  
+          </div>
+
+          <!-- Protocolo / Objetivo del Tratamiento -->
+          <div class="print-grid grid grid-cols-1 gap-2">
+            <label for="protocolo" class="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">
+              Protocolo Recomendo / Objetivo del Tratamiento (Ej: Limpieza, Exfoliación, Despigmentante, etc...)
+            </label>
+            <input type="text" id="protocolo" name="protocolo" placeholder="Ej: Limpieza profunda, hidratación y control de grasa..." required
+              class="smart-input w-full px-4 py-3 rounded-xl text-sm">
           </div>
  
           <div class="print-grid grid grid-cols-1 md:grid-cols-2 gap-6">

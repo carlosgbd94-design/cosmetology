@@ -58,9 +58,9 @@ let activeRipples = [];
 
 // Dexie Local Database setup
 const db = new Dexie('DermatiqueLocalDB');
-db.version(2).stores({
+db.version(3).stores({
   products: 'id, brand, category, name, active_ingredients, skin_indication',
-  fichas_pacientes: '++id, nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente, synced',
+  fichas_pacientes: '++id, nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente, synced',
   expedientes_clinicos: 'folio, nombre, fecha, biotipo, synced'
 });
 
@@ -245,10 +245,12 @@ async function initDatabaseTables() {
       CREATE TABLE IF NOT EXISTS fichas_pacientes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT,
+        edad INTEGER,
         fecha TEXT,
         biotipo TEXT,
         diagnostico TEXT,
         condicion TEXT,
+        protocolo TEXT,
         protocolo_id TEXT,
         firma_especialista TEXT,
         firma_paciente TEXT
@@ -902,12 +904,17 @@ function initPatientForm() {
     const firmaEsp = signaturePadEspecialista && !signaturePadEspecialista.isEmpty() ? signaturePadEspecialista.toDataURL() : null;
     const firmaPac = signaturePadPaciente && !signaturePadPaciente.isEmpty() ? signaturePadPaciente.toDataURL() : null;
 
+    const edadVal = parseInt(document.getElementById('edad').value) || null;
+    const protocoloVal = document.getElementById('protocolo').value;
+
     const newRecord = {
       nombre,
+      edad: edadVal,
       fecha,
       biotipo,
       diagnostico,
       condicion,
+      protocolo: protocoloVal,
       protocolo_id: prodId,
       firma_especialista: firmaEsp,
       firma_paciente: firmaPac,
@@ -921,8 +928,8 @@ function initPatientForm() {
       if (navigator.onLine) {
         // Direct cloud write if online
         await executeQuery(
-          'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [nombre, fecha, biotipo, diagnostico, condicion, prodId, firmaEsp, firmaPac]
+          'INSERT INTO fichas_pacientes (nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [nombre, edadVal, fecha, biotipo, diagnostico, condicion, protocoloVal, prodId, firmaEsp, firmaPac]
         );
         // Mark as synced
         await db.fichas_pacientes.update(localId, { synced: 1 });
@@ -933,7 +940,7 @@ function initPatientForm() {
       
       // Also save the consolidated Expediente Clínico!
       await saveExpedienteClinico({
-        nombre, fecha, biotipo, diagnostico, condicion, prodId, firmaEsp, firmaPac
+        nombre, edad: edadVal, fecha, biotipo, diagnostico, condicion, protocolo: protocoloVal, prodId, firmaEsp, firmaPac
       });
 
       if (signaturePadEspecialista) {
@@ -1006,10 +1013,12 @@ async function loadHistory() {
 
 window.loadFichaToForm = function(f) {
   document.getElementById('nombre').value = f.nombre;
+  document.getElementById('edad').value = f.edad || '';
   document.getElementById('fecha').value = f.fecha;
   document.getElementById('biotipo').value = f.biotipo || '';
   document.getElementById('diagnostico').value = f.diagnostico || '';
   document.getElementById('condicion').value = f.condicion || '';
+  document.getElementById('protocolo').value = f.protocolo || '';
   document.getElementById('current-doc-id').textContent = `Ficha Nº ${f.id} (Historial)`;
 
   if (signaturePadEspecialista) signaturePadEspecialista.clear();
@@ -1596,9 +1605,11 @@ function normalizeText(text) {
 // Automatically sync the interactive form values into the high-contrast clean printable template before print dialog launches.
 function syncPrintView() {
   document.getElementById('print-val-nombre').textContent = document.getElementById('nombre').value || '__________________________________';
+  document.getElementById('print-val-edad').textContent = (document.getElementById('edad').value ? document.getElementById('edad').value + ' años' : '___');
   document.getElementById('print-val-fecha').textContent = document.getElementById('fecha').value || '__________________';
   document.getElementById('print-val-biotipo').textContent = document.getElementById('biotipo').value || '__________________';
   
+  document.getElementById('print-val-protocolo').textContent = document.getElementById('protocolo').value || 'No especificado.';
   document.getElementById('print-val-diagnostico').textContent = document.getElementById('diagnostico').value || 'No especificado.';
   document.getElementById('print-val-condicion').textContent = document.getElementById('condicion').value || 'Ninguna.';
   
@@ -2159,6 +2170,8 @@ window.exportToPDF = function() {
   const biotipo = document.getElementById('biotipo').value || '__________________';
   const diagnostico = document.getElementById('diagnostico').value || 'No especificado.';
   const condicion = document.getElementById('condicion').value || 'Ninguna.';
+  const edad = document.getElementById('edad').value || '___';
+  const protocolo = document.getElementById('protocolo').value || 'No especificado.';
   const docTitle = document.getElementById('current-doc-id').textContent || 'Prescripción de Activos';
   
   const mainTableBody = document.getElementById('results-table-body');
@@ -2277,7 +2290,7 @@ window.exportToPDF = function() {
         }
         .pdf-demo-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(5, 1fr);
           gap: 12px;
           margin-bottom: 12px;
           padding-bottom: 8px;
@@ -2413,6 +2426,7 @@ window.exportToPDF = function() {
           max-height: 100%;
           max-width: 100%;
           object-fit: contain;
+          margin-bottom: 4px;
         }
         .pdf-sig-title {
           font-size: 8px;
@@ -2443,9 +2457,13 @@ window.exportToPDF = function() {
 
         <!-- Demographics -->
         <div class="pdf-demo-grid">
-          <div class="pdf-demo-item">
+          <div class="pdf-demo-item" style="grid-column: span 2">
             <span class="pdf-demo-label">Paciente</span>
             <span class="pdf-demo-value">${nombre}</span>
+          </div>
+          <div class="pdf-demo-item">
+            <span class="pdf-demo-label">Edad</span>
+            <span class="pdf-demo-value">${edad} años</span>
           </div>
           <div class="pdf-demo-item">
             <span class="pdf-demo-label">Fecha de Consulta</span>
@@ -2455,6 +2473,12 @@ window.exportToPDF = function() {
             <span class="pdf-demo-label">Biotipo Cutáneo</span>
             <span class="pdf-demo-value">${biotipo}</span>
           </div>
+        </div>
+
+        <!-- Protocolo -->
+        <div style="margin-bottom: 12px; padding: 10px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px;">
+          <span class="pdf-demo-label" style="display:block; margin-bottom: 2px;">Protocolo / Objetivo Recomendado</span>
+          <span class="pdf-demo-value" style="font-size: 11px;">${protocolo}</span>
         </div>
 
         <!-- Details -->
@@ -2915,8 +2939,8 @@ window.addEventListener('online', async () => {
     const unsynced = await db.fichas_pacientes.where('synced').equals(0).toArray();
     for (const record of unsynced) {
       await executeQuery(
-        'INSERT INTO fichas_pacientes (nombre, fecha, biotipo, diagnostico, condicion, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [record.nombre, record.fecha, record.biotipo, record.diagnostico, record.condicion, record.protocolo_id, record.firma_especialista, record.firma_paciente]
+        'INSERT INTO fichas_pacientes (nombre, edad, fecha, biotipo, diagnostico, condicion, protocolo, protocolo_id, firma_especialista, firma_paciente) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [record.nombre, record.edad, record.fecha, record.biotipo, record.diagnostico, record.condicion, record.protocolo, record.protocolo_id, record.firma_especialista, record.firma_paciente]
       );
       await db.fichas_pacientes.update(record.id, { synced: 1 });
     }
@@ -3085,10 +3109,12 @@ async function saveExpedienteClinico(p) {
   const sessionState = {
     folio,
     nombre: p.nombre,
+    edad: p.edad,
     fecha: p.fecha,
     biotipo: p.biotipo,
     diagnostico: p.diagnostico,
     condicion: p.condicion,
+    protocolo: p.protocolo,
     producto_vinculado: p.prodId,
     fases: {
       fase1: { producto: phase1 },
@@ -3407,8 +3433,7 @@ window.exportRecordPDF = async function(folio) {
           }
           .pdf-demo-grid {
             display: grid;
-            grid-cols-3;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 15px;
             background: #fafaf9;
             border: 1px solid #e5e5e0;
@@ -3444,9 +3469,13 @@ window.exportRecordPDF = async function(folio) {
           </div>
 
           <div class="pdf-demo-grid">
-            <div class="pdf-demo-col">
+            <div class="pdf-demo-col" style="grid-column: span 2">
               <span class="pdf-demo-label">Paciente</span>
               <span class="pdf-demo-val">${name}</span>
+            </div>
+            <div class="pdf-demo-col">
+              <span class="pdf-demo-label">Edad</span>
+              <span class="pdf-demo-val">${data.edad || '___'} años</span>
             </div>
             <div class="pdf-demo-col">
               <span class="pdf-demo-label">Fecha</span>
@@ -3456,6 +3485,11 @@ window.exportRecordPDF = async function(folio) {
               <span class="pdf-demo-label">Biotipo Cutáneo</span>
               <span class="pdf-demo-val">${biotipo}</span>
             </div>
+          </div>
+
+          <div style="margin-bottom: 12px; padding: 10px; background: #fafaf9; border: 1px solid #e5e5e0; border-radius: 8px; font-size: 8px;">
+            <span class="pdf-demo-label" style="display:block; margin-bottom: 2px;">Protocolo / Objetivo Recomendado</span>
+            <span class="pdf-demo-val" style="font-size: 10px;">${data.protocolo || 'No especificado.'}</span>
           </div>
 
           <div style="font-size: 8px; line-height: 1.3;">
