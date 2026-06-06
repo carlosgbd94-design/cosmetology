@@ -86,10 +86,7 @@ export default function App() {
   const [stepSuggestions, setStepSuggestions] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-  // Cascading dropdown filters
-  const [cascadingBrand, setCascadingBrand] = useState('');
-  const [cascadingCategory, setCascadingCategory] = useState('');
-  const [cascadingProduct, setCascadingProduct] = useState('');
+
 
   // Prescription builder state
   const [prescriptionsList, setPrescriptionsList] = useState<Prescription[]>([]);
@@ -106,6 +103,7 @@ export default function App() {
     leftEye: false, rightEye: false, lips: false, neck: false
   });
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Signature Pad state refs
@@ -185,20 +183,45 @@ export default function App() {
       window.removeEventListener('offline', handleStatus);
     };
   }, []);
-
-  const bootstrapSystem = async () => {
+  async function bootstrapSystem() {
     setSyncStatus('syncing');
     try {
       await seedTables();
+
+      // Sync remote products to local Dexie on start
+      if (navigator.onLine) {
+        try {
+          const res = await executeQuery('SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use FROM products');
+          if (res && res.rows) {
+            await db.products.clear();
+            for (const r of res.rows) {
+              await db.products.put({
+                id: r.id,
+                sku: r.sku,
+                name: r.name,
+                brandLine: r.brand_line,
+                activeIngredients: r.active_ingredients,
+                physiologicalActions: r.physiological_actions,
+                retailPrice: Number(r.retail_price),
+                isProfessionalUse: Number(r.is_professional_use) === 1
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Error syncing remote products:", err);
+        }
+      }
+
       await loadMasterCatalogs();
       setSyncStatus(navigator.onLine ? 'online' : 'local');
     } catch (e) {
       console.error(e);
       setSyncStatus('local');
     }
-  };
+  }
 
-  const loadMasterCatalogs = async () => {
+  async function loadMasterCatalogs() {
+
     // Load local products
     const pList = await db.products.toArray();
     setProducts(pList);
@@ -311,18 +334,35 @@ export default function App() {
     }
   };
 
-  // ----------------------------------------------------
+  // -----------------------------------------  // Ref to target clinical notes textarea directly for autofocus
+  const notesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   // INTERACTIVE FACIAL CANVAS CANVAS
   // ----------------------------------------------------
+  // Ref to cache preloaded backdrop image
+  const backdropImageRef = useRef<HTMLImageElement | null>(null);
+  const [isBackdropLoaded, setIsBackdropLoaded] = useState(false);
+
+  useEffect(() => {
+    const img = new Image();
+    img.src = '/face_backdrop.png?v=2';
+    img.onload = () => {
+      backdropImageRef.current = img;
+      setIsBackdropLoaded(true);
+    };
+    img.onerror = () => {
+      console.error("Failed to load face backdrop image.");
+    };
+  }, []);
+
   useEffect(() => {
     if (!canvasRef.current || activeTab !== 'generator' || !isLogged) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Redraw whenever active zones or hovered zone changes
     drawFacialSilhouette(ctx, canvas.width, canvas.height);
-  }, [activeFacialZones, hoveredZone, activeTab, isLogged]);
+  }, [activeFacialZones, hoveredZone, mousePos, activeTab, isLogged, theme, isBackdropLoaded]);
 
   const drawFacialSilhouette = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     ctx.clearRect(0, 0, width, height);
@@ -332,35 +372,48 @@ export default function App() {
     const scaleX = width / 250;
     const scaleY = height / 250;
 
-    // Draw main silhouette outline
-    ctx.beginPath();
-    ctx.strokeStyle = theme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(18, 18, 21, 0.08)';
-    ctx.lineWidth = 2;
-    ctx.arc(cx, cy - 20 * scaleY, 60 * scaleX, 0, Math.PI * 2);
-    ctx.stroke();
+    const isDark = theme === 'dark';
 
-    // Neck
-    ctx.beginPath();
-    ctx.moveTo(cx - 25 * scaleX, cy + 30 * scaleY);
-    ctx.lineTo(cx - 35 * scaleX, cy + 90 * scaleY);
-    ctx.lineTo(cx + 35 * scaleX, cy + 90 * scaleY);
-    ctx.lineTo(cx + 25 * scaleX, cy + 30 * scaleY);
-    ctx.closePath();
-    ctx.stroke();
+    // 1. Draw preloaded premium 3D realistic face backdrop image
+    if (backdropImageRef.current && isBackdropLoaded) {
+      ctx.save();
+      // Apply rounded clip matching container style
+      ctx.beginPath();
+      ctx.arc(cx, cy, 110 * scaleX, 0, Math.PI * 2);
+      ctx.clip();
+      
+      // Draw background image
+      ctx.drawImage(backdropImageRef.current, cx - 110 * scaleX, cy - 110 * scaleY, 220 * scaleX, 220 * scaleY);
+      
+      // Apply a subtle dark/light contrast mask overlay matching selected theme
+      ctx.fillStyle = isDark ? 'rgba(10, 10, 13, 0.25)' : 'rgba(250, 249, 246, 0.1)';
+      ctx.fillRect(cx - 110 * scaleX, cy - 110 * scaleY, 220 * scaleX, 220 * scaleY);
+      ctx.restore();
+    } else {
+      // Elegant loading text state if image is buffering
+      ctx.save();
+      ctx.fillStyle = isDark ? '#FAF9F6' : '#222225';
+      ctx.font = '10px Outfit, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText("CARGANDO MAPA FACIAL 3D...", cx, cy);
+      ctx.restore();
+      return;
+    }
 
-    // Draw interactive zones
+    // 2. Interactive Zones Definitions (Coordinates aligned precisely to the graphic backdrop features)
     const zones: Record<string, { label: string; coords: [number, number, number] }> = {
-      forehead: { label: 'Frente', coords: [cx, cy - 60 * scaleY, 20 * scaleX] },
-      nose: { label: 'Nariz', coords: [cx, cy, 14 * scaleX] },
-      chin: { label: 'Mentón', coords: [cx, cy + 60 * scaleY, 16 * scaleX] },
-      rightCheek: { label: 'Mejilla Der', coords: [cx + 35 * scaleX, cy + 10 * scaleY, 22 * scaleX] },
-      leftCheek: { label: 'Mejilla Izq', coords: [cx - 35 * scaleX, cy + 10 * scaleY, 22 * scaleX] },
-      rightEye: { label: 'Ojo Der', coords: [cx + 25 * scaleX, cy - 25 * scaleY, 12 * scaleX] },
-      leftEye: { label: 'Ojo Izq', coords: [cx - 25 * scaleX, cy - 25 * scaleY, 12 * scaleX] },
-      lips: { label: 'Labios', coords: [cx, cy + 35 * scaleY, 15 * scaleX] },
-      neck: { label: 'Cuello', coords: [cx, cy + 85 * scaleY, 18 * scaleX] }
+      forehead: { label: 'Frente', coords: [cx, cy - 50 * scaleY, 28 * scaleX] },
+      nose: { label: 'Nariz', coords: [cx, cy - 2 * scaleY, 18 * scaleX] },
+      chin: { label: 'Mentón', coords: [cx, cy + 50 * scaleY, 20 * scaleX] },
+      rightCheek: { label: 'Mejilla Der', coords: [cx + 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
+      leftCheek: { label: 'Mejilla Izq', coords: [cx - 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
+      rightEye: { label: 'Ojo Der', coords: [cx + 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
+      leftEye: { label: 'Ojo Izq', coords: [cx - 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
+      lips: { label: 'Labios', coords: [cx, cy + 26 * scaleY, 18 * scaleX] },
+      neck: { label: 'Cuello', coords: [cx, cy + 82 * scaleY, 24 * scaleX] }
     };
 
+    // 3. Render High Fidelity Interactive Golden Overlays
     Object.entries(zones).forEach(([key, val]) => {
       const isActive = activeFacialZones[key];
       const isHovered = hoveredZone === key;
@@ -369,84 +422,173 @@ export default function App() {
       ctx.arc(val.coords[0], val.coords[1], val.coords[2], 0, Math.PI * 2);
 
       if (isActive) {
-        ctx.fillStyle = 'rgba(212, 175, 55, 0.4)';
+        // High fidelity golden amber glow gradient
+        const glowGrad = ctx.createRadialGradient(val.coords[0], val.coords[1], 2, val.coords[0], val.coords[1], val.coords[2]);
+        glowGrad.addColorStop(0, 'rgba(212, 175, 55, 0.55)');
+        glowGrad.addColorStop(0.7, 'rgba(212, 175, 55, 0.35)');
+        glowGrad.addColorStop(1, 'rgba(212, 175, 55, 0.05)');
+        ctx.fillStyle = glowGrad;
         ctx.strokeStyle = '#D4AF37';
+        ctx.lineWidth = 2.5;
       } else if (isHovered) {
         ctx.fillStyle = 'rgba(212, 175, 55, 0.15)';
-        ctx.strokeStyle = 'rgba(212, 175, 55, 0.5)';
+        ctx.strokeStyle = 'rgba(212, 175, 55, 0.6)';
+        ctx.lineWidth = 1.5;
       } else {
-        ctx.fillStyle = theme === 'dark' ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)';
-        ctx.strokeStyle = theme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)';
+        ctx.fillStyle = 'rgba(0,0,0,0)';
+        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(181, 144, 43, 0.06)';
+        ctx.lineWidth = 1;
       }
 
-      ctx.lineWidth = 1;
       ctx.fill();
       ctx.stroke();
 
-      // Label
-      ctx.fillStyle = theme === 'dark' ? '#FAF9F6' : '#222225';
-      ctx.font = '8px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(val.label, val.coords[0], val.coords[1] + 3);
+      // Elegant subtle clinical reticle indicator instead of big text labels
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(val.coords[0], val.coords[1], 4 * scaleX, 0, Math.PI * 2);
+      if (isActive) {
+        ctx.fillStyle = '#D4AF37';
+        ctx.strokeStyle = '#FAF9F6';
+        ctx.lineWidth = 1.5;
+      } else if (isHovered) {
+        ctx.fillStyle = 'rgba(212, 175, 55, 0.9)';
+        ctx.strokeStyle = '#D4AF37';
+        ctx.lineWidth = 1;
+      } else {
+        ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(181, 144, 43, 0.25)';
+        ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(181, 144, 43, 0.45)';
+        ctx.lineWidth = 0.8;
+      }
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
     });
+
+    // 4. Elegant floating tooltip for hovered zone
+    if (hoveredZone && zones[hoveredZone]) {
+      const zone = zones[hoveredZone];
+      const isZoneActive = activeFacialZones[hoveredZone];
+      ctx.save();
+      
+      const text = `${zone.label.toUpperCase()} ${isZoneActive ? '(ACTIVO - CLIC PARA QUITAR)' : '(CLIC PARA SELECCIONAR)'}`;
+      ctx.font = 'bold 9px Sora, system-ui, sans-serif';
+      const textWidth = ctx.measureText(text).width;
+      
+      const rectW = textWidth + 16;
+      const rectH = 20;
+      // Position tooltip near mouse cursor
+      const rx = Math.max(10, Math.min(width - rectW - 10, mousePos.x - rectW / 2));
+      const ry = Math.max(10, Math.min(height - rectH - 10, mousePos.y - 30));
+      
+      // Draw rounded rectangle background (glassmorphism look)
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(rx, ry, rectW, rectH, 6);
+      } else {
+        ctx.rect(rx, ry, rectW, rectH);
+      }
+      ctx.fillStyle = 'rgba(18, 18, 21, 0.9)';
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.8)';
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+      
+      // Draw text
+      ctx.fillStyle = '#FAF9F6';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, rx + rectW / 2, ry + rectH / 2);
+      ctx.restore();
+    }
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const x = (e.clientX - rect.left) * (canvasRef.current.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvasRef.current.height / rect.height);
 
     const cx = canvasRef.current.width / 2;
     const cy = canvasRef.current.height / 2;
     const scaleX = canvasRef.current.width / 250;
     const scaleY = canvasRef.current.height / 250;
 
-    const zones: Record<string, [number, number, number]> = {
-      forehead: [cx, cy - 60 * scaleY, 20 * scaleX],
-      nose: [cx, cy, 14 * scaleX],
-      chin: [cx, cy + 60 * scaleY, 16 * scaleX],
-      rightCheek: [cx + 35 * scaleX, cy + 10 * scaleY, 22 * scaleX],
-      leftCheek: [cx - 35 * scaleX, cy + 10 * scaleY, 22 * scaleX],
-      rightEye: [cx + 25 * scaleX, cy - 25 * scaleY, 12 * scaleX],
-      leftEye: [cx - 25 * scaleX, cy - 25 * scaleY, 12 * scaleX],
-      lips: [cx, cy + 35 * scaleY, 15 * scaleX],
-      neck: [cx, cy + 85 * scaleY, 18 * scaleX]
+    const zones: Record<string, { label: string; coords: [number, number, number] }> = {
+      forehead: { label: 'Frente', coords: [cx, cy - 50 * scaleY, 28 * scaleX] },
+      nose: { label: 'Nariz', coords: [cx, cy - 2 * scaleY, 18 * scaleX] },
+      chin: { label: 'Mentón', coords: [cx, cy + 50 * scaleY, 20 * scaleX] },
+      rightCheek: { label: 'Mejilla Der', coords: [cx + 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
+      leftCheek: { label: 'Mejilla Izq', coords: [cx - 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
+      rightEye: { label: 'Ojo Der', coords: [cx + 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
+      leftEye: { label: 'Ojo Izq', coords: [cx - 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
+      lips: { label: 'Labios', coords: [cx, cy + 26 * scaleY, 18 * scaleX] },
+      neck: { label: 'Cuello', coords: [cx, cy + 82 * scaleY, 24 * scaleX] }
     };
 
-    let clickedZone: string | null = null;
+    let clickedKey: string | null = null;
+    let clickedLabel = '';
     for (const [key, val] of Object.entries(zones)) {
-      if (Math.hypot(x - val[0], y - val[1]) < val[2]) {
-        clickedZone = key;
+      if (Math.hypot(x - val.coords[0], y - val.coords[1]) < val.coords[2]) {
+        clickedKey = key;
+        clickedLabel = val.label;
         break;
       }
     }
 
-    if (clickedZone) {
+    if (clickedKey) {
       setActiveFacialZones(prev => {
-        const nextState = { ...prev, [clickedZone!]: !prev[clickedZone!] };
+        const nextState = { ...prev, [clickedKey!]: !prev[clickedKey!] };
+        const isActivating = nextState[clickedKey!];
         
-        // Add zone notes to ClinicalNotes SOAP text area
-        const activeLabels = Object.entries(nextState)
-          .filter(([_, active]) => active)
-          .map(([k]) => k);
-        
-        setPatientForm(prevForm => ({
-          ...prevForm,
-          clinicalNotes: prevForm.clinicalNotes + `\n- Zona afectada evaluada: ${clickedZone}`
-        }));
+        setPatientForm(prevForm => {
+          let updatedNotes = prevForm.clinicalNotes;
+          const zoneBullet = `- [Zona: ${clickedLabel}] `;
+          
+          if (isActivating) {
+            // Append bullet if it doesn't exist yet
+            if (!updatedNotes.includes(zoneBullet)) {
+              updatedNotes = updatedNotes.trim();
+              if (updatedNotes.length > 0) {
+                updatedNotes += `\n${zoneBullet}`;
+              } else {
+                updatedNotes = zoneBullet;
+              }
+            }
+          } else {
+            // Remove bullet line if de-selecting
+            updatedNotes = updatedNotes
+              .split('\n')
+              .filter(line => !line.startsWith(zoneBullet))
+              .join('\n');
+          }
+
+          // Dynamic DOM autofocus with cursor at end of the notes
+          setTimeout(() => {
+            if (notesTextareaRef.current) {
+              notesTextareaRef.current.focus();
+              const textLen = notesTextareaRef.current.value.length;
+              notesTextareaRef.current.setSelectionRange(textLen, textLen);
+            }
+          }, 50);
+
+          return {
+            ...prevForm,
+            clinicalNotes: updatedNotes
+          };
+        });
 
         return nextState;
       });
-      showToastMsg(`Zona ${clickedZone} seleccionada`, 'success');
+      showToastMsg(`Zona ${clickedLabel} seleccionada`, 'success');
     }
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const x = (e.clientX - rect.left) * (canvasRef.current.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvasRef.current.height / rect.height);
 
     const cx = canvasRef.current.width / 2;
     const cy = canvasRef.current.height / 2;
@@ -454,15 +596,15 @@ export default function App() {
     const scaleY = canvasRef.current.height / 250;
 
     const zones: Record<string, [number, number, number]> = {
-      forehead: [cx, cy - 60 * scaleY, 20 * scaleX],
-      nose: [cx, cy, 14 * scaleX],
-      chin: [cx, cy + 60 * scaleY, 16 * scaleX],
-      rightCheek: [cx + 35 * scaleX, cy + 10 * scaleY, 22 * scaleX],
-      leftCheek: [cx - 35 * scaleX, cy + 10 * scaleY, 22 * scaleX],
-      rightEye: [cx + 25 * scaleX, cy - 25 * scaleY, 12 * scaleX],
-      leftEye: [cx - 25 * scaleX, cy - 25 * scaleY, 12 * scaleX],
-      lips: [cx, cy + 35 * scaleY, 15 * scaleX],
-      neck: [cx, cy + 85 * scaleY, 18 * scaleX]
+      forehead: [cx, cy - 50 * scaleY, 28 * scaleX],
+      nose: [cx, cy - 2 * scaleY, 18 * scaleX],
+      chin: [cx, cy + 50 * scaleY, 20 * scaleX],
+      rightCheek: [cx + 40 * scaleX, cy + 12 * scaleY, 25 * scaleX],
+      leftCheek: [cx - 40 * scaleX, cy + 12 * scaleY, 25 * scaleX],
+      rightEye: [cx + 25 * scaleX, cy - 23 * scaleY, 15 * scaleX],
+      leftEye: [cx - 25 * scaleX, cy - 23 * scaleY, 15 * scaleX],
+      lips: [cx, cy + 26 * scaleY, 18 * scaleX],
+      neck: [cx, cy + 82 * scaleY, 24 * scaleX]
     };
 
     let foundZone: string | null = null;
@@ -473,10 +615,12 @@ export default function App() {
       }
     }
 
+    setMousePos({ x, y });
     if (foundZone !== hoveredZone) {
       setHoveredZone(foundZone);
     }
   };
+
 
   // ----------------------------------------------------
   // SIGNATURES CAPTURE
@@ -1125,7 +1269,7 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Notas Clínicas SOAP / Zonas Afectadas</label>
-                    <textarea value={patientForm.clinicalNotes} onChange={e => setPatientForm(prev => ({ ...prev, clinicalNotes: e.target.value }))} rows={8} placeholder="Diagnóstico de cabina y observaciones clínicas..." required className="smart-input w-full p-4 rounded-xl text-sm resize-none" />
+                    <textarea ref={notesTextareaRef} value={patientForm.clinicalNotes} onChange={e => setPatientForm(prev => ({ ...prev, clinicalNotes: e.target.value }))} rows={8} placeholder="Diagnóstico de cabina y observaciones clínicas..." required className="smart-input w-full p-4 rounded-xl text-sm resize-none" />
                   </div>
                   
                   <div className="flex flex-col gap-2">
@@ -1503,7 +1647,18 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
                     {products
-                      .filter(p => p.name.toLowerCase().includes(catalogSearch.toLowerCase()))
+                      .filter(p => {
+                        const searchLower = catalogSearch.toLowerCase();
+                        let actives = '';
+                        try {
+                          actives = JSON.parse(p.activeIngredients).join(', ').toLowerCase();
+                        } catch(e) {
+                          actives = p.activeIngredients.toLowerCase();
+                        }
+                        return p.name.toLowerCase().includes(searchLower) ||
+                               p.brandLine.toLowerCase().includes(searchLower) ||
+                               actives.includes(searchLower);
+                      })
                       .map(p => {
                         let parsedActives = '';
                         try {

@@ -128,10 +128,11 @@ const styles = StyleSheet.create({
     color: '#2D3748',
   },
   colOrder: { width: '5%' },
-  colPhase: { width: '15%' },
-  colProduct: { width: '20%' },
-  colActives: { width: '25%' },
-  colDescription: { width: '35%' },
+  colPhase: { width: '12%' },
+  colProduct: { width: '18%' },
+  colActives: { width: '20%' },
+  colActions: { width: '20%' },
+  colDescription: { width: '25%' },
 });
 
 interface PDFProps {
@@ -221,7 +222,8 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                   <View style={styles.colOrder}><Text style={styles.tableCellHeader}>No.</Text></View>
                   <View style={styles.colPhase}><Text style={styles.tableCellHeader}>Fase</Text></View>
                   <View style={styles.colProduct}><Text style={styles.tableCellHeader}>Producto / Marca</Text></View>
-                  <View style={styles.colActives}><Text style={styles.tableCellHeader}>Activos y Acciones</Text></View>
+                  <View style={styles.colActives}><Text style={styles.tableCellHeader}>Activos</Text></View>
+                  <View style={styles.colActions}><Text style={styles.tableCellHeader}>Acción / Efecto</Text></View>
                   <View style={styles.colDescription}><Text style={styles.tableCellHeader}>Descripción Técnica de Aplicación</Text></View>
                 </View>
 
@@ -244,7 +246,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                     }
 
                     // Procesar acciones
-                    let actions = '';
+                    let actions = 'N/A';
                     if (step.productDetails) {
                       try {
                         actions = JSON.parse(step.productDetails.physiologicalActions).join(', ');
@@ -267,7 +269,10 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                           <Text style={styles.tableCell}>{`${productName} (${brand})`}</Text>
                         </View>
                         <View style={styles.colActives}>
-                          <Text style={styles.tableCell}>{`${actives} \n[Acción: ${actions}]`}</Text>
+                          <Text style={styles.tableCell}>{actives}</Text>
+                        </View>
+                        <View style={styles.colActions}>
+                          <Text style={styles.tableCell}>{actions}</Text>
                         </View>
                         <View style={styles.colDescription}>
                           <Text style={styles.tableCell}>{step.applicationDescription || 'Aplicar según protocolo base.'}</Text>

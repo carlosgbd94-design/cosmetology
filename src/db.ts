@@ -2,8 +2,8 @@ import Dexie, { type Table } from 'dexie';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription } from './types';
 
 // Web configuration for Turso (matching existing credentials)
-const TURSO_URL = 'https://cosmetics-prodcts-carlos-becerra.aws-us-west-2.turso.io';
-const TURSO_TOKEN = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODAyNTc5MzEsImlkIjoiMDE5ZTdmOWUtMmEwMS03OWMxLTg3N2YtN2RkY2FkZjg1ZDk5IiwicmlkIjoiM2VhNTAwMzUtMjIwZS00MWM2LWI3NjItNTM2NjQ1NzJhM2EzIn0.7-B8dPeRempyRbJBif_dZYDmoKizAwHz9F9RTv-WGNmpniIRicU3GkcENXOi2k0n1_rKfDuL69f1cLAOyeFnBg';
+const TURSO_URL = import.meta.env.VITE_LIBSQL_DB_URL || 'https://cosmetics-prodcts-carlos-becerra.aws-us-west-2.turso.io';
+const TURSO_TOKEN = import.meta.env.VITE_LIBSQL_DB_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODAyNTc5MzEsImlkIjoiMDE5ZTdmOWUtMmEwMS03OWMxLTg3N2YtN2RkY2FkZjg1ZDk5IiwicmlkIjoiM2VhNTAwMzUtMjIwZS00MWM2LWI3NjItNTM2NjQ1NzJhM2EzIn0.7-B8dPeRempyRbJBif_dZYDmoKizAwHz9F9RTv-WGNmpniIRicU3GkcENXOi2k0n1_rKfDuL69f1cLAOyeFnBg';
 
 // Local Dexie Database v6 setup
 class LocalClinicalDB extends Dexie {
@@ -367,7 +367,66 @@ export async function seedTables(): Promise<void> {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `, prod);
     }
+
+    // Migrate legacy productos_activos to products if the table exists and contains records
+    try {
+      const existing = await executeQuery("SELECT * FROM productos_activos");
+      if (existing && existing.rows && existing.rows.length > 0) {
+        const grouped: Record<string, {
+          name: string;
+          brand: string;
+          actives: string[];
+          actions: string[];
+          protocol: string;
+        }> = {};
+
+        for (const row of existing.rows) {
+          const key = `${row.linea}_${row.producto}`.toLowerCase();
+          if (!grouped[key]) {
+            grouped[key] = {
+              name: row.producto,
+              brand: row.linea,
+              actives: [],
+              actions: [],
+              protocol: row.protocolo || ''
+            };
+          }
+          if (row.activo && !grouped[key].actives.includes(row.activo)) {
+            grouped[key].actives.push(row.activo);
+          }
+          if (row.accion && !grouped[key].actions.includes(row.accion)) {
+            grouped[key].actions.push(row.accion);
+          }
+        }
+
+        let idx = 10; // offset so default ids don't collide
+        for (const key of Object.keys(grouped)) {
+          const item = grouped[key];
+          // Check if this product name is already seeded
+          const nameCheck = await executeQuery("SELECT id FROM products WHERE name = ? AND brand_line = ?", [item.name, item.brand]);
+          if (nameCheck.rows && nameCheck.rows.length > 0) {
+            continue;
+          }
+
+          const id = `MIG-${idx.toString().padStart(4, '0')}`;
+          const brandCode = item.brand ? item.brand.substring(0, 3).toUpperCase() : 'GEN';
+          const sku = `SKU-${brandCode}-${idx.toString().padStart(4, '0')}`;
+          const activeJSON = JSON.stringify(item.actives);
+          const actionJSON = JSON.stringify(item.actions);
+          const isProfessional = item.protocol === 'Apoyo en Casa' ? 0 : 1;
+
+          await executeQuery(`
+            INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `, [id, sku, item.name, item.brand || 'General', activeJSON, actionJSON, 500.00, isProfessional]);
+          idx++;
+        }
+      }
+    } catch (migErr) {
+      console.warn("Skip legacy productos_activos migration:", migErr);
+    }
   } catch(e) {
     console.error("Database seeding failed:", e);
   }
 }
+
