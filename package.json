@@ -1,18 +1,39 @@
 {
   "name": "selector-de-cosmeticos",
   "version": "1.0.0",
-  "description": "Cosmetic selector and treatment sheet generator with intelligent active ingredient matching.",
+  "description": "Cosmetic selector and treatment sheet generator with intelligent active matching.",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "start": "node server.js"
   },
   "dependencies": {
     "@libsql/client": "^0.6.2",
+    "@react-pdf/renderer": "^3.4.4",
+    "apexcharts": "^3.49.0",
+    "dexie": "^4.0.8",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "fuse.js": "^7.0.0",
+    "lucide-react": "^0.395.0",
     "pg": "^8.11.5",
+    "react": "^18.3.1",
+    "react-apexcharts": "^1.4.1",
+    "react-dom": "^18.3.1",
+    "signature_pad": "^5.0.2",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
   }
 }
