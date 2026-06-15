@@ -345,7 +345,7 @@ export default function App() {
 
   useEffect(() => {
     const img = new Image();
-    img.src = '/face_backdrop.png?v=2';
+    img.src = `${import.meta.env.BASE_URL}face_backdrop.png?v=2`;
     img.onload = () => {
       backdropImageRef.current = img;
       setIsBackdropLoaded(true);
