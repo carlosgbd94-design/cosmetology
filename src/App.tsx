@@ -12,8 +12,9 @@ import Papa from 'papaparse';
 import { 
   Activity, Award, Beaker, CheckCircle, ChevronDown, Clipboard, Clock, CloudDownload, 
   Database, FileText, FileUp, FolderHeart, Info, Layers, Lock, Moon, Plus, Printer, 
-  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2 
+  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send 
 } from 'lucide-react';
+import { sendManualReport } from './errorHandler';
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
@@ -114,6 +115,26 @@ export default function App() {
 
   // State PDF choice modal
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+
+  // Bug Report Modal State
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportMessage, setReportMessage] = useState('');
+  const [isSendingReport, setIsSendingReport] = useState(false);
+
+  const handleSendReport = async () => {
+    if (!reportMessage.trim()) return;
+    setIsSendingReport(true);
+    try {
+      await sendManualReport(reportMessage);
+      showToastMsg('Reporte enviado al desarrollador.', 'success');
+      setIsReportModalOpen(false);
+      setReportMessage('');
+    } catch (e) {
+      showToastMsg('Error al enviar el reporte.', 'error');
+    } finally {
+      setIsSendingReport(false);
+    }
+  };
 
   // Levenshtein & AI recommender Widget states
   const [checkerInput, setCheckerInput] = useState('');
@@ -1787,6 +1808,79 @@ export default function App() {
             <div className="flex justify-end pt-2 border-t border-slate-200/10">
               <button type="button" onClick={() => setIsPdfModalOpen(false)} className="px-4 py-2 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 text-xs font-semibold">
                 Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Support Button */}
+      {isLogged && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <button
+            onClick={() => setIsReportModalOpen(true)}
+            className="w-14 h-14 bg-gradient-to-tr from-luxe-500 to-luxe-600 rounded-full flex items-center justify-center text-white shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 transition-all animate-bounce-slow border-2 border-white/20"
+            title="Reportar problema o enviar sugerencia"
+          >
+            <MessageSquare className="w-6 h-6" />
+          </button>
+        </div>
+      )}
+
+      {/* Support Report Modal */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-lg bg-white dark:bg-luxe-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-luxe-800 animate-slide-up">
+            <div className="p-5 border-b border-slate-100 dark:border-luxe-800 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white dark:from-luxe-900 dark:to-luxe-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-luxe-100 dark:bg-luxe-800 flex items-center justify-center text-luxe-500">
+                  <Bug className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-white font-sora">Soporte Técnico</h3>
+                  <p className="text-xs text-slate-500 dark:text-luxe-300">Reporta un error o sugiere mejoras</p>
+                </div>
+              </div>
+              <button onClick={() => setIsReportModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-luxe-800 rounded-xl transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <label className="block text-sm font-semibold text-slate-700 dark:text-luxe-100 mb-2">
+                ¿Qué problema encontraste o qué te gustaría sugerir?
+              </label>
+              <textarea
+                value={reportMessage}
+                onChange={(e) => setReportMessage(e.target.value)}
+                placeholder="Ej. Al intentar guardar la consulta se queda cargando..."
+                className="w-full bg-slate-50 dark:bg-luxe-950 border border-slate-200 dark:border-luxe-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-luxe-500/50 outline-none text-slate-700 dark:text-white transition-all resize-none h-32"
+              ></textarea>
+              <p className="text-xs text-slate-400 dark:text-luxe-400 mt-3 flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5" /> Se adjuntará un registro técnico oculto para ayudar al desarrollador.
+              </p>
+            </div>
+            
+            <div className="p-5 border-t border-slate-100 dark:border-luxe-800 bg-slate-50 dark:bg-luxe-900 flex justify-end gap-3">
+              <button
+                onClick={() => setIsReportModalOpen(false)}
+                className="px-5 py-2.5 rounded-xl text-slate-600 dark:text-luxe-200 font-semibold text-sm hover:bg-slate-200 dark:hover:bg-luxe-800 transition-colors"
+                disabled={isSendingReport}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSendReport}
+                disabled={!reportMessage.trim() || isSendingReport}
+                className="flex items-center gap-2 bg-gradient-to-r from-luxe-500 to-luxe-600 text-white px-5 py-2.5 rounded-xl font-semibold text-sm hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSendingReport ? (
+                  <>Enviando...</>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" /> Enviar Reporte
+                  </>
+                )}
               </button>
             </div>
           </div>
