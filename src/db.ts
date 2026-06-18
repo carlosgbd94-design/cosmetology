@@ -15,8 +15,8 @@ class LocalClinicalDB extends Dexie {
   prescriptions!: Table<Prescription, string>;
 
   constructor() {
-    super('DermatiqueClinicalDB_v6');
-    this.version(6).stores({
+    super('DermatiqueClinicalDB_v7');
+    this.version(7).stores({
       patients: 'id, emailHashed',
       anamnesis: 'id, patientId',
       products: 'id, sku',
@@ -162,8 +162,8 @@ export async function saveConsultationTransaction(
     stmts.push({ sql: "BEGIN TRANSACTION", args: [] });
 
     stmts.push({
-      sql: `INSERT OR REPLACE INTO consultations (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT OR REPLACE INTO consultations (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         consultation.id,
         consultation.patientId,
@@ -174,7 +174,9 @@ export async function saveConsultationTransaction(
         consultation.skinConditions,
         consultation.medicalDiagnosis || null,
         consultation.clinicalNotes,
-        consultation.state
+        consultation.state,
+        consultation.allergies || null,
+        consultation.medicalConditions || null
       ]
     });
 
@@ -336,6 +338,17 @@ export async function seedTables(): Promise<void> {
         FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
       )
     `);
+
+    // Add new columns to existing tables if missing
+    try {
+      await executeQuery(`ALTER TABLE consultations ADD COLUMN allergies TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultations ADD COLUMN medical_conditions TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'`);
+    } catch (e) {}
 
     // Create default users table if missing
     await executeQuery(`

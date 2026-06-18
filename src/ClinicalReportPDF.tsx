@@ -196,7 +196,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
               <Text style={styles.cardTitle}>Valoración Clínica de la Sesión</Text>
               <View style={styles.grid}>
                 <View style={styles.gridCol}>
-                  <Text style={styles.label}>Diagnóstico Médico:</Text>
+                  <Text style={styles.label}>Protocolo:</Text>
                   <Text style={styles.value}>{consultation.medicalDiagnosis || 'Ninguno de base'}</Text>
                 </View>
                 <View style={styles.gridCol}>
@@ -205,9 +205,17 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                     {conditionsList.length > 0 ? conditionsList.join(', ') : 'Ninguna registrada'}
                   </Text>
                 </View>
+                <View style={styles.gridCol}>
+                  <Text style={styles.label}>Alergias:</Text>
+                  <Text style={styles.value}>{consultation.allergies || 'Ninguna registrada'}</Text>
+                </View>
+                <View style={styles.gridCol}>
+                  <Text style={styles.label}>Condiciones Médicas:</Text>
+                  <Text style={styles.value}>{consultation.medicalConditions || 'Ninguna registrada'}</Text>
+                </View>
               </View>
               <View style={{ marginTop: 6 }}>
-                <Text style={styles.label}>Observaciones Clínicas / SOAP:</Text>
+                <Text style={styles.label}>Observaciones Clínicas / SOAP / Zonas Afectadas:</Text>
                 <Text style={styles.value}>{consultation.clinicalNotes}</Text>
               </View>
             </View>
@@ -220,11 +228,11 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                 {/* Cabecera de la tabla */}
                 <View style={styles.tableHeader}>
                   <View style={styles.colOrder}><Text style={styles.tableCellHeader}>No.</Text></View>
-                  <View style={styles.colPhase}><Text style={styles.tableCellHeader}>Fase</Text></View>
+                  <View style={styles.colPhase}><Text style={styles.tableCellHeader}>Protocolo</Text></View>
                   <View style={styles.colProduct}><Text style={styles.tableCellHeader}>Producto / Marca</Text></View>
                   <View style={styles.colActives}><Text style={styles.tableCellHeader}>Activos</Text></View>
                   <View style={styles.colActions}><Text style={styles.tableCellHeader}>Acción / Efecto</Text></View>
-                  <View style={styles.colDescription}><Text style={styles.tableCellHeader}>Descripción Técnica de Aplicación</Text></View>
+                  <View style={styles.colDescription}><Text style={styles.tableCellHeader}>Descripción / Aparatología</Text></View>
                 </View>
 
                 {/* Renderizado de Pasos */}
@@ -257,6 +265,20 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                       actions = step.customActions;
                     }
 
+                    // Procesar aparatología
+                    let aparatology = '';
+                    if (step.aparatologySettings) {
+                      try {
+                        const parsedAp = JSON.parse(step.aparatologySettings);
+                        aparatology = Array.isArray(parsedAp) ? parsedAp.join(', ') : step.aparatologySettings;
+                      } catch (e) {
+                        aparatology = step.aparatologySettings;
+                      }
+                    }
+                    const descAndAp = step.applicationDescription 
+                      ? (aparatology ? `${step.applicationDescription} (Aparatología: ${aparatology})` : step.applicationDescription)
+                      : (aparatology ? `Aparatología: ${aparatology}` : 'Aplicar según protocolo base.');
+
                     return (
                       <View key={step.id} style={styles.tableRow} wrap={false}>
                         <View style={styles.colOrder}>
@@ -275,7 +297,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                           <Text style={styles.tableCell}>{actions}</Text>
                         </View>
                         <View style={styles.colDescription}>
-                          <Text style={styles.tableCell}>{step.applicationDescription || 'Aplicar según protocolo base.'}</Text>
+                          <Text style={styles.tableCell}>{descAndAp}</Text>
                         </View>
                       </View>
                     );

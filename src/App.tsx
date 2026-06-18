@@ -12,7 +12,7 @@ import Papa from 'papaparse';
 import { 
   Activity, Award, Beaker, CheckCircle, ChevronDown, Clipboard, Clock, CloudDownload, 
   Database, FileText, FileUp, FolderHeart, Info, Layers, Lock, Moon, Plus, Printer, 
-  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send 
+  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
 
@@ -68,13 +68,16 @@ export default function App() {
     fitzpatrickScale: 1,
     skinConditions: '[]',
     clinicalNotes: '',
-    state: 'Borrador' as ConsultationState
+    state: 'Borrador' as ConsultationState,
+    allergies: '',
+    medicalConditions: ''
   });
 
   // Steps / Procedure Designer State
   const [currentSteps, setCurrentSteps] = useState<ConsultationStep[]>([]);
   const [stepInput, setStepInput] = useState({
     stepName: 'Otro',
+    customStepName: '',
     customProductName: '',
     customBrand: '',
     customActiveIngredients: '',
@@ -155,7 +158,8 @@ export default function App() {
     retailPrice: '',
     isProfessionalUse: true,
     activeIngredients: '[]',
-    physiologicalActions: '[]'
+    physiologicalActions: '[]',
+    skinBiotypes: '[]'
   });
   const [formIngredientInput, setFormIngredientInput] = useState('');
   const [formIngredientAction, setFormIngredientAction] = useState('');
@@ -212,7 +216,7 @@ export default function App() {
       // Sync remote products to local Dexie on start
       if (navigator.onLine) {
         try {
-          const res = await executeQuery('SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use FROM products');
+          const res = await executeQuery('SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes FROM products');
           if (res && res.rows) {
             await db.products.clear();
             for (const r of res.rows) {
@@ -224,7 +228,8 @@ export default function App() {
                 activeIngredients: r.active_ingredients,
                 physiologicalActions: r.physiological_actions,
                 retailPrice: Number(r.retail_price),
-                isProfessionalUse: Number(r.is_professional_use) === 1
+                isProfessionalUse: Number(r.is_professional_use) === 1,
+                skinBiotypes: r.skin_biotypes || '[]'
               });
             }
           }
@@ -713,6 +718,26 @@ export default function App() {
     }));
   };
 
+  const toggleAparatology = (option: string) => {
+    let current: string[] = [];
+    try {
+      current = JSON.parse(stepInput.aparatologySettings || '[]');
+    } catch(e) {
+      current = stepInput.aparatologySettings ? stepInput.aparatologySettings.split(', ') : [];
+    }
+
+    if (current.includes(option)) {
+      current = current.filter(o => o !== option);
+    } else {
+      current.push(option);
+    }
+
+    setStepInput(prev => ({
+      ...prev,
+      aparatologySettings: JSON.stringify(current)
+    }));
+  };
+
   const handleAddStep = () => {
     if (!stepInput.customProductName.trim()) {
       showToastMsg('Ingrese el nombre del producto para el paso.', 'error');
@@ -723,13 +748,14 @@ export default function App() {
       id: Math.random().toString(36).substring(2, 9).toUpperCase(),
       consultationId: patientForm.id || 'TEMP',
       stepOrder: currentSteps.length + 1,
-      stepName: stepInput.stepName,
+      stepName: stepInput.stepName === 'Otro' ? (stepInput.customStepName || 'Otro') : stepInput.stepName,
       productId: stepInput.productId || undefined,
       customProductName: stepInput.customProductName,
       customBrand: stepInput.customBrand,
       customActiveIngredients: stepInput.customActiveIngredients,
       customActions: stepInput.customActions,
       applicationDescription: stepInput.applicationDescription,
+      aparatologySettings: stepInput.aparatologySettings || undefined,
       productDetails: selectedProduct || undefined
     };
 
@@ -738,6 +764,7 @@ export default function App() {
     // Clear step inputs
     setStepInput({
       stepName: 'Otro',
+      customStepName: '',
       customProductName: '',
       customBrand: '',
       customActiveIngredients: '',
@@ -757,6 +784,27 @@ export default function App() {
     // Re-order remaining steps
     const reordered = nextSteps.map((s, i) => ({ ...s, stepOrder: i + 1 }));
     setCurrentSteps(reordered);
+  };
+
+  const editStep = (idx: number) => {
+    const step = currentSteps[idx];
+    setStepInput({
+      stepName: ['Limpieza', 'Shampoo', 'Exfoliación', 'Tonificación', 'Armonizador', 'Principio Activo', 'Mascarilla', 'Crema de Sellado', 'Protección Solar', 'Apoyo en Casa'].includes(step.stepName) ? step.stepName : 'Otro',
+      customStepName: ['Limpieza', 'Shampoo', 'Exfoliación', 'Tonificación', 'Armonizador', 'Principio Activo', 'Mascarilla', 'Crema de Sellado', 'Protección Solar', 'Apoyo en Casa'].includes(step.stepName) ? '' : step.stepName,
+      customProductName: step.customProductName || '',
+      customBrand: step.customBrand || '',
+      customActiveIngredients: step.customActiveIngredients || '',
+      customActions: step.customActions || '',
+      applicationDescription: step.applicationDescription || '',
+      aparatologySettings: step.aparatologySettings || '[]',
+      productId: step.productId || ''
+    });
+    // Remove step from list
+    const nextSteps = [...currentSteps];
+    nextSteps.splice(idx, 1);
+    const reordered = nextSteps.map((s, i) => ({ ...s, stepOrder: i + 1 }));
+    setCurrentSteps(reordered);
+    showToastMsg('Paso cargado en el formulario para edición.', 'success');
   };
 
   // ----------------------------------------------------
@@ -868,7 +916,9 @@ export default function App() {
         skinConditions: patientForm.skinConditions,
         medicalDiagnosis: patientForm.medicalDiagnosis || undefined,
         clinicalNotes: patientForm.clinicalNotes,
-        state: patientForm.state
+        state: patientForm.state,
+        allergies: patientForm.allergies || '',
+        medicalConditions: patientForm.medicalConditions || ''
       };
 
       const finalSteps = currentSteps.map(s => ({ ...s, consultationId }));
@@ -903,7 +953,9 @@ export default function App() {
       fitzpatrickScale: 1,
       skinConditions: '[]',
       clinicalNotes: '',
-      state: 'Borrador'
+      state: 'Borrador',
+      allergies: '',
+      medicalConditions: ''
     });
     setCurrentSteps([]);
     setPrescriptionsList([]);
@@ -918,12 +970,12 @@ export default function App() {
   // ----------------------------------------------------
   // PDF VECTOR COMPILER (@react-pdf/renderer)
   // ----------------------------------------------------
-  const triggerPdfDownload = async (type: 'ficha' | 'receta') => {
+  const triggerPdfDownload = async (type: 'ficha' | 'receta', customPatient?: Patient, customConsultation?: Consultation) => {
     setIsPdfModalOpen(false);
     showToastMsg('Compilando expediente en PDF...', 'success');
 
     try {
-      const mockPatient: Patient = {
+      const activePatient: Patient = customPatient || {
         id: patientForm.id || 'P-0001',
         firstNameEncrypted: patientForm.firstName || 'Paciente',
         lastNameEncrypted: patientForm.lastName || 'Prueba',
@@ -934,9 +986,9 @@ export default function App() {
         updatedAt: ''
       };
 
-      const mockConsultation: Consultation = {
+      const activeConsultation: Consultation = customConsultation || {
         id: patientForm.id || 'C-2026-0001',
-        patientId: mockPatient.id,
+        patientId: activePatient.id,
         providerId: 'clinica_dermatique',
         visitDate: new Date().toISOString(),
         skinBiotype: patientForm.skinBiotype || 'Eudérmica / Normal',
@@ -946,23 +998,68 @@ export default function App() {
         clinicalNotes: patientForm.clinicalNotes || 'Sin notas adicionales.',
         state: patientForm.state,
         steps: currentSteps,
-        prescriptions: prescriptionsList
+        prescriptions: prescriptionsList,
+        allergies: patientForm.allergies || '',
+        medicalConditions: patientForm.medicalConditions || ''
       };
 
-      const doc = <ClinicalReportPDF patient={mockPatient} consultation={mockConsultation} type={type} />;
+      const doc = <ClinicalReportPDF patient={activePatient} consultation={activeConsultation} type={type} />;
       const blob = await pdf(doc).toBlob();
       const url = URL.createObjectURL(blob);
       
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${type === 'ficha' ? 'Ficha_Clinica' : 'Receta_Apoyo'}_${mockPatient.firstNameEncrypted}_${mockConsultation.id}.pdf`;
+      link.download = `${type === 'ficha' ? 'Ficha_Clinica' : 'Receta_Apoyo'}_${activePatient.firstNameEncrypted}_${activeConsultation.id}.pdf`;
       link.click();
-      
-      showToastMsg('PDF descargado con éxito.', 'success');
-    } catch(e) {
+    } catch (e) {
       console.error(e);
-      showToastMsg('Fallo al generar archivo PDF.', 'error');
+      showToastMsg('Error al generar el PDF.', 'error');
     }
+  };
+
+  const handleEditConsultation = async (c: Consultation) => {
+    const pat = patients.find(p => p.id === c.patientId);
+    
+    // Resolve steps and prescriptions
+    const steps = await db.consultation_steps.where('consultationId').equals(c.id).toArray();
+    const prescriptions = await db.prescriptions.where('consultationId').equals(c.id).toArray();
+    
+    setPatientForm({
+      id: c.patientId,
+      firstName: pat ? pat.firstNameEncrypted : '',
+      lastName: pat ? pat.lastNameEncrypted : '',
+      dateOfBirth: pat ? pat.dateOfBirth : '',
+      email: '',
+      phone: pat ? pat.phoneEncrypted : '',
+      medicalDiagnosis: c.medicalDiagnosis || '',
+      surgicalHistory: '',
+      allergiesCosmetics: '[]',
+      currentMedications: '[]',
+      lifestyleMetrics: '{}',
+      skinBiotype: c.skinBiotype,
+      fitzpatrickScale: c.fitzpatrickScale,
+      skinConditions: c.skinConditions || '[]',
+      clinicalNotes: c.clinicalNotes || '',
+      state: c.state,
+      allergies: c.allergies || '',
+      medicalConditions: c.medicalConditions || ''
+    });
+
+    const anam = await db.anamnesis.where('patientId').equals(c.patientId).first();
+    if (anam) {
+      setPatientForm(prev => ({
+        ...prev,
+        surgicalHistory: anam.surgicalHistory || '',
+        allergiesCosmetics: anam.allergiesCosmetics || '[]',
+        currentMedications: anam.currentMedications || '[]',
+        lifestyleMetrics: anam.lifestyleMetrics || '{}'
+      }));
+    }
+    
+    setCurrentSteps(steps);
+    setPrescriptionsList(prescriptions);
+    setActiveTab('generator');
+    showToastMsg('Expediente cargado en el Generador.', 'success');
   };
 
   // ----------------------------------------------------
@@ -1001,6 +1098,48 @@ export default function App() {
     setFormIngredientsList(next);
   };
 
+  const handleEditProductClick = (p: Product) => {
+    setIsProductFormOpen(true);
+    setIsEditProduct(true);
+    
+    let parsedActives: { name: string; action: string }[] = [];
+    try {
+      const actives = JSON.parse(p.activeIngredients) as string[];
+      const actions = JSON.parse(p.physiologicalActions) as string[];
+      actives.forEach((act, idx) => {
+        parsedActives.push({ name: act, action: actions[idx] || 'Efecto dermoestético' });
+      });
+    } catch(e) {}
+    
+    setProductForm({
+      id: p.id,
+      sku: p.sku,
+      name: p.name,
+      brandLine: p.brandLine,
+      retailPrice: String(p.retailPrice),
+      isProfessionalUse: p.isProfessionalUse,
+      activeIngredients: p.activeIngredients,
+      physiologicalActions: p.physiologicalActions,
+      skinBiotypes: p.skinBiotypes || '[]'
+    });
+    setFormIngredientsList(parsedActives);
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (!window.confirm('¿Está seguro de eliminar este producto del catálogo?')) return;
+    try {
+      if (navigator.onLine) {
+        await executeQuery('DELETE FROM products WHERE id = ?', [id]);
+      }
+      await db.products.delete(id);
+      showToastMsg('Producto eliminado del catálogo.', 'success');
+      loadMasterCatalogs();
+    } catch (e) {
+      console.error(e);
+      showToastMsg('Error al eliminar producto.', 'error');
+    }
+  };
+
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!productForm.name || !productForm.sku || !productForm.brandLine) {
@@ -1019,14 +1158,15 @@ export default function App() {
       retailPrice: parseFloat(productForm.retailPrice) || 0,
       isProfessionalUse: productForm.isProfessionalUse,
       activeIngredients: JSON.stringify(actives),
-      physiologicalActions: JSON.stringify(actions)
+      physiologicalActions: JSON.stringify(actions),
+      skinBiotypes: productForm.skinBiotypes || '[]'
     };
 
     if (navigator.onLine) {
       await executeQuery(
-        `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, newProd.isProfessionalUse ? 1 : 0]
+        `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, newProd.isProfessionalUse ? 1 : 0, newProd.skinBiotypes]
       );
     }
 
@@ -1086,9 +1226,108 @@ export default function App() {
   // ----------------------------------------------------
   // EXCEL BULK INGEST (PapaParse / SheetJS)
   // ----------------------------------------------------
+  const handlePdfUpload = async (file: File) => {
+    showToastMsg('Procesando archivo PDF...', 'success');
+    try {
+      const pdfjsLib = await new Promise<any>((resolve, reject) => {
+        if ((window as any).pdfjsLib) {
+          resolve((window as any).pdfjsLib);
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+        script.onload = () => {
+          const pdfjs = (window as any).pdfjsLib;
+          pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+          resolve(pdfjs);
+        };
+        script.onerror = () => reject(new Error('Fallo al cargar extractor PDF.'));
+        document.head.appendChild(script);
+      });
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let text = '';
+      
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        text += pageText + '\n';
+      }
+
+      const lines = text.split('\n');
+      const parsedProducts: Product[] = [];
+      let index = 0;
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const skuMatch = line.match(/(SKU-[A-Z0-9-]+|[A-Z]{3,4}-\d{3,5})/i);
+        const priceMatch = line.match(/(\d{3,5}(\.\d{2})?)/);
+        
+        if (line.length > 5 && (skuMatch || line.toLowerCase().includes('sku') || line.includes('$') || /germaine|lidherma|skeyndor|miguett|casmara/i.test(line))) {
+          const sku = skuMatch ? skuMatch[0] : `SKU-PDF-${index}`;
+          const price = priceMatch ? parseFloat(priceMatch[0]) : 500;
+          const brandMatch = line.match(/germaine|germaine de capuccini|lidherma|skeyndor|miguett|casmara/i);
+          const brand = brandMatch ? brandMatch[0] : 'Genérico';
+          
+          let cleanedName = line
+            .replace(/(SKU-[A-Z0-9-]+|[A-Z]{3,4}-\d{3,5})/ig, '')
+            .replace(/[\$\d\.,\-\:]+/g, '')
+            .replace(/germaine de capuccini|lidherma|skeyndor|miguett|casmara/ig, '')
+            .trim();
+          
+          if (!cleanedName) cleanedName = `Producto PDF ${index + 1}`;
+
+          parsedProducts.push({
+            id: `PDF-${index}-${Math.floor(Math.random() * 1000)}`,
+            sku,
+            name: cleanedName,
+            brandLine: brand,
+            retailPrice: price,
+            isProfessionalUse: true,
+            activeIngredients: JSON.stringify([]),
+            physiologicalActions: JSON.stringify([]),
+            skinBiotypes: '[]'
+          });
+          index++;
+        }
+      }
+
+      if (parsedProducts.length === 0) {
+        showToastMsg('El PDF no tiene formato tabular reconocible. Extrayendo líneas clave...', 'error');
+        const shortLines = lines.filter(l => l.trim().length > 10 && l.trim().length < 80).slice(0, 10);
+        shortLines.forEach((l, idx) => {
+          parsedProducts.push({
+            id: `PDF-KEY-${idx}-${Math.floor(Math.random() * 1000)}`,
+            sku: `SKU-PDF-${idx}`,
+            name: l.trim(),
+            brandLine: 'Genérico',
+            retailPrice: 450,
+            isProfessionalUse: true,
+            activeIngredients: JSON.stringify([]),
+            physiologicalActions: JSON.stringify([]),
+            skinBiotypes: '[]'
+          });
+        });
+      }
+
+      setUploadPreview(parsedProducts);
+      showToastMsg(`Previsualizando ${parsedProducts.length} productos extraídos del PDF.`, 'success');
+    } catch (e: any) {
+      console.error(e);
+      showToastMsg(e.message || 'Error al procesar el archivo PDF.', 'error');
+    }
+  };
+
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+      handlePdfUpload(file);
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (evt) => {
@@ -1105,7 +1344,8 @@ export default function App() {
         retailPrice: parseFloat(row.Precio) || 0,
         isProfessionalUse: row.UsoProfesional === 'Sí' || row.UsoProfesional === 1,
         activeIngredients: JSON.stringify(row.Activos ? String(row.Activos).split(',') : []),
-        physiologicalActions: JSON.stringify(row.Acciones ? String(row.Acciones).split(',') : [])
+        physiologicalActions: JSON.stringify(row.Acciones ? String(row.Acciones).split(',') : []),
+        skinBiotypes: JSON.stringify(row.Biotipos ? String(row.Biotipos).split(',') : [])
       }));
 
       setUploadPreview(mapped);
@@ -1120,9 +1360,9 @@ export default function App() {
       for (const p of uploadPreview) {
         if (navigator.onLine) {
           await executeQuery(
-            `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [p.id, p.sku, p.name, p.brandLine, p.activeIngredients, p.physiologicalActions, p.retailPrice, p.isProfessionalUse ? 1 : 0]
+            `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [p.id, p.sku, p.name, p.brandLine, p.activeIngredients, p.physiologicalActions, p.retailPrice, p.isProfessionalUse ? 1 : 0, p.skinBiotypes || '[]']
           );
         }
         await db.products.put(p);
@@ -1281,8 +1521,19 @@ export default function App() {
                     <input type="number" min="1" max="6" value={patientForm.fitzpatrickScale} onChange={e => setPatientForm(prev => ({ ...prev, fitzpatrickScale: parseInt(e.target.value) || 1 }))} className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Diagnóstico Médico General</label>
-                    <input type="text" value={patientForm.medicalDiagnosis} onChange={e => setPatientForm(prev => ({ ...prev, medicalDiagnosis: e.target.value }))} placeholder="P. ej., Dermatitis atópica..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Protocolo</label>
+                    <input type="text" value={patientForm.medicalDiagnosis} onChange={e => setPatientForm(prev => ({ ...prev, medicalDiagnosis: e.target.value }))} placeholder="P. ej., Limpieza profunda, Peeling..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Alergias</label>
+                    <input type="text" value={patientForm.allergies} onChange={e => setPatientForm(prev => ({ ...prev, allergies: e.target.value }))} placeholder="P. ej., Alergia al látex, fragancias, cosméticos..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Condiciones Médicas</label>
+                    <input type="text" value={patientForm.medicalConditions} onChange={e => setPatientForm(prev => ({ ...prev, medicalConditions: e.target.value }))} placeholder="P. ej., Diabetes, embarazo, hipertensión..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
                 </div>
 
@@ -1339,6 +1590,9 @@ export default function App() {
                           <option value="Apoyo en Casa">Apoyo en Casa</option>
                           <option value="Otro">Otro</option>
                         </select>
+                        {stepInput.stepName === 'Otro' && (
+                          <input type="text" value={stepInput.customStepName} onChange={e => setStepInput(prev => ({ ...prev, customStepName: e.target.value }))} placeholder="Especificar Fase/Protocolo..." className="smart-input w-full mt-2" />
+                        )}
                       </div>
                     </div>
 
@@ -1353,6 +1607,24 @@ export default function App() {
                       </div>
                       <textarea value={stepInput.applicationDescription} onChange={e => setStepInput(prev => ({ ...prev, applicationDescription: e.target.value }))} rows={2} placeholder="Descripción de Aplicación (maniobras, pose, neutralizador...)" className="smart-input w-full resize-none" />
 
+                      <div className="flex flex-col gap-2">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Aparatología Aplicada</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-500/5 p-3 rounded-xl border border-slate-200/20">
+                          {['Galvánica', 'Alta frecuencia', 'Farádica', 'Capacitiva', 'LASER', 'Infrarrojos', 'Ultrasonido', 'LED´s'].map(op => {
+                            let isChecked = false;
+                            try {
+                              isChecked = JSON.parse(stepInput.aparatologySettings || '[]').includes(op);
+                            } catch(e) {}
+                            return (
+                              <label key={op} className="flex items-center gap-1.5 cursor-pointer text-[11px] font-medium text-slate-700 dark:text-luxe-200">
+                                <input type="checkbox" checked={isChecked} onChange={() => toggleAparatology(op)} className="rounded border-slate-350 w-3.5 h-3.5" />
+                                <span>{op}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
                       <button type="button" onClick={handleAddStep} className="w-full bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5">
                         <Plus className="w-4 h-4" /> Agregar Paso al Protocolo
                       </button>
@@ -1365,9 +1637,10 @@ export default function App() {
                       <thead>
                         <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
                           <th className="py-3 px-4">Orden</th>
-                          <th className="py-3 px-4">Fase</th>
+                          <th className="py-3 px-4">Protocolo</th>
                           <th className="py-3 px-4">Producto</th>
                           <th className="py-3 px-4">Marca</th>
+                          <th className="py-3 px-4">Activo</th>
                           <th className="py-3 px-4">Acción</th>
                           <th className="py-3 px-4 text-right">Acciones</th>
                         </tr>
@@ -1375,7 +1648,7 @@ export default function App() {
                       <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
                         {currentSteps.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-6 text-center text-slate-400 italic">No se han añadido pasos.</td>
+                            <td colSpan={7} className="py-6 text-center text-slate-400 italic">No se han añadido pasos.</td>
                           </tr>
                         ) : (
                           currentSteps.map((step, idx) => (
@@ -1384,9 +1657,11 @@ export default function App() {
                               <td className="py-3 px-4 font-bold">{step.stepName}</td>
                               <td className="py-3 px-4">{step.customProductName}</td>
                               <td className="py-3 px-4">{step.customBrand}</td>
-                              <td className="py-3 px-4">{step.customActions}</td>
-                              <td className="py-3 px-4 text-right">
-                                <button type="button" onClick={() => removeStep(idx)} className="text-red-500 hover:underline"><Trash2 className="w-4 h-4" /></button>
+                              <td className="py-3 px-4 truncate max-w-[150px]">{step.customActiveIngredients || 'N/A'}</td>
+                              <td className="py-3 px-4 truncate max-w-[150px]">{step.customActions || 'N/A'}</td>
+                              <td className="py-3 px-4 text-right space-x-2">
+                                <button type="button" onClick={() => editStep(idx)} className="text-bronze-600 dark:text-bronze-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
+                                <button type="button" onClick={() => removeStep(idx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                               </td>
                             </tr>
                           ))
@@ -1408,7 +1683,7 @@ export default function App() {
                       <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">Producto dermoestético</label>
                       <select value={presInput.productId} onChange={e => setPresInput(prev => ({ ...prev, productId: e.target.value }))} className="smart-input w-full">
                         <option value="" disabled hidden>Seleccionar producto...</option>
-                        {products.map(p => (
+                        {[...products].sort((a, b) => a.name.localeCompare(b.name)).map(p => (
                           <option key={p.id} value={p.id}>{p.name} ({p.brandLine})</option>
                         ))}
                       </select>
@@ -1590,9 +1865,41 @@ export default function App() {
                     <input type="number" step="0.01" value={productForm.retailPrice} onChange={e => setProductForm(prev => ({ ...prev, retailPrice: e.target.value }))} placeholder="Precio al público (MXN)..." required className="smart-input w-full" />
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <input type="checkbox" checked={productForm.isProfessionalUse} onChange={e => setProductForm(prev => ({ ...prev, isProfessionalUse: e.target.checked }))} className="rounded border-slate-350 w-4 h-4" />
-                    <label className="text-xs font-semibold">Producto de uso profesional / exclusivo en cabina</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Tipo de Uso</label>
+                      <select value={productForm.isProfessionalUse ? 'Cabina' : 'Apoyo'} onChange={e => setProductForm(prev => ({ ...prev, isProfessionalUse: e.target.value === 'Cabina' }))} className="smart-input w-full px-4 py-3 rounded-xl text-sm">
+                        <option value="Cabina">Uso en Cabina</option>
+                        <option value="Apoyo">Apoyo en Casa</option>
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo de Piel Recomendado</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-500/5 p-3 rounded-xl border border-slate-200/20">
+                        {['Eudérmica / Normal', 'Seca / Alípica', 'Grasa deshidratada', 'Grasa seborreica', 'Mixta', 'Sensible / Rosácea'].map(bio => {
+                          let currentBios: string[] = [];
+                          try {
+                            currentBios = JSON.parse(productForm.skinBiotypes || '[]');
+                          } catch(e) {}
+                          const isChecked = currentBios.includes(bio);
+                          return (
+                            <label key={bio} className="flex items-center gap-1.5 cursor-pointer text-[10px] font-medium text-slate-700 dark:text-luxe-200">
+                              <input type="checkbox" checked={isChecked} onChange={() => {
+                                let nextBios = [...currentBios];
+                                if (isChecked) {
+                                  nextBios = nextBios.filter(b => b !== bio);
+                                } else {
+                                  nextBios.push(bio);
+                                }
+                                setProductForm(prev => ({ ...prev, skinBiotypes: JSON.stringify(nextBios) }));
+                              }} className="rounded border-slate-350 w-3.5 h-3.5" />
+                              <span>{bio}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Formulation Lab Integration */}
@@ -1664,6 +1971,8 @@ export default function App() {
                       <th className="py-3.5 px-4 font-bold">Precio</th>
                       <th className="py-3.5 px-4 font-bold">Activos</th>
                       <th className="py-3.5 px-4 font-bold">Uso</th>
+                      <th className="py-3.5 px-4 font-bold">Biotipos</th>
+                      <th className="py-3.5 px-4 text-right font-bold">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
@@ -1687,17 +1996,40 @@ export default function App() {
                         } catch(e) {
                           parsedActives = p.activeIngredients;
                         }
+                        let bios: string[] = [];
+                        try {
+                          bios = JSON.parse(p.skinBiotypes || '[]');
+                        } catch(e) {}
                         return (
                           <tr key={p.id}>
                             <td className="py-3.5 px-4">{p.sku}</td>
                             <td className="py-3.5 px-4 font-bold">{p.name}</td>
                             <td className="py-3.5 px-4">{p.brandLine}</td>
                             <td className="py-3.5 px-4">${p.retailPrice.toFixed(2)} MXN</td>
-                            <td className="py-3.5 px-4 truncate max-w-[200px]">{parsedActives}</td>
+                            <td className="py-3.5 px-4 truncate max-w-[150px]">{parsedActives}</td>
                             <td className="py-3.5 px-4">
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${p.isProfessionalUse ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                                {p.isProfessionalUse ? 'Cabina' : 'Domicilio'}
+                                {p.isProfessionalUse ? 'Cabina' : 'Apoyo Casa'}
                               </span>
+                            </td>
+                            <td className="py-3.5 px-4 flex flex-wrap gap-1 max-w-[180px]">
+                              {bios.length === 0 ? (
+                                <span className="text-[9px] text-slate-400 italic">Todos</span>
+                              ) : (
+                                bios.map(b => (
+                                  <span key={b} className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5 text-[9px] font-medium text-slate-600 dark:text-luxe-300">
+                                    {b.split(' ')[0]}
+                                  </span>
+                                ))
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 text-right space-x-2">
+                              <button onClick={() => handleEditProductClick(p)} className="text-blue-600 dark:text-blue-400 hover:underline" title="Editar Producto">
+                                <Edit className="w-4 h-4 inline" />
+                              </button>
+                              <button onClick={() => handleDeleteProduct(p.id)} className="text-red-600 dark:text-red-400 hover:underline" title="Eliminar Producto">
+                                <Trash2 className="w-4 h-4 inline" />
+                              </button>
                             </td>
                           </tr>
                         );
@@ -1710,12 +2042,12 @@ export default function App() {
             {/* Bulk File upload */}
             <div className="liquid-glass rounded-3xl p-8">
               <h2 className="font-outfit text-xl font-bold text-slate-800 dark:text-white mb-2">Importación de Catálogo</h2>
-              <p className="text-slate-500 dark:text-luxe-300 text-xs mb-6">Arrastra y suelta tu archivo Excel del catálogo corregido para actualizar masivamente el inventario.</p>
+              <p className="text-slate-500 dark:text-luxe-300 text-xs mb-6">Arrastra y suelta tu archivo Excel o PDF del catálogo para actualizar masivamente el inventario.</p>
 
               <div className="border-2 border-dashed border-slate-300 dark:border-white/10 hover:border-bronze-500/50 rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer bg-slate-50/50 dark:bg-white/[0.01] hover:bg-bronze-500/[0.02] relative">
-                <input type="file" accept=".xlsx, .xls" onChange={handleExcelUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                <input type="file" accept=".xlsx, .xls, .pdf" onChange={handleExcelUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                 <FileUp className="w-10 h-10 text-bronze-500 mb-4" />
-                <p className="text-xs font-semibold">Selecciona o arrastra tu archivo Excel (.xlsx, .xls)</p>
+                <p className="text-xs font-semibold">Selecciona o arrastra tu archivo Excel (.xlsx, .xls) o PDF (.pdf)</p>
               </div>
 
               {uploadPreview.length > 0 && (
@@ -1745,30 +2077,49 @@ export default function App() {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-luxe-900 border-b border-slate-200/50 dark:border-white/5 shadow-sm">
                     <tr>
-                      <th className="py-3.5 px-4 font-bold">Folio</th>
+                      <th className="py-3.5 px-4 font-bold">Nombre / Folio</th>
                       <th className="py-3.5 px-4 font-bold">Fecha</th>
                       <th className="py-3.5 px-4 font-bold">Biotipo</th>
                       <th className="py-3.5 px-4 font-bold">Estado</th>
                       <th className="py-3.5 px-4 font-bold">Notas SOAP</th>
+                      <th className="py-3.5 px-4 text-right font-bold">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
                     {records.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-8 px-4 text-center text-slate-400">No hay expedientes clínicos guardados.</td>
+                        <td colSpan={6} className="py-8 px-4 text-center text-slate-400">No hay expedientes clínicos guardados.</td>
                       </tr>
                     ) : (
-                      records.map(r => (
-                        <tr key={r.id}>
-                          <td className="py-3.5 px-4 font-bold">{r.id}</td>
-                          <td className="py-3.5 px-4">{new Date(r.visitDate).toLocaleDateString()}</td>
-                          <td className="py-3.5 px-4 text-amber-500 font-bold">{r.skinBiotype}</td>
-                          <td className="py-3.5 px-4">
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/10 text-amber-500">{r.state}</span>
-                          </td>
-                          <td className="py-3.5 px-4 truncate max-w-[250px]">{r.clinicalNotes}</td>
-                        </tr>
-                      ))
+                      records.map(r => {
+                        const pat = patients.find(p => p.id === r.patientId);
+                        const patientName = pat ? `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}` : 'Paciente desconocido';
+                        return (
+                          <tr key={r.id}>
+                            <td className="py-3.5 px-4 font-bold">
+                              <div>{patientName}</div>
+                              <div className="text-[10px] text-slate-400 font-normal">{r.id}</div>
+                            </td>
+                            <td className="py-3.5 px-4">{new Date(r.visitDate).toLocaleDateString()}</td>
+                            <td className="py-3.5 px-4 text-amber-500 font-bold">{r.skinBiotype}</td>
+                            <td className="py-3.5 px-4">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/10 text-amber-500">{r.state}</span>
+                            </td>
+                            <td className="py-3.5 px-4 truncate max-w-[200px]">{r.clinicalNotes}</td>
+                            <td className="py-3.5 px-4 text-right space-x-2">
+                              <button onClick={() => triggerPdfDownload('ficha', pat, r)} className="text-bronze-600 dark:text-bronze-400 hover:underline inline-flex items-center gap-1" title="Descargar Ficha PDF">
+                                <FileText className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => triggerPdfDownload('receta', pat, r)} className="text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1" title="Descargar Receta PDF">
+                                <FileUp className="w-4 h-4 rotate-180" />
+                              </button>
+                              <button onClick={() => handleEditConsultation(r)} className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1" title="Editar Expediente">
+                                <Edit className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

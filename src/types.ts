@@ -31,6 +31,7 @@ export interface Product {
   physiologicalActions: string; // JSON string que almacena string[]
   retailPrice: number;
   isProfessionalUse: boolean;
+  skinBiotypes?: string; // JSON string que almacena string[]
 }
 
 export interface ConsultationStep {
@@ -71,4 +72,6 @@ export interface Consultation {
   state: ConsultationState;
   steps?: ConsultationStep[];
   prescriptions?: Prescription[];
+  allergies?: string;
+  medicalConditions?: string;
 }
