@@ -73,6 +73,8 @@ export default function App() {
     medicalConditions: ''
   });
 
+  const [customConditionInput, setCustomConditionInput] = useState('');
+
   // Steps / Procedure Designer State
   const [currentSteps, setCurrentSteps] = useState<ConsultationStep[]>([]);
   const [stepInput, setStepInput] = useState({
@@ -739,19 +741,14 @@ export default function App() {
   };
 
   const handleAddStep = () => {
-    if (!stepInput.customProductName.trim()) {
-      showToastMsg('Ingrese el nombre del producto para el paso.', 'error');
-      return;
-    }
-
     const newStep: ConsultationStep = {
       id: Math.random().toString(36).substring(2, 9).toUpperCase(),
       consultationId: patientForm.id || 'TEMP',
       stepOrder: currentSteps.length + 1,
       stepName: stepInput.stepName === 'Otro' ? (stepInput.customStepName || 'Otro') : stepInput.stepName,
       productId: stepInput.productId || undefined,
-      customProductName: stepInput.customProductName,
-      customBrand: stepInput.customBrand,
+      customProductName: stepInput.customProductName.trim() || 'Sin producto',
+      customBrand: stepInput.customBrand.trim() || 'N/A',
       customActiveIngredients: stepInput.customActiveIngredients,
       customActions: stepInput.customActions,
       applicationDescription: stepInput.applicationDescription,
@@ -936,7 +933,65 @@ export default function App() {
     }
   };
 
+  const toggleSkinCondition = (condition: string) => {
+    let current: string[] = [];
+    try {
+      current = JSON.parse(patientForm.skinConditions || '[]');
+    } catch(e) {}
+
+    if (current.includes(condition)) {
+      current = current.filter(c => c !== condition);
+    } else {
+      current.push(condition);
+    }
+
+    setPatientForm(prev => ({
+      ...prev,
+      skinConditions: JSON.stringify(current)
+    }));
+  };
+
+  const handleCustomConditionChange = (value: string) => {
+    setCustomConditionInput(value);
+    let current: string[] = [];
+    try {
+      current = JSON.parse(patientForm.skinConditions || '[]');
+    } catch(e) {}
+    const predefined = ['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'];
+    current = current.filter(c => predefined.includes(c));
+    if (value.trim()) {
+      current.push(value.trim());
+    }
+    setPatientForm(prev => ({
+      ...prev,
+      skinConditions: JSON.stringify(current)
+    }));
+  };
+
+  const toggleOtroCondition = () => {
+    let current: string[] = [];
+    try {
+      current = JSON.parse(patientForm.skinConditions || '[]');
+    } catch(e) {}
+    const predefined = ['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'];
+    const hasCustom = current.some(c => !predefined.includes(c));
+    if (hasCustom) {
+      current = current.filter(c => predefined.includes(c));
+    } else {
+      const val = customConditionInput.trim() || 'Otro';
+      current.push(val);
+      if (!customConditionInput) {
+        setCustomConditionInput('Otro');
+      }
+    }
+    setPatientForm(prev => ({
+      ...prev,
+      skinConditions: JSON.stringify(current)
+    }));
+  };
+
   const resetPatientForm = () => {
+    setCustomConditionInput('');
     setPatientForm({
       id: '',
       firstName: '',
@@ -1024,6 +1079,13 @@ export default function App() {
     const steps = await db.consultation_steps.where('consultationId').equals(c.id).toArray();
     const prescriptions = await db.prescriptions.where('consultationId').equals(c.id).toArray();
     
+    let condList: string[] = [];
+    try {
+      condList = JSON.parse(c.skinConditions || '[]');
+    } catch(e) {}
+    const customCond = condList.find(cond => !['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'].includes(cond));
+    setCustomConditionInput(customCond || '');
+
     setPatientForm({
       id: c.patientId,
       firstName: pat ? pat.firstNameEncrypted : '',
@@ -1508,12 +1570,10 @@ export default function App() {
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo Cutáneo</label>
                     <select value={patientForm.skinBiotype} onChange={e => setPatientForm(prev => ({ ...prev, skinBiotype: e.target.value }))} required className="smart-input w-full px-4 py-3 rounded-xl text-sm appearance-none bg-no-repeat bg-[right_1rem_center]">
                       <option value="" disabled hidden>Seleccionar biotipo...</option>
-                      <option value="Eudérmica / Normal">Eudérmica / Normal</option>
-                      <option value="Seca / Alípica">Seca / Alípica</option>
-                      <option value="Grasa deshidratada">Grasa deshidratada</option>
-                      <option value="Grasa seborreica">Grasa seborreica</option>
-                      <option value="Mixta">Mixta</option>
-                      <option value="Sensible / Rosácea">Sensible / Rosácea</option>
+                      <option value="Piel Mixta">Piel Mixta</option>
+                      <option value="Piel Alípica">Piel Alípica</option>
+                      <option value="Piel Grasa">Piel Grasa</option>
+                      <option value="Piel Eudermica">Piel Eudermica</option>
                     </select>
                   </div>
                   <div className="flex flex-col gap-2">
@@ -1535,6 +1595,58 @@ export default function App() {
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Condiciones Médicas</label>
                     <input type="text" value={patientForm.medicalConditions} onChange={e => setPatientForm(prev => ({ ...prev, medicalConditions: e.target.value }))} placeholder="P. ej., Diabetes, embarazo, hipertensión..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
+                </div>
+
+                {/* Condición (Skin Conditions) */}
+                <div className="flex flex-col gap-2 p-6 rounded-2xl liquid-glass-light border border-slate-200/50 dark:border-white/5">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1 mb-2">Condición Cutánea (Multiselección)</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'].map(cond => {
+                      let isChecked = false;
+                      try {
+                        isChecked = JSON.parse(patientForm.skinConditions || '[]').includes(cond);
+                      } catch (e) {}
+                      return (
+                        <label key={cond} className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${isChecked ? 'bg-amber-500/10 border-amber-500 text-amber-900 dark:text-amber-300' : 'bg-slate-50/50 dark:bg-white/5 border-slate-200/50 dark:border-white/5 text-slate-600 dark:text-luxe-300 hover:bg-slate-100/50 dark:hover:bg-white/10'}`}>
+                          <input type="checkbox" checked={isChecked} onChange={() => toggleSkinCondition(cond)} className="w-4 h-4 rounded text-amber-500 border-slate-300 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700" />
+                          <span className="text-xs font-medium">{cond}</span>
+                        </label>
+                      );
+                    })}
+                    
+                    {/* Otro Option */}
+                    {(() => {
+                      let parsed: string[] = [];
+                      try {
+                        parsed = JSON.parse(patientForm.skinConditions || '[]');
+                      } catch (e) {}
+                      const hasCustom = parsed.some((c: string) => !['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'].includes(c));
+                      return (
+                        <label className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${hasCustom ? 'bg-amber-500/10 border-amber-500 text-amber-900 dark:text-amber-300' : 'bg-slate-50/50 dark:bg-white/5 border-slate-200/50 dark:border-white/5 text-slate-600 dark:text-luxe-300 hover:bg-slate-100/50 dark:hover:bg-white/10'}`}>
+                          <input type="checkbox" checked={hasCustom} onChange={toggleOtroCondition} className="w-4 h-4 rounded text-amber-500 border-slate-300 focus:ring-amber-500 dark:bg-slate-800 dark:border-slate-700" />
+                          <span className="text-xs font-medium">Otro</span>
+                        </label>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Dynamic Custom input if "Otro" is active */}
+                  {(() => {
+                    let parsed: string[] = [];
+                    try {
+                      parsed = JSON.parse(patientForm.skinConditions || '[]');
+                    } catch (e) {}
+                    const hasCustom = parsed.some((c: string) => !['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'].includes(c));
+                    if (hasCustom) {
+                      return (
+                        <div className="mt-4 flex flex-col gap-2 animate-fade-in">
+                          <label className="text-[9px] font-bold text-amber-500 dark:text-amber-400 uppercase tracking-widest ml-1">Especifique Otra Condición</label>
+                          <input type="text" value={customConditionInput} onChange={e => handleCustomConditionChange(e.target.value)} placeholder="Describa la condición de la piel..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 {/* Facial Canvas Map */}
@@ -1877,7 +1989,7 @@ export default function App() {
                     <div className="flex flex-col gap-2">
                       <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo de Piel Recomendado</label>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-500/5 p-3 rounded-xl border border-slate-200/20">
-                        {['Eudérmica / Normal', 'Seca / Alípica', 'Grasa deshidratada', 'Grasa seborreica', 'Mixta', 'Sensible / Rosácea'].map(bio => {
+                        {['Piel Mixta', 'Piel Alípica', 'Piel Grasa', 'Piel Eudermica', 'Sensible', 'Rosácea', 'Todo tipo de piel', 'Protocolos específicos', 'Madura', 'Hipercromias'].map(bio => {
                           let currentBios: string[] = [];
                           try {
                             currentBios = JSON.parse(productForm.skinBiotypes || '[]');
