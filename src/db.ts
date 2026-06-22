@@ -282,7 +282,7 @@ export async function seedTables(): Promise<void> {
         active_ingredients TEXT NOT NULL DEFAULT '',
         physiological_actions TEXT NOT NULL DEFAULT '',
         retail_price REAL NOT NULL,
-        is_professional_use INTEGER DEFAULT 1 CHECK (is_professional_use IN (0, 1)),
+        is_professional_use INTEGER DEFAULT 1 CHECK (is_professional_use IN (0, 1, 2)),
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -338,6 +338,31 @@ export async function seedTables(): Promise<void> {
         FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
       )
     `);
+    // Hot migration to reconstruct products table check constraint if legacy exists
+    try {
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS products_new (
+          id TEXT PRIMARY KEY,
+          sku TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          brand_line TEXT NOT NULL,
+          active_ingredients TEXT NOT NULL DEFAULT '',
+          physiological_actions TEXT NOT NULL DEFAULT '',
+          retail_price REAL NOT NULL,
+          is_professional_use INTEGER DEFAULT 1 CHECK (is_professional_use IN (0, 1, 2)),
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          skin_biotypes TEXT DEFAULT '[]'
+        )
+      `);
+      await executeQuery(`
+        INSERT OR IGNORE INTO products_new (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, skin_biotypes)
+        SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, COALESCE(skin_biotypes, '[]') FROM products
+      `);
+      await executeQuery(`DROP TABLE IF EXISTS products`);
+      await executeQuery(`ALTER TABLE products_new RENAME TO products`);
+    } catch(err) {
+      console.warn("Hot migration of products table warning/skipped:", err);
+    }
 
     // Add new columns to existing tables if missing
     try {

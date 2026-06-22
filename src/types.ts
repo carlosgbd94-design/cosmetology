@@ -30,7 +30,7 @@ export interface Product {
   activeIngredients: string; // JSON string que almacena string[]
   physiologicalActions: string; // JSON string que almacena string[]
   retailPrice: number;
-  isProfessionalUse: boolean;
+  isProfessionalUse: boolean | number;
   skinBiotypes?: string; // JSON string que almacena string[]
 }
 

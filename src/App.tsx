@@ -158,7 +158,7 @@ export default function App() {
     name: '',
     brandLine: '',
     retailPrice: '',
-    isProfessionalUse: true,
+    isProfessionalUse: 1,
     activeIngredients: '[]',
     physiologicalActions: '[]',
     skinBiotypes: '[]'
@@ -230,7 +230,7 @@ export default function App() {
                 activeIngredients: r.active_ingredients,
                 physiologicalActions: r.physiological_actions,
                 retailPrice: Number(r.retail_price),
-                isProfessionalUse: Number(r.is_professional_use) === 1,
+                isProfessionalUse: Number(r.is_professional_use),
                 skinBiotypes: r.skin_biotypes || '[]'
               });
             }
@@ -263,7 +263,7 @@ export default function App() {
         const actions = JSON.parse(p.physiologicalActions) as string[];
         actives.forEach((act, idx) => {
           if (!resolvedIngredients.some(ri => ri.name.toLowerCase() === act.toLowerCase())) {
-            resolvedIngredients.push({ name: act, action: actions[idx] || 'Efecto dermoestético' });
+            resolvedIngredients.push({ name: act, action: actions[idx] || 'Acción / Efecto Clínico' });
           }
         });
       } catch(e) {}
@@ -804,6 +804,26 @@ export default function App() {
     showToastMsg('Paso cargado en el formulario para edición.', 'success');
   };
 
+  const moveStepUp = (index: number) => {
+    if (index === 0) return;
+    const nextSteps = [...currentSteps];
+    const temp = nextSteps[index];
+    nextSteps[index] = nextSteps[index - 1];
+    nextSteps[index - 1] = temp;
+    const reordered = nextSteps.map((s, i) => ({ ...s, stepOrder: i + 1 }));
+    setCurrentSteps(reordered);
+  };
+
+  const moveStepDown = (index: number) => {
+    if (index === currentSteps.length - 1) return;
+    const nextSteps = [...currentSteps];
+    const temp = nextSteps[index];
+    nextSteps[index] = nextSteps[index + 1];
+    nextSteps[index + 1] = temp;
+    const reordered = nextSteps.map((s, i) => ({ ...s, stepOrder: i + 1 }));
+    setCurrentSteps(reordered);
+  };
+
   // ----------------------------------------------------
   // RECIPE BUILDER
   // ----------------------------------------------------
@@ -1169,7 +1189,7 @@ export default function App() {
       const actives = JSON.parse(p.activeIngredients) as string[];
       const actions = JSON.parse(p.physiologicalActions) as string[];
       actives.forEach((act, idx) => {
-        parsedActives.push({ name: act, action: actions[idx] || 'Efecto dermoestético' });
+        parsedActives.push({ name: act, action: actions[idx] || 'Acción / Efecto Clínico' });
       });
     } catch(e) {}
     
@@ -1228,7 +1248,7 @@ export default function App() {
       await executeQuery(
         `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, newProd.isProfessionalUse ? 1 : 0, newProd.skinBiotypes]
+        [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
       );
     }
 
@@ -1404,7 +1424,7 @@ export default function App() {
         name: row.Nombre || row.Producto || 'Insumo importado',
         brandLine: row.Marca || 'Genérico',
         retailPrice: parseFloat(row.Precio) || 0,
-        isProfessionalUse: row.UsoProfesional === 'Sí' || row.UsoProfesional === 1,
+        isProfessionalUse: row.UsoProfesional === 'Ambos' || row.UsoProfesional === 2 || String(row.UsoProfesional).toLowerCase().includes('ambos') ? 2 : (row.UsoProfesional === 'Sí' || row.UsoProfesional === 1 || String(row.UsoProfesional).toLowerCase().includes('cabina') || String(row.UsoProfesional).toLowerCase().includes('sí') ? 1 : 0),
         activeIngredients: JSON.stringify(row.Activos ? String(row.Activos).split(',') : []),
         physiologicalActions: JSON.stringify(row.Acciones ? String(row.Acciones).split(',') : []),
         skinBiotypes: JSON.stringify(row.Biotipos ? String(row.Biotipos).split(',') : [])
@@ -1424,7 +1444,7 @@ export default function App() {
           await executeQuery(
             `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [p.id, p.sku, p.name, p.brandLine, p.activeIngredients, p.physiologicalActions, p.retailPrice, p.isProfessionalUse ? 1 : 0, p.skinBiotypes || '[]']
+            [p.id, p.sku, p.name, p.brandLine, p.activeIngredients, p.physiologicalActions, p.retailPrice, typeof p.isProfessionalUse === 'boolean' ? (p.isProfessionalUse ? 1 : 0) : Number(p.isProfessionalUse), p.skinBiotypes || '[]']
           );
         }
         await db.products.put(p);
@@ -1715,7 +1735,7 @@ export default function App() {
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <input type="text" value={stepInput.customActiveIngredients} onChange={e => setStepInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Activos Clave..." className="smart-input w-full" />
-                        <input type="text" value={stepInput.customActions} onChange={e => setStepInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Acción Dermoestética..." className="smart-input w-full" />
+                        <input type="text" value={stepInput.customActions} onChange={e => setStepInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Acción / Efecto Clínico..." className="smart-input w-full" />
                       </div>
                       <textarea value={stepInput.applicationDescription} onChange={e => setStepInput(prev => ({ ...prev, applicationDescription: e.target.value }))} rows={2} placeholder="Descripción de Aplicación (maniobras, pose, neutralizador...)" className="smart-input w-full resize-none" />
 
@@ -1772,6 +1792,8 @@ export default function App() {
                               <td className="py-3 px-4 truncate max-w-[150px]">{step.customActiveIngredients || 'N/A'}</td>
                               <td className="py-3 px-4 truncate max-w-[150px]">{step.customActions || 'N/A'}</td>
                               <td className="py-3 px-4 text-right space-x-2">
+                                <button type="button" onClick={() => moveStepUp(idx)} disabled={idx === 0} className={`inline-flex items-center gap-1 text-[11px] ${idx === 0 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Subir">▲</button>
+                                <button type="button" onClick={() => moveStepDown(idx)} disabled={idx === currentSteps.length - 1} className={`inline-flex items-center gap-1 text-[11px] ${idx === currentSteps.length - 1 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Bajar">▼</button>
                                 <button type="button" onClick={() => editStep(idx)} className="text-bronze-600 dark:text-bronze-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
                                 <button type="button" onClick={() => removeStep(idx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                               </td>
@@ -1955,7 +1977,7 @@ export default function App() {
               <button onClick={() => {
                 setIsProductFormOpen(true);
                 setIsEditProduct(false);
-                setProductForm({ id: '', sku: '', name: '', brandLine: '', retailPrice: '', isProfessionalUse: true, activeIngredients: '[]', physiologicalActions: '[]' });
+                setProductForm({ id: '', sku: '', name: '', brandLine: '', retailPrice: '', isProfessionalUse: 1, activeIngredients: '[]', physiologicalActions: '[]' });
                 setFormIngredientsList([]);
               }} className="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5">
                 <Plus className="w-4 h-4" /> Añadir Producto al Catálogo
@@ -1980,16 +2002,17 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                     <div className="flex flex-col gap-2">
                       <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Tipo de Uso</label>
-                      <select value={productForm.isProfessionalUse ? 'Cabina' : 'Apoyo'} onChange={e => setProductForm(prev => ({ ...prev, isProfessionalUse: e.target.value === 'Cabina' }))} className="smart-input w-full px-4 py-3 rounded-xl text-sm">
-                        <option value="Cabina">Uso en Cabina</option>
-                        <option value="Apoyo">Apoyo en Casa</option>
+                      <select value={typeof productForm.isProfessionalUse === 'boolean' ? (productForm.isProfessionalUse ? 1 : 0) : productForm.isProfessionalUse} onChange={e => setProductForm(prev => ({ ...prev, isProfessionalUse: parseInt(e.target.value) }))} className="smart-input w-full px-4 py-3 rounded-xl text-sm">
+                        <option value={1}>Uso en Cabina</option>
+                        <option value={0}>Apoyo en Casa</option>
+                        <option value={2}>Ambos (Cabina y Apoyo)</option>
                       </select>
                     </div>
 
                     <div className="flex flex-col gap-2">
                       <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo de Piel Recomendado</label>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-500/5 p-3 rounded-xl border border-slate-200/20">
-                        {['Piel Mixta', 'Piel Alípica', 'Piel Grasa', 'Piel Eudermica', 'Sensible', 'Rosácea', 'Todo tipo de piel', 'Protocolos específicos', 'Madura', 'Hipercromias'].map(bio => {
+                        {['Piel Mixta', 'Piel Alípica', 'Piel Grasa', 'Piel Eudermica', 'Sensible', 'Rosácea', 'Todo tipo de piel', 'Protocolos específicos', 'Madura', 'Hipercromias', 'Deshidratada', 'Acneica', 'Delicada', 'Antiagning', 'Desvitalizada', 'Sensibilizada'].map(bio => {
                           let currentBios: string[] = [];
                           try {
                             currentBios = JSON.parse(productForm.skinBiotypes || '[]');
@@ -2120,8 +2143,12 @@ export default function App() {
                             <td className="py-3.5 px-4">${p.retailPrice.toFixed(2)} MXN</td>
                             <td className="py-3.5 px-4 truncate max-w-[150px]">{parsedActives}</td>
                             <td className="py-3.5 px-4">
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${p.isProfessionalUse ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                                {p.isProfessionalUse ? 'Cabina' : 'Apoyo Casa'}
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                p.isProfessionalUse === 2 || p.isProfessionalUse === '2' ? 'bg-blue-100 text-blue-700' :
+                                (p.isProfessionalUse === 1 || p.isProfessionalUse === true || p.isProfessionalUse === '1' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700')
+                              }`}>
+                                {p.isProfessionalUse === 2 || p.isProfessionalUse === '2' ? 'Ambos' :
+                                 (p.isProfessionalUse === 1 || p.isProfessionalUse === true || p.isProfessionalUse === '1' ? 'Cabina' : 'Apoyo Casa')}
                               </span>
                             </td>
                             <td className="py-3.5 px-4 flex flex-wrap gap-1 max-w-[180px]">
