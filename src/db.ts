@@ -340,6 +340,7 @@ export async function seedTables(): Promise<void> {
     `);
     // Hot migration to reconstruct products table check constraint if legacy exists
     try {
+      await executeQuery(`PRAGMA foreign_keys = OFF`);
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS products_new (
           id TEXT PRIMARY KEY,
@@ -360,8 +361,13 @@ export async function seedTables(): Promise<void> {
       `);
       await executeQuery(`DROP TABLE IF EXISTS products`);
       await executeQuery(`ALTER TABLE products_new RENAME TO products`);
+      await executeQuery(`PRAGMA foreign_keys = ON`);
+      console.log("Hot migration of products table completed successfully with foreign keys bypassed.");
     } catch(err) {
       console.warn("Hot migration of products table warning/skipped:", err);
+      try {
+        await executeQuery(`PRAGMA foreign_keys = ON`);
+      } catch(e) {}
     }
 
     // Add new columns to existing tables if missing

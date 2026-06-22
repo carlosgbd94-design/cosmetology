@@ -293,7 +293,7 @@ export default function App() {
         const actions = JSON.parse(p.physiologicalActions) as string[];
         actives.forEach((act, idx) => {
           if (!resolvedIngredients.some(ri => ri.name.toLowerCase() === act.toLowerCase())) {
-            resolvedIngredients.push({ name: act, action: actions[idx] || 'Acción / Efecto Clínico' });
+            resolvedIngredients.push({ name: act, action: actions[idx] || '' });
           }
         });
       } catch(e) {}
@@ -1219,7 +1219,7 @@ export default function App() {
       const actives = JSON.parse(p.activeIngredients) as string[];
       const actions = JSON.parse(p.physiologicalActions) as string[];
       actives.forEach((act, idx) => {
-        parsedActives.push({ name: act, action: actions[idx] || 'Acción / Efecto Clínico' });
+        parsedActives.push({ name: act, action: actions[idx] || '' });
       });
     } catch(e) {}
     
@@ -2104,7 +2104,7 @@ export default function App() {
                       ) : (
                         formIngredientsList.map((ing, idx) => (
                           <div key={idx} className="flex items-center gap-1.5 px-3 py-1 rounded-xl border border-bronze-500/20 bg-bronze-500/5 text-bronze-600 dark:text-bronze-400 text-xs font-medium">
-                            <span>{ing.name} ({ing.action})</span>
+                            <span>{ing.name}{ing.action ? ` (${ing.action})` : ''}</span>
                             <button type="button" onClick={() => removeIngredientFromForm(idx)} className="p-0.5 hover:text-red-500 transition-colors ml-1 font-bold">✕</button>
                           </div>
                         ))

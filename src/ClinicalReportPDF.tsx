@@ -170,7 +170,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
         </Text>
 
         {/* Ficha de Identificación del Paciente */}
-        <View style={styles.card} wrap={false}>
+        <View style={styles.card} wrap={true}>
           <Text style={styles.cardTitle}>Datos del Paciente</Text>
           <View style={{ flexDirection: 'column' }}>
             <View style={{ flexDirection: 'row', marginBottom: 6 }}>
@@ -199,7 +199,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
         {type === 'ficha' && (
           <>
             {/* Diagnóstico y Condiciones Clínicas de la Piel */}
-            <View style={styles.card} wrap={false}>
+            <View style={styles.card} wrap={true}>
               <Text style={styles.cardTitle}>Valoración Clínica de la Sesión</Text>
               <View style={{ flexDirection: 'column' }}>
                 <View style={{ flexDirection: 'row', marginBottom: 6 }}>
@@ -232,7 +232,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
             </View>
 
             {/* Tabla del Protocolo en Cabina (Mapeo de la Ficha Técnica Dermoestética) */}
-            <View style={styles.card} wrap={false}>
+            <View style={styles.card} wrap={true}>
               <Text style={styles.cardTitle}>Secuencia Detallada del Protocolo en Cabina</Text>
               <View style={styles.table}>
                 
@@ -324,7 +324,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
         )}
 
         {/* Sección de Recetas de Apoyo en Casa */}
-        <View style={styles.card} wrap={false}>
+        <View style={styles.card} wrap={true}>
           <Text style={styles.cardTitle}>Receta de Apoyo Domiciliario</Text>
           {consultation.prescriptions && consultation.prescriptions.length > 0 ? (
             consultation.prescriptions.map((pres, idx) => (
