@@ -40,9 +40,15 @@ let lastAutoReportTime = 0;
 const AUTO_REPORT_COOLDOWN = 60000; // 1 minute cooldown per automatic error
 
 /**
- * Sends a structured payload to the Discord Webhook
+ * Sends a structured payload to the Discord Webhook, supporting optional file attachments.
  */
-async function sendToDiscord(title: string, description: string, color: number, extraContext: string = '') {
+async function sendToDiscord(
+  title: string,
+  description: string,
+  color: number,
+  extraContext: string = '',
+  files?: File[]
+) {
   try {
     const embed = {
       title,
@@ -72,11 +78,27 @@ async function sendToDiscord(title: string, description: string, color: number, 
       });
     }
 
-    await fetch(WH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] })
-    });
+    const payload = { embeds: [embed] };
+
+    if (files && files.length > 0) {
+      const formData = new FormData();
+      formData.append('payload_json', JSON.stringify(payload));
+      
+      files.forEach((file, index) => {
+        formData.append(`file_${index}`, file, file.name || `imagen_${index}.png`);
+      });
+
+      await fetch(WH_URL, {
+        method: 'POST',
+        body: formData
+      });
+    } else {
+      await fetch(WH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
   } catch (err) {
     originalConsoleError('Falló el envío del reporte a Discord:', err);
   }
@@ -116,11 +138,17 @@ export function initGlobalErrorHandling() {
 /**
  * Can be called manually from a "Report Bug" button
  */
-export async function sendManualReport(userMessage: string) {
+export async function sendManualReport(userMessage: string, section?: string, files?: File[]) {
+  let content = userMessage;
+  if (section) {
+    content = `**Sección Afectada:** ${section}\n\n**Comentarios del Usuario:**\n${userMessage}`;
+  }
   await sendToDiscord(
-    '💬 Reporte de Usuario',
-    userMessage,
-    0x00FF00 // Green color
+    '💬 Reporte de Usuario / Sugerencia',
+    content,
+    0x00FF00, // Green color
+    '',
+    files
   );
 }
 
@@ -130,7 +158,7 @@ export async function sendManualReport(userMessage: string) {
 export function reportReactError(error: Error, componentStack: string) {
   sendToDiscord(
     '💥 Cuelgue de Aplicación (React Crash)',
-    `**Mensaje:** ${error.message}\n\n**Stack:**\n\`\`\`js\n${error.stack}\n\`\`\``,
+    `**Mensaje:** ${error.message}\n\n**Stack:**\n\`\`\`js\n${error.stack}\n\`\`\`,`,
     0x990000, // Dark red
     `Component Stack:\n${componentStack}`
   );

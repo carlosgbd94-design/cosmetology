@@ -124,21 +124,51 @@ export default function App() {
   // Bug Report Modal State
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportMessage, setReportMessage] = useState('');
+  const [reportSection, setReportSection] = useState('General');
+  const [reportImages, setReportImages] = useState<File[]>([]);
   const [isSendingReport, setIsSendingReport] = useState(false);
 
   const handleSendReport = async () => {
     if (!reportMessage.trim()) return;
     setIsSendingReport(true);
     try {
-      await sendManualReport(reportMessage);
+      await sendManualReport(reportMessage, reportSection, reportImages);
       showToastMsg('Reporte enviado al desarrollador.', 'success');
       setIsReportModalOpen(false);
       setReportMessage('');
+      setReportSection('General');
+      setReportImages([]);
     } catch (e) {
       showToastMsg('Error al enviar el reporte.', 'error');
     } finally {
       setIsSendingReport(false);
     }
+  };
+
+  const handlePasteImage = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const blob = items[i].getAsFile();
+        if (blob) {
+          const file = new File([blob], `screenshot_${Date.now()}.png`, { type: blob.type });
+          setReportImages(prev => [...prev, file]);
+          showToastMsg('Imagen pegada del portapapeles.', 'success');
+        }
+      }
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const filesArr = Array.from(e.target.files);
+      setReportImages(prev => [...prev, ...filesArr]);
+    }
+  };
+
+  const removeReportImage = (index: number) => {
+    setReportImages(prev => prev.filter((_, i) => i !== index));
   };
 
   // Levenshtein & AI recommender Widget states
@@ -2320,7 +2350,7 @@ export default function App() {
       {/* Support Report Modal */}
       {isReportModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-lg bg-white dark:bg-luxe-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-luxe-800 animate-slide-up">
+          <div onPaste={handlePasteImage} className="w-full max-w-lg bg-white dark:bg-luxe-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-luxe-800 animate-slide-up">
             <div className="p-5 border-b border-slate-100 dark:border-luxe-800 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white dark:from-luxe-900 dark:to-luxe-800">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-luxe-100 dark:bg-luxe-800 flex items-center justify-center text-luxe-500">
@@ -2336,17 +2366,92 @@ export default function App() {
               </button>
             </div>
             
-            <div className="p-6">
-              <label className="block text-sm font-semibold text-slate-700 dark:text-luxe-100 mb-2">
-                ¿Qué problema encontraste o qué te gustaría sugerir?
-              </label>
-              <textarea
-                value={reportMessage}
-                onChange={(e) => setReportMessage(e.target.value)}
-                placeholder="Ej. Al intentar guardar la consulta se queda cargando..."
-                className="w-full bg-slate-50 dark:bg-luxe-950 border border-slate-200 dark:border-luxe-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-luxe-500/50 outline-none text-slate-700 dark:text-white transition-all resize-none h-32"
-              ></textarea>
-              <p className="text-xs text-slate-400 dark:text-luxe-400 mt-3 flex items-center gap-1.5">
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-1.5">
+                  ¿En qué sección/pantalla ocurre?
+                </label>
+                <select 
+                  value={reportSection} 
+                  onChange={e => setReportSection(e.target.value)} 
+                  className="smart-input w-full px-4 py-3 rounded-xl text-sm"
+                >
+                  <option value="General / Sistema">General / Sistema</option>
+                  <option value="Ficha de Diagnóstico (General / Datos del Paciente)">Ficha de Diagnóstico (General / Datos del Paciente)</option>
+                  <option value="Procedimiento (Fases de Cabina / Protocolo)">Procedimiento (Fases de Cabina / Protocolo)</option>
+                  <option value="Mapa Facial Clínico Interactivo">Mapa Facial Clínico Interactivo</option>
+                  <option value="Prescripciones de Apoyo en Casa">Prescripciones de Apoyo en Casa</option>
+                  <option value="Catálogo de Productos / Inventario">Catálogo de Productos / Inventario</option>
+                  <option value="Búsqueda / Histórico de Expedientes">Búsqueda / Histórico de Expedientes</option>
+                  <option value="Estadísticas / Reportes">Estadísticas / Reportes</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-1.5">
+                  ¿Qué problema encontraste o qué te gustaría sugerir?
+                </label>
+                <textarea
+                  value={reportMessage}
+                  onChange={(e) => setReportMessage(e.target.value)}
+                  placeholder="Ej. Al intentar guardar la consulta se queda cargando..."
+                  className="w-full bg-slate-50 dark:bg-luxe-950 border border-slate-200 dark:border-luxe-800 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-luxe-500/50 outline-none text-slate-700 dark:text-white transition-all resize-none h-24"
+                ></textarea>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="block text-xs font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">
+                    Adjuntar imágenes
+                  </label>
+                  <label className="text-[10px] text-bronze-600 dark:text-bronze-400 font-semibold cursor-pointer hover:underline">
+                    Seleccionar archivos
+                    <input type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
+                  </label>
+                </div>
+                
+                {/* Keyboard shortcut visual guide */}
+                <div className="flex flex-wrap items-center gap-1.5 p-3 rounded-xl bg-slate-50 dark:bg-luxe-950 border border-slate-200/50 dark:border-luxe-800 text-[11px] text-slate-500 dark:text-luxe-300">
+                  <span>Tip: Captura pantalla con </span>
+                  <div className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-luxe-900 border border-slate-300 dark:border-luxe-800 text-slate-800 dark:text-luxe-100 font-bold shadow-sm flex items-center gap-1 text-[9px]">
+                      <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current inline-block"><path d="M0 3.449L9.75 2.1v9.45H0V3.449zM0 12.45h9.75v9.45L0 20.551v-8.1zM11.25 1.9L24 0v11.55H11.25V1.9zm0 10.55H24v11.55l-12.75-1.9v-9.65z"/></svg>
+                      Win
+                    </kbd>
+                    <span>+</span>
+                    <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-luxe-900 border border-slate-300 dark:border-luxe-800 text-slate-800 dark:text-luxe-100 font-bold shadow-sm text-[9px] flex items-center gap-0.5">
+                      <svg viewBox="0 0 24 24" className="w-2.5 h-2.5 stroke-current fill-none stroke-[2] inline-block"><path d="M12 19V5m0 0l-7 7m7-7l7 7"/></svg>
+                      Shift
+                    </kbd>
+                    <span>+</span>
+                    <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-luxe-900 border border-slate-300 dark:border-luxe-800 text-slate-800 dark:text-luxe-100 font-bold shadow-sm text-[9px]">S</kbd>
+                  </div>
+                  <span>y pégala aquí (Ctrl + V)</span>
+                </div>
+
+                {/* Previews of attached images */}
+                {reportImages.length > 0 && (
+                  <div className="grid grid-cols-4 gap-2 mt-2">
+                    {reportImages.map((file, idx) => {
+                      const url = URL.createObjectURL(file);
+                      return (
+                        <div key={idx} className="relative group aspect-video rounded-lg overflow-hidden border border-slate-200 dark:border-luxe-800 bg-slate-100 dark:bg-luxe-950">
+                          <img src={url} className="w-full h-full object-cover" alt="preview" />
+                          <button 
+                            type="button" 
+                            onClick={() => removeReportImage(idx)} 
+                            className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full p-0.5 shadow hover:bg-red-600 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-400 dark:text-luxe-400 flex items-center gap-1.5">
                 <Info className="w-3.5 h-3.5" /> Se adjuntará un registro técnico oculto para ayudar al desarrollador.
               </p>
             </div>
