@@ -172,22 +172,26 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
         {/* Ficha de Identificación del Paciente */}
         <View style={styles.card} wrap={false}>
           <Text style={styles.cardTitle}>Datos del Paciente</Text>
-          <View style={styles.grid}>
-            <View style={styles.gridCol}>
-              <Text style={styles.label}>Nombre Completo:</Text>
-              <Text style={styles.value}>{`${patient.firstNameEncrypted} ${patient.lastNameEncrypted}`}</Text>
+          <View style={{ flexDirection: 'column' }}>
+            <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+              <View style={{ width: '50%', paddingRight: 10 }}>
+                <Text style={styles.label}>Nombre Completo:</Text>
+                <Text style={styles.value}>{`${patient.firstNameEncrypted} ${patient.lastNameEncrypted}`}</Text>
+              </View>
+              <View style={{ width: '50%', paddingRight: 10 }}>
+                <Text style={styles.label}>Fecha de Emisión:</Text>
+                <Text style={styles.value}>{new Date(consultation.visitDate).toLocaleDateString()}</Text>
+              </View>
             </View>
-            <View style={styles.gridCol}>
-              <Text style={styles.label}>Fecha de Emisión:</Text>
-              <Text style={styles.value}>{new Date(consultation.visitDate).toLocaleDateString()}</Text>
-            </View>
-            <View style={styles.gridCol}>
-              <Text style={styles.label}>Biotipo Cutáneo:</Text>
-              <Text style={styles.value}>{consultation.skinBiotype}</Text>
-            </View>
-            <View style={styles.gridCol}>
-              <Text style={styles.label}>Fototipo Fitzpatrick:</Text>
-              <Text style={styles.value}>Clase {consultation.fitzpatrickScale}</Text>
+            <View style={{ flexDirection: 'row' }}>
+              <View style={{ width: '50%', paddingRight: 10 }}>
+                <Text style={styles.label}>Biotipo Cutáneo:</Text>
+                <Text style={styles.value}>{consultation.skinBiotype}</Text>
+              </View>
+              <View style={{ width: '50%', paddingRight: 10 }}>
+                <Text style={styles.label}>Fototipo Fitzpatrick:</Text>
+                <Text style={styles.value}>Clase {consultation.fitzpatrickScale}</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -197,27 +201,31 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
             {/* Diagnóstico y Condiciones Clínicas de la Piel */}
             <View style={styles.card} wrap={false}>
               <Text style={styles.cardTitle}>Valoración Clínica de la Sesión</Text>
-              <View style={styles.grid}>
-                <View style={styles.gridCol}>
-                  <Text style={styles.label}>Protocolo:</Text>
-                  <Text style={styles.value}>{consultation.medicalDiagnosis || 'Ninguno de base'}</Text>
+              <View style={{ flexDirection: 'column' }}>
+                <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                  <View style={{ width: '50%', paddingRight: 10 }}>
+                    <Text style={styles.label}>Protocolo:</Text>
+                    <Text style={styles.value}>{consultation.medicalDiagnosis || 'Ninguno de base'}</Text>
+                  </View>
+                  <View style={{ width: '50%', paddingRight: 10 }}>
+                    <Text style={styles.label}>Condiciones cutáneas activas:</Text>
+                    <Text style={styles.value}>
+                      {conditionsList.length > 0 ? conditionsList.join(', ') : 'Ninguna registrada'}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.gridCol}>
-                  <Text style={styles.label}>Condiciones cutáneas activas:</Text>
-                  <Text style={styles.value}>
-                    {conditionsList.length > 0 ? conditionsList.join(', ') : 'Ninguna registrada'}
-                  </Text>
-                </View>
-                <View style={styles.gridCol}>
-                  <Text style={styles.label}>Alergias:</Text>
-                  <Text style={styles.value}>{consultation.allergies || 'Ninguna registrada'}</Text>
-                </View>
-                <View style={styles.gridCol}>
-                  <Text style={styles.label}>Condiciones Médicas:</Text>
-                  <Text style={styles.value}>{consultation.medicalConditions || 'Ninguna registrada'}</Text>
+                <View style={{ flexDirection: 'row' }}>
+                  <View style={{ width: '50%', paddingRight: 10 }}>
+                    <Text style={styles.label}>Alergias:</Text>
+                    <Text style={styles.value}>{consultation.allergies || 'Ninguna registrada'}</Text>
+                  </View>
+                  <View style={{ width: '50%', paddingRight: 10 }}>
+                    <Text style={styles.label}>Condiciones Médicas:</Text>
+                    <Text style={styles.value}>{consultation.medicalConditions || 'Ninguna registrada'}</Text>
+                  </View>
                 </View>
               </View>
-              <View style={{ marginTop: 6 }}>
+              <View style={{ marginTop: 8 }}>
                 <Text style={styles.label}>Observaciones Clínicas / SOAP / Zonas Afectadas:</Text>
                 <Text style={styles.value}>{consultation.clinicalNotes}</Text>
               </View>

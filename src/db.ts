@@ -375,6 +375,26 @@ export async function seedTables(): Promise<void> {
       await executeQuery(`ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'`);
     } catch (e) {}
 
+    // Ensure all custom step columns exist
+    try {
+      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_product_name TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_brand TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_active_ingredients TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_actions TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN application_description TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN aparatology_settings TEXT`);
+    } catch (e) {}
+
     // Create default users table if missing
     await executeQuery(`
       CREATE TABLE IF NOT EXISTS usuarios (
