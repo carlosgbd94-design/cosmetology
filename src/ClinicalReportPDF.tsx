@@ -158,7 +158,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
         
         {/* Encabezado fijo en todas las páginas */}
         <View style={styles.header} fixed>
-          <Text style={styles.headerLogo}>COSMEDIC PEELING CORPORATION</Text>
+          <Text style={styles.headerLogo}></Text>
           <Text style={styles.headerSub}>
             Licencia Sanitaria No. 19-33-A | Servicio Profesional de Cosmetología y Cosmeatría
           </Text>
@@ -200,7 +200,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
           <>
             {/* Diagnóstico y Condiciones Clínicas de la Piel */}
             <View style={styles.card} wrap={true}>
-              <Text style={styles.cardTitle}>Valoración Clínica de la Sesión</Text>
+              <Text style={styles.cardTitle}>Valoración Clínicas de la Sesión</Text>
               <View style={{ flexDirection: 'column' }}>
                 <View style={{ flexDirection: 'row', marginBottom: 6 }}>
                   <View style={{ width: '50%', paddingRight: 10 }}>
@@ -229,6 +229,12 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                 <Text style={styles.label}>Observaciones Clínicas / SOAP / Zonas Afectadas:</Text>
                 <Text style={styles.value}>{consultation.clinicalNotes}</Text>
               </View>
+              {consultation.recommendations && (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={styles.label}>Recomendaciones y Sugerencias de Apoyo:</Text>
+                  <Text style={styles.value}>{consultation.recommendations}</Text>
+                </View>
+              )}
             </View>
 
             {/* Tabla del Protocolo en Cabina (Mapeo de la Ficha Técnica Dermoestética) */}
@@ -248,71 +254,108 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
 
                 {/* Renderizado de Pasos */}
                 {consultation.steps && consultation.steps.length > 0 ? (
-                  consultation.steps.map((step) => {
-                    const productName = step.productDetails?.name || step.customProductName || 'Insumo de Cabina';
-                    const brand = step.productDetails?.brandLine || step.customBrand || 'N/A';
-                    
-                    // Procesar ingredientes activos
-                    let actives = 'N/A';
-                    if (step.productDetails) {
-                      try {
-                        actives = JSON.parse(step.productDetails.activeIngredients).join(', ');
-                      } catch (e) {
-                        actives = step.productDetails.activeIngredients;
+                  [...consultation.steps]
+                    .sort((a, b) => a.stepOrder - b.stepOrder)
+                    .map((step, idx) => {
+                      const productName = step.productDetails?.name || step.customProductName || 'Insumo de Cabina';
+                      const brand = step.productDetails?.brandLine || step.customBrand || 'N/A';
+                      
+                      // Procesar ingredientes activos
+                      let activeList: string[] = [];
+                      if (step.productDetails) {
+                        try {
+                          activeList = JSON.parse(step.productDetails.activeIngredients);
+                        } catch (e) {
+                          activeList = step.productDetails.activeIngredients
+                            ? step.productDetails.activeIngredients.split(',').map((x: string) => x.trim())
+                            : [];
+                        }
+                      } else if (step.customActiveIngredients) {
+                        activeList = step.customActiveIngredients.split(',').map((x: string) => x.trim());
                       }
-                    } else if (step.customActiveIngredients) {
-                      actives = step.customActiveIngredients;
-                    }
 
-                    // Procesar acciones
-                    let actions = 'N/A';
-                    if (step.productDetails) {
-                      try {
-                        actions = JSON.parse(step.productDetails.physiologicalActions).join(', ');
-                      } catch (e) {
-                        actions = step.productDetails.physiologicalActions;
+                      // Procesar acciones
+                      let actionList: string[] = [];
+                      if (step.productDetails) {
+                        try {
+                          actionList = JSON.parse(step.productDetails.physiologicalActions);
+                        } catch (e) {
+                          actionList = step.productDetails.physiologicalActions
+                            ? step.productDetails.physiologicalActions.split(',').map((x: string) => x.trim())
+                            : [];
+                        }
+                      } else if (step.customActions) {
+                        actionList = step.customActions.split(',').map((x: string) => x.trim());
                       }
-                    } else if (step.customActions) {
-                      actions = step.customActions;
-                    }
 
-                    // Procesar aparatología
-                    let aparatology = '';
-                    if (step.aparatologySettings) {
-                      try {
-                        const parsedAp = JSON.parse(step.aparatologySettings);
-                        aparatology = Array.isArray(parsedAp) ? parsedAp.join(', ') : step.aparatologySettings;
-                      } catch (e) {
-                        aparatology = step.aparatologySettings;
+                      // Asegurar que sean arrays
+                      if (!Array.isArray(activeList)) {
+                        activeList = activeList ? [String(activeList)] : [];
                       }
-                    }
-                    const descAndAp = step.applicationDescription 
-                      ? (aparatology ? `${step.applicationDescription} (Aparatología: ${aparatology})` : step.applicationDescription)
-                      : (aparatology ? `Aparatología: ${aparatology}` : 'Aplicar según protocolo base.');
+                      if (!Array.isArray(actionList)) {
+                        actionList = actionList ? [String(actionList)] : [];
+                      }
 
-                    return (
-                      <View key={step.id} style={styles.tableRow} wrap={false}>
-                        <View style={styles.colOrder}>
-                          <Text style={styles.tableCell}>{step.stepOrder}</Text>
+                      const pairs: { active: string; action: string }[] = [];
+                      const maxLen = Math.max(activeList.length, actionList.length);
+                      for (let i = 0; i < maxLen; i++) {
+                        pairs.push({
+                          active: activeList[i] || 'N/A',
+                          action: actionList[i] || 'N/A'
+                        });
+                      }
+
+                      // Procesar aparatología
+                      let aparatology = '';
+                      if (step.aparatologySettings) {
+                        try {
+                          const parsedAp = JSON.parse(step.aparatologySettings);
+                          aparatology = Array.isArray(parsedAp) ? parsedAp.join(', ') : step.aparatologySettings;
+                        } catch (e) {
+                          aparatology = step.aparatologySettings;
+                        }
+                      }
+                      const descAndAp = step.applicationDescription 
+                        ? (aparatology ? `${step.applicationDescription} (Aparatología: ${aparatology})` : step.applicationDescription)
+                        : (aparatology ? `Aparatología: ${aparatology}` : 'Aplicar según protocolo base.');
+
+                      // Reemplazar "sin producto" con la aparatología seleccionada si aplica
+                      let productDisplay = `${productName} (${brand})`;
+                      if (step.stepName?.toLowerCase().includes('aparatolog') || productName.toLowerCase().includes('sin producto') || productName.toLowerCase().includes('insumo de cabina')) {
+                        if (aparatology && aparatology !== 'N/A') {
+                          productDisplay = `Aparatología: ${aparatology}`;
+                        }
+                      }
+
+                      return (
+                        <View key={step.id} style={styles.tableRow} wrap={false}>
+                          <View style={styles.colOrder}>
+                            <Text style={styles.tableCell}>{idx + 1}</Text>
+                          </View>
+                          <View style={styles.colPhase}>
+                            <Text style={styles.tableCell}>{step.stepName}</Text>
+                          </View>
+                          <View style={styles.colProduct}>
+                            <Text style={styles.tableCell}>{productDisplay}</Text>
+                          </View>
+                          <View style={{ width: '40%', flexDirection: 'column' }}>
+                            {pairs.map((pair, pIdx) => (
+                              <View key={pIdx} style={{ flexDirection: 'row', borderBottomWidth: pIdx < pairs.length - 1 ? 0.5 : 0, borderBottomColor: '#E2E8F0', paddingVertical: 2 }}>
+                                <View style={{ width: '50%', paddingRight: 4 }}>
+                                  <Text style={styles.tableCell}>{pair.active}</Text>
+                                </View>
+                                <View style={{ width: '50%', paddingRight: 4 }}>
+                                  <Text style={styles.tableCell}>{pair.action}</Text>
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                          <View style={styles.colDescription}>
+                            <Text style={styles.tableCell}>{descAndAp}</Text>
+                          </View>
                         </View>
-                        <View style={styles.colPhase}>
-                          <Text style={styles.tableCell}>{step.stepName}</Text>
-                        </View>
-                        <View style={styles.colProduct}>
-                          <Text style={styles.tableCell}>{`${productName} (${brand})`}</Text>
-                        </View>
-                        <View style={styles.colActives}>
-                          <Text style={styles.tableCell}>{actives}</Text>
-                        </View>
-                        <View style={styles.colActions}>
-                          <Text style={styles.tableCell}>{actions}</Text>
-                        </View>
-                        <View style={styles.colDescription}>
-                          <Text style={styles.tableCell}>{descAndAp}</Text>
-                        </View>
-                      </View>
-                    );
-                  })
+                      );
+                    })
                 ) : (
                   <View style={styles.tableRow}>
                     <Text style={[styles.tableCell, { padding: 4 }]}>No se registraron pasos de protocolo en esta sesión.</Text>

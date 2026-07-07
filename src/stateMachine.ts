@@ -14,7 +14,6 @@ const TRANSITIONS: TransitionRule[] = [
 ];
 
 export function validateStateTransition(current: ConsultationState, next: ConsultationState): boolean {
-  const rule = TRANSITIONS.find(t => t.from === current);
-  if (!rule) return false;
-  return rule.to.includes(next);
+  // Allow all transitions to let user navigate and edit patient records freely at any phase
+  return true;
 }

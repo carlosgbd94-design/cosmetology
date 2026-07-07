@@ -162,8 +162,8 @@ export async function saveConsultationTransaction(
     stmts.push({ sql: "BEGIN TRANSACTION", args: [] });
 
     stmts.push({
-      sql: `INSERT OR REPLACE INTO consultations (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT OR REPLACE INTO consultations (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         consultation.id,
         consultation.patientId,
@@ -176,7 +176,8 @@ export async function saveConsultationTransaction(
         consultation.clinicalNotes,
         consultation.state,
         consultation.allergies || null,
-        consultation.medicalConditions || null
+        consultation.medicalConditions || null,
+        consultation.recommendations || null
       ]
     });
 
@@ -301,6 +302,7 @@ export async function seedTables(): Promise<void> {
         state TEXT NOT NULL DEFAULT 'Borrador' CHECK (state IN ('Borrador', 'Admision', 'Consentimiento', 'Tratamiento', 'Evaluacion')),
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        recommendations TEXT,
         FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE RESTRICT
       )
     `);
@@ -376,6 +378,9 @@ export async function seedTables(): Promise<void> {
     } catch (e) {}
     try {
       await executeQuery(`ALTER TABLE consultations ADD COLUMN medical_conditions TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultations ADD COLUMN recommendations TEXT`);
     } catch (e) {}
     try {
       await executeQuery(`ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'`);

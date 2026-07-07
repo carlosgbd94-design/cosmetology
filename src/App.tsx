@@ -49,6 +49,9 @@ export default function App() {
   // Toast State
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; visible: boolean }>({ message: '', type: 'success', visible: false });
 
+  const [selectedPatientId, setSelectedPatientId] = useState<string>('');
+  const [activeConsultationId, setActiveConsultationId] = useState<string>('');
+
   // ----------------------------------------------------
   // GENERATOR TAB STATE
   // ----------------------------------------------------
@@ -70,7 +73,8 @@ export default function App() {
     clinicalNotes: '',
     state: 'Borrador' as ConsultationState,
     allergies: '',
-    medicalConditions: ''
+    medicalConditions: '',
+    recommendations: ''
   });
 
   const [customConditionInput, setCustomConditionInput] = useState('');
@@ -89,8 +93,10 @@ export default function App() {
     productId: ''
   });
   const [stepSearchQuery, setStepSearchQuery] = useState('');
+  const [editingStepIndex, setEditingStepIndex] = useState<number | null>(null);
   const [stepSuggestions, setStepSuggestions] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
 
 
 
@@ -207,6 +213,13 @@ export default function App() {
   const [apiPreview, setApiPreview] = useState<Product[]>([]);
 
   // ----------------------------------------------------
+  // PATIENT FOLDERS & SEARCH/FILTER STATE (TAB 3)
+  // ----------------------------------------------------
+  const [folderSearchQuery, setFolderSearchQuery] = useState('');
+  const [folderBiotypeFilter, setFolderBiotypeFilter] = useState('');
+  const [expandedPatientFolders, setExpandedPatientFolders] = useState<Record<string, boolean>>({});
+
+  // ----------------------------------------------------
   // INITIALIZATIONS & BOOTSTRAPPING
   // ----------------------------------------------------
   useEffect(() => {
@@ -248,10 +261,11 @@ export default function App() {
       // Sync remote products to local Dexie on start
       if (navigator.onLine) {
         try {
-          const res = await executeQuery('SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes FROM products');
-          if (res && res.rows) {
+          // 1. Sync products
+          const resProds = await executeQuery('SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes FROM products');
+          if (resProds && resProds.rows) {
             await db.products.clear();
-            for (const r of res.rows) {
+            for (const r of resProds.rows) {
               await db.products.put({
                 id: r.id,
                 sku: r.sku,
@@ -265,8 +279,102 @@ export default function App() {
               });
             }
           }
+
+          // 2. Sync patients
+          const resPatients = await executeQuery('SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at FROM patients');
+          if (resPatients && resPatients.rows) {
+            for (const r of resPatients.rows) {
+              const decryptedFirstName = await decryptData(r.first_name_encrypted);
+              const decryptedLastName = await decryptData(r.last_name_encrypted);
+              const decryptedPhone = await decryptData(r.phone_encrypted);
+              await db.patients.put({
+                id: r.id,
+                firstNameEncrypted: decryptedFirstName, // Store decrypted locally for easy UI rendering
+                lastNameEncrypted: decryptedLastName,
+                dateOfBirth: r.date_of_birth,
+                emailHashed: r.email_hashed,
+                phoneEncrypted: decryptedPhone,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at
+              });
+            }
+          }
+
+          // 3. Sync anamnesis
+          const resAnamnesis = await executeQuery('SELECT id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at FROM anamnesis');
+          if (resAnamnesis && resAnamnesis.rows) {
+            for (const r of resAnamnesis.rows) {
+              await db.anamnesis.put({
+                id: r.id,
+                patientId: r.patient_id,
+                medicalDiagnosis: r.medical_diagnosis || undefined,
+                surgicalHistory: r.surgical_history || undefined,
+                allergiesCosmetics: r.allergies_cosmetics,
+                currentMedications: r.current_medications,
+                lifestyleMetrics: r.lifestyle_metrics,
+                updatedAt: r.updated_at
+              });
+            }
+          }
+
+          // 4. Sync consultations
+          const resConsults = await executeQuery('SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions FROM consultations');
+          if (resConsults && resConsults.rows) {
+            for (const r of resConsults.rows) {
+              await db.consultations.put({
+                id: r.id,
+                patientId: r.patient_id,
+                providerId: r.provider_id,
+                visitDate: r.visit_date,
+                skinBiotype: r.skin_biotype,
+                fitzpatrickScale: Number(r.fitzpatrick_scale),
+                skinConditions: r.skin_conditions,
+                medicalDiagnosis: r.medical_diagnosis || undefined,
+                clinicalNotes: r.clinical_notes,
+                state: r.state as any,
+                recommendations: r.recommendations || undefined,
+                allergies: r.allergies || '',
+                medicalConditions: r.medical_conditions || ''
+              });
+            }
+          }
+
+          // 5. Sync consultation steps
+          const resSteps = await executeQuery('SELECT id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings FROM consultation_steps');
+          if (resSteps && resSteps.rows) {
+            for (const r of resSteps.rows) {
+              await db.consultation_steps.put({
+                id: r.id,
+                consultationId: r.consultation_id,
+                stepOrder: Number(r.step_order),
+                stepName: r.step_name,
+                productId: r.product_id || undefined,
+                customProductName: r.custom_product_name || undefined,
+                customBrand: r.custom_brand || undefined,
+                customActiveIngredients: r.custom_active_ingredients || undefined,
+                customActions: r.custom_actions || undefined,
+                applicationDescription: r.application_description || undefined,
+                aparatologySettings: r.aparatology_settings || undefined
+              });
+            }
+          }
+
+          // 6. Sync prescriptions
+          const resPrescriptions = await executeQuery('SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency FROM prescriptions');
+          if (resPrescriptions && resPrescriptions.rows) {
+            for (const r of resPrescriptions.rows) {
+              await db.prescriptions.put({
+                id: r.id,
+                consultationId: r.consultation_id,
+                productId: r.product_id,
+                timeOfDay: r.time_of_day as any,
+                dosageInstructions: r.dosage_instructions,
+                applicationFrequency: r.application_frequency
+              });
+            }
+          }
         } catch (err) {
-          console.error("Error syncing remote products:", err);
+          console.error("Error syncing remote clinical databases:", err);
         }
       }
 
@@ -771,22 +879,45 @@ export default function App() {
   };
 
   const handleAddStep = () => {
-    const newStep: ConsultationStep = {
-      id: Math.random().toString(36).substring(2, 9).toUpperCase(),
-      consultationId: patientForm.id || 'TEMP',
-      stepOrder: currentSteps.length + 1,
-      stepName: stepInput.stepName === 'Otro' ? (stepInput.customStepName || 'Otro') : stepInput.stepName,
-      productId: stepInput.productId || undefined,
-      customProductName: stepInput.customProductName.trim() || 'Sin producto',
-      customBrand: stepInput.customBrand.trim() || 'N/A',
-      customActiveIngredients: stepInput.customActiveIngredients,
-      customActions: stepInput.customActions,
-      applicationDescription: stepInput.applicationDescription,
-      aparatologySettings: stepInput.aparatologySettings || undefined,
-      productDetails: selectedProduct || undefined
-    };
+    if (editingStepIndex !== null) {
+      setCurrentSteps(prev => {
+        const nextSteps = [...prev];
+        const oldStep = nextSteps[editingStepIndex];
+        nextSteps[editingStepIndex] = {
+          ...oldStep,
+          stepName: stepInput.stepName === 'Otro' ? (stepInput.customStepName || 'Otro') : stepInput.stepName,
+          productId: stepInput.productId || undefined,
+          customProductName: stepInput.customProductName.trim() || 'Sin producto',
+          customBrand: stepInput.customBrand.trim() || 'N/A',
+          customActiveIngredients: stepInput.customActiveIngredients,
+          customActions: stepInput.customActions,
+          applicationDescription: stepInput.applicationDescription,
+          aparatologySettings: stepInput.aparatologySettings || undefined,
+          productDetails: selectedProduct || undefined
+        };
+        return nextSteps;
+      });
+      setEditingStepIndex(null);
+      showToastMsg('Paso actualizado en el protocolo.', 'success');
+    } else {
+      const newStep: ConsultationStep = {
+        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+        consultationId: patientForm.id || 'TEMP',
+        stepOrder: currentSteps.length + 1,
+        stepName: stepInput.stepName === 'Otro' ? (stepInput.customStepName || 'Otro') : stepInput.stepName,
+        productId: stepInput.productId || undefined,
+        customProductName: stepInput.customProductName.trim() || 'Sin producto',
+        customBrand: stepInput.customBrand.trim() || 'N/A',
+        customActiveIngredients: stepInput.customActiveIngredients,
+        customActions: stepInput.customActions,
+        applicationDescription: stepInput.applicationDescription,
+        aparatologySettings: stepInput.aparatologySettings || undefined,
+        productDetails: selectedProduct || undefined
+      };
 
-    setCurrentSteps(prev => [...prev, newStep]);
+      setCurrentSteps(prev => [...prev, newStep]);
+      showToastMsg('Paso agregado al protocolo.', 'success');
+    }
     
     // Clear step inputs
     setStepInput({
@@ -802,7 +933,23 @@ export default function App() {
     });
     setStepSearchQuery('');
     setSelectedProduct(null);
-    showToastMsg('Paso agregado al protocolo.', 'success');
+  };
+
+  const cancelEditStep = () => {
+    setEditingStepIndex(null);
+    setStepInput({
+      stepName: 'Otro',
+      customStepName: '',
+      customProductName: '',
+      customBrand: '',
+      customActiveIngredients: '',
+      customActions: '',
+      applicationDescription: '',
+      aparatologySettings: '',
+      productId: ''
+    });
+    setStepSearchQuery('');
+    setSelectedProduct(null);
   };
 
   const removeStep = (idx: number) => {
@@ -811,10 +958,25 @@ export default function App() {
     // Re-order remaining steps
     const reordered = nextSteps.map((s, i) => ({ ...s, stepOrder: i + 1 }));
     setCurrentSteps(reordered);
+    if (editingStepIndex === idx) {
+      setEditingStepIndex(null);
+    } else if (editingStepIndex !== null && editingStepIndex > idx) {
+      setEditingStepIndex(editingStepIndex - 1);
+    }
   };
 
   const editStep = (idx: number) => {
     const step = currentSteps[idx];
+    
+    if (step.productId && step.productDetails) {
+      setSelectedProduct(step.productDetails);
+    } else if (step.productId) {
+      const prod = products.find(p => p.id === step.productId);
+      if (prod) setSelectedProduct(prod);
+    } else {
+      setSelectedProduct(null);
+    }
+
     setStepInput({
       stepName: ['Limpieza', 'Shampoo', 'Exfoliación', 'Tonificación', 'Armonizador', 'Principio Activo', 'Mascarilla', 'Crema de Sellado', 'Protección Solar', 'Apoyo en Casa'].includes(step.stepName) ? step.stepName : 'Otro',
       customStepName: ['Limpieza', 'Shampoo', 'Exfoliación', 'Tonificación', 'Armonizador', 'Principio Activo', 'Mascarilla', 'Crema de Sellado', 'Protección Solar', 'Apoyo en Casa'].includes(step.stepName) ? '' : step.stepName,
@@ -826,11 +988,7 @@ export default function App() {
       aparatologySettings: step.aparatologySettings || '[]',
       productId: step.productId || ''
     });
-    // Remove step from list
-    const nextSteps = [...currentSteps];
-    nextSteps.splice(idx, 1);
-    const reordered = nextSteps.map((s, i) => ({ ...s, stepOrder: i + 1 }));
-    setCurrentSteps(reordered);
+    setEditingStepIndex(idx);
     showToastMsg('Paso cargado en el formulario para edición.', 'success');
   };
 
@@ -907,10 +1065,10 @@ export default function App() {
       const firstNameEnc = await encryptData(patientForm.firstName);
       const lastNameEnc = await encryptData(patientForm.lastName);
       const phoneEnc = await encryptData(patientForm.phone);
-      const emailH = await sha256(patientForm.email || `${patientForm.firstName}.${patientForm.lastName}@clinical.local`);
+      const patientId = selectedPatientId || `P-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      const emailH = await sha256(patientForm.email || `${patientForm.firstName}.${patientForm.lastName}.${patientId}@clinical.local`);
 
-      const consultationId = patientForm.id || `C-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-      const patientId = `P-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      const consultationId = activeConsultationId || `C-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
 
       // Register patient on remote if online
       if (navigator.onLine) {
@@ -965,7 +1123,8 @@ export default function App() {
         clinicalNotes: patientForm.clinicalNotes,
         state: patientForm.state,
         allergies: patientForm.allergies || '',
-        medicalConditions: patientForm.medicalConditions || ''
+        medicalConditions: patientForm.medicalConditions || '',
+        recommendations: patientForm.recommendations || ''
       };
 
       const finalSteps = currentSteps.map(s => ({ ...s, consultationId }));
@@ -1040,8 +1199,122 @@ export default function App() {
     }));
   };
 
+  const handleSelectPatient = async (patientId: string) => {
+    if (!patientId) {
+      setSelectedPatientId('');
+      setActiveConsultationId('');
+      resetPatientForm();
+      return;
+    }
+
+    const pat = patients.find(p => p.id === patientId);
+    if (!pat) return;
+
+    setSelectedPatientId(patientId);
+    setActiveConsultationId('');
+
+    const anam = await db.anamnesis.where('patientId').equals(patientId).first();
+
+    const patientConsultations = records
+      .filter(r => r.patientId === patientId)
+      .sort((a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime());
+
+    const latestConsultation = patientConsultations[0];
+
+    setPatientForm(prev => ({
+      ...prev,
+      firstName: pat.firstNameEncrypted || '',
+      lastName: pat.lastNameEncrypted || '',
+      dateOfBirth: pat.dateOfBirth || '',
+      phone: pat.phoneEncrypted || '',
+      email: '',
+      skinBiotype: latestConsultation ? latestConsultation.skinBiotype : '',
+      fitzpatrickScale: latestConsultation ? latestConsultation.fitzpatrickScale : 1,
+      skinConditions: latestConsultation ? latestConsultation.skinConditions : '[]',
+      medicalDiagnosis: latestConsultation ? latestConsultation.medicalDiagnosis : '',
+      allergies: latestConsultation ? (latestConsultation.allergies || '') : '',
+      medicalConditions: latestConsultation ? (latestConsultation.medicalConditions || '') : '',
+      clinicalNotes: '',
+      state: 'Borrador',
+      surgicalHistory: anam ? (anam.surgicalHistory || '') : '',
+      allergiesCosmetics: anam ? (anam.allergiesCosmetics || '[]') : '[]',
+      currentMedications: anam ? (anam.currentMedications || '[]') : '[]',
+      lifestyleMetrics: anam ? (anam.lifestyleMetrics || '{}') : '{}',
+      recommendations: latestConsultation ? (latestConsultation.recommendations || '') : '',
+    }));
+
+    if (latestConsultation) {
+      const steps = await db.consultation_steps.where('consultationId').equals(latestConsultation.id).toArray();
+      const prescriptions = await db.prescriptions.where('consultationId').equals(latestConsultation.id).toArray();
+      
+      const freshSteps = steps.map(s => ({
+        ...s,
+        id: `STEP-${Math.floor(Math.random() * 1000000)}`,
+        consultationId: ''
+      }));
+
+      const freshPrescriptions = prescriptions.map(p => ({
+        ...p,
+        id: `PRES-${Math.floor(Math.random() * 1000000)}`,
+        consultationId: ''
+      }));
+
+      setCurrentSteps(freshSteps.sort((a, b) => a.stepOrder - b.stepOrder));
+      setPrescriptionsList(freshPrescriptions);
+
+      showToastMsg(`Historial de ${pat.firstNameEncrypted} cargado: se copiaron datos y protocolo de la última sesión.`, 'success');
+    } else {
+      setCurrentSteps([]);
+      setPrescriptionsList([]);
+      showToastMsg(`Paciente ${pat.firstNameEncrypted} seleccionado. Sin consultas previas.`, 'success');
+    }
+  };
+
+  const handleLoadPreviousConsultationBaseline = async (c: Consultation) => {
+    const steps = await db.consultation_steps.where('consultationId').equals(c.id).toArray();
+    const prescriptions = await db.prescriptions.where('consultationId').equals(c.id).toArray();
+    
+    let condList: string[] = [];
+    try {
+      condList = JSON.parse(c.skinConditions || '[]');
+    } catch(e) {}
+    const customCond = condList.find(cond => !['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'].includes(cond));
+    setCustomConditionInput(customCond || '');
+
+    setPatientForm(prev => ({
+      ...prev,
+      skinBiotype: c.skinBiotype,
+      fitzpatrickScale: c.fitzpatrickScale,
+      skinConditions: c.skinConditions || '[]',
+      medicalDiagnosis: c.medicalDiagnosis || '',
+      clinicalNotes: '',
+      allergies: c.allergies || '',
+      medicalConditions: c.medicalConditions || '',
+      recommendations: c.recommendations || ''
+    }));
+
+    const freshSteps = steps.map(s => ({
+      ...s,
+      id: `STEP-${Math.floor(Math.random() * 1000000)}`,
+      consultationId: ''
+    }));
+
+    const freshPrescriptions = prescriptions.map(p => ({
+      ...p,
+      id: `PRES-${Math.floor(Math.random() * 1000000)}`,
+      consultationId: ''
+    }));
+
+    setCurrentSteps(freshSteps.sort((a, b) => a.stepOrder - b.stepOrder));
+    setPrescriptionsList(freshPrescriptions);
+    showToastMsg(`Se cargaron los datos de la sesión del ${new Date(c.visitDate).toLocaleDateString()} como base.`, 'success');
+  };
+
   const resetPatientForm = () => {
+    setSelectedPatientId('');
+    setActiveConsultationId('');
     setCustomConditionInput('');
+    setEditingStepIndex(null);
     setPatientForm({
       id: '',
       firstName: '',
@@ -1060,7 +1333,8 @@ export default function App() {
       clinicalNotes: '',
       state: 'Borrador',
       allergies: '',
-      medicalConditions: ''
+      medicalConditions: '',
+      recommendations: ''
     });
     setCurrentSteps([]);
     setPrescriptionsList([]);
@@ -1124,6 +1398,8 @@ export default function App() {
 
   const handleEditConsultation = async (c: Consultation) => {
     const pat = patients.find(p => p.id === c.patientId);
+    setSelectedPatientId(c.patientId);
+    setActiveConsultationId(c.id);
     
     // Resolve steps and prescriptions
     const steps = await db.consultation_steps.where('consultationId').equals(c.id).toArray();
@@ -1137,7 +1413,7 @@ export default function App() {
     setCustomConditionInput(customCond || '');
 
     setPatientForm({
-      id: c.patientId,
+      id: c.id,
       firstName: pat ? pat.firstNameEncrypted : '',
       lastName: pat ? pat.lastNameEncrypted : '',
       dateOfBirth: pat ? pat.dateOfBirth : '',
@@ -1154,7 +1430,8 @@ export default function App() {
       clinicalNotes: c.clinicalNotes || '',
       state: c.state,
       allergies: c.allergies || '',
-      medicalConditions: c.medicalConditions || ''
+      medicalConditions: c.medicalConditions || '',
+      recommendations: c.recommendations || ''
     });
 
     const anam = await db.anamnesis.where('patientId').equals(c.patientId).first();
@@ -1168,7 +1445,7 @@ export default function App() {
       }));
     }
     
-    setCurrentSteps(steps);
+    setCurrentSteps(steps.sort((a, b) => a.stepOrder - b.stepOrder));
     setPrescriptionsList(prescriptions);
     setActiveTab('generator');
     showToastMsg('Expediente cargado en el Generador.', 'success');
@@ -1583,18 +1860,101 @@ export default function App() {
                   <p className="text-slate-500 dark:text-luxe-300 text-xs mt-1">Valoración cutánea y recomendación cosmética profesional</p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  {/* Stepper State Machine Controller */}
-                  <div className="flex gap-1.5 bg-slate-100 dark:bg-white/5 p-1 rounded-xl">
-                    {(['Borrador', 'Admision', 'Consentimiento', 'Tratamiento', 'Evaluacion'] as ConsultationState[]).map(st => (
-                      <button key={st} type="button" onClick={() => updateState(st)} className={`px-2 py-1 rounded-lg text-[9px] font-bold tracking-wider uppercase transition-all ${patientForm.state === st ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-400 dark:text-luxe-400 hover:text-slate-700'}`}>
-                        {st}
-                      </button>
-                    ))}
+                  {/* Clinical Workflow Phases Controller */}
+                  <div className="flex flex-col items-end">
+                    <span className="text-[9px] font-extrabold uppercase text-slate-400 dark:text-luxe-400 tracking-widest mb-1">Fase del Proceso Clínico</span>
+                    <div className="flex gap-1.5 bg-slate-100 dark:bg-white/5 p-1.5 rounded-2xl border border-slate-200/50 dark:border-white/5 relative group">
+                      {(['Borrador', 'Admision', 'Consentimiento', 'Tratamiento', 'Evaluacion'] as ConsultationState[]).map(st => {
+                        const descriptions: Record<ConsultationState, string> = {
+                          Borrador: 'Borrador inicial / Notas preliminares de cabina',
+                          Admision: 'Ficha biográfica, motivos de consulta y anamnesis médica',
+                          Consentimiento: 'Consentimiento legal firmado e identificación oficial del paciente',
+                          Tratamiento: 'Protocolo de tratamiento en cabina y activos aplicados',
+                          Evaluacion: 'Resultados clínicos obtenidos, apoyo domiciliario y recomendaciones'
+                        };
+                        const labels: Record<ConsultationState, string> = {
+                          Borrador: 'Borrador',
+                          Admision: 'Admisión',
+                          Consentimiento: 'Consentimiento',
+                          Tratamiento: 'Tratamiento',
+                          Evaluacion: 'Evaluación'
+                        };
+                        return (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => updateState(st)}
+                            title={descriptions[st]}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-bold tracking-wider uppercase transition-all relative ${
+                              patientForm.state === st
+                                ? 'bg-gradient-to-r from-bronze-500 to-bronze-600 text-white shadow-md'
+                                : 'text-slate-500 dark:text-luxe-300 hover:bg-slate-200/50 dark:hover:bg-white/5'
+                            }`}
+                          >
+                            {labels[st]}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
 
               <form onSubmit={handleSaveConsultation} className="space-y-6">
+                {/* Seguimiento de Pacientes */}
+                <div className="bg-slate-50/50 dark:bg-white/5 p-5 rounded-2xl border border-slate-200/50 dark:border-white/5 space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex flex-col gap-1">
+                      <span className="font-outfit text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Seguimiento de Pacientes</span>
+                      <p className="text-[11px] text-slate-500 dark:text-luxe-400">Busca y selecciona un paciente existente para no duplicar datos y cargar su historial clínico.</p>
+                    </div>
+                    <div className="w-full md:w-80">
+                      <select
+                        value={selectedPatientId}
+                        onChange={e => handleSelectPatient(e.target.value)}
+                        className="smart-input w-full px-4 py-2.5 rounded-xl text-xs bg-no-repeat bg-[right_1rem_center]"
+                      >
+                        <option value="">-- Registrar Nuevo Paciente --</option>
+                        {[...patients].sort((a,b) => a.firstNameEncrypted.localeCompare(b.firstNameEncrypted)).map(p => (
+                          <option key={p.id} value={p.id}>
+                            {`${p.firstNameEncrypted} ${p.lastNameEncrypted} (${p.phoneEncrypted})`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* List of Previous Sessions for this Patient */}
+                  {selectedPatientId && (() => {
+                    const patientConsultations = records.filter(r => r.patientId === selectedPatientId);
+                    if (patientConsultations.length > 0) {
+                      return (
+                        <div className="pt-3 border-t border-slate-200/50 dark:border-white/5">
+                          <h4 className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest mb-2">Expedientes previos en sistema ({patientConsultations.length}):</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {patientConsultations.map(pc => (
+                              <div key={pc.id} className="flex items-center gap-2 bg-white/60 dark:bg-luxe-950/40 border border-slate-200/50 dark:border-white/5 px-3 py-1.5 rounded-lg text-xs">
+                                <span className="font-semibold">{new Date(pc.visitDate).toLocaleDateString()}</span>
+                                <span className="text-[10px] bg-amber-500/15 text-amber-500 px-1.5 py-0.5 rounded font-bold uppercase">{pc.state}</span>
+                                <span className="text-slate-400">| {pc.skinBiotype}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleLoadPreviousConsultationBaseline(pc)}
+                                  className="text-blue-500 hover:text-blue-600 font-bold ml-1 text-[10px]"
+                                  title="Cargar esta sesión como base"
+                                >
+                                  Cargar sesión
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+
                 {/* Paciente */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="flex flex-col gap-2">
@@ -1714,6 +2074,12 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Recomendaciones y Sugerencias de Apoyo */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Recomendaciones y Sugerencias de Apoyo (Opcional - Rutinas de lavado, hábitos, etc.)</label>
+                  <textarea value={patientForm.recommendations} onChange={e => setPatientForm(prev => ({ ...prev, recommendations: e.target.value }))} rows={4} placeholder="Escribe aquí sugerencias opcionales de cuidado en casa, tipos de rutinas de lavado, frecuencia de mantenimiento, etc..." className="smart-input w-full p-4 rounded-xl text-sm resize-none" />
+                </div>
+
                 {/* Diseñador de Pasos del Protocolo */}
                 <div className="liquid-glass-light rounded-2xl p-6 border border-slate-200/50 dark:border-white/5 space-y-6">
                   <h3 className="font-outfit text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
@@ -1787,9 +2153,20 @@ export default function App() {
                         </div>
                       </div>
 
-                      <button type="button" onClick={handleAddStep} className="w-full bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5">
-                        <Plus className="w-4 h-4" /> Agregar Paso al Protocolo
-                      </button>
+                      {editingStepIndex !== null ? (
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handleAddStep} className="flex-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md">
+                            Guardar Cambios de Paso
+                          </button>
+                          <button type="button" onClick={cancelEditStep} className="px-4 bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-luxe-200 py-2 rounded-xl text-xs font-semibold transition-all">
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={handleAddStep} className="w-full bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5">
+                          <Plus className="w-4 h-4" /> Agregar Paso al Protocolo
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1817,7 +2194,23 @@ export default function App() {
                             <tr key={step.id}>
                               <td className="py-3 px-4">{step.stepOrder}</td>
                               <td className="py-3 px-4 font-bold">{step.stepName}</td>
-                              <td className="py-3 px-4">{step.customProductName}</td>
+                              <td className="py-3 px-4">
+                                {(() => {
+                                  const nameLower = (step.customProductName || '').toLowerCase();
+                                  if (nameLower === 'sin producto' || !step.customProductName) {
+                                    if (step.aparatologySettings) {
+                                      try {
+                                        const parsed = JSON.parse(step.aparatologySettings);
+                                        if (Array.isArray(parsed) && parsed.length > 0) {
+                                          return <span className="text-bronze-600 dark:text-bronze-400 font-medium">Aparatología: {parsed.join(', ')}</span>;
+                                        }
+                                      } catch(e) {}
+                                      return <span className="text-bronze-600 dark:text-bronze-400 font-medium">Aparatología: {step.aparatologySettings}</span>;
+                                    }
+                                  }
+                                  return step.customProductName;
+                                })()}
+                              </td>
                               <td className="py-3 px-4">{step.customBrand}</td>
                               <td className="py-3 px-4 truncate max-w-[150px]">{step.customActiveIngredients || 'N/A'}</td>
                               <td className="py-3 px-4 truncate max-w-[150px]">{step.customActions || 'N/A'}</td>
@@ -2230,69 +2623,331 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* Professional Cosmetology Brands Resource Center */}
+            <div className="liquid-glass rounded-3xl p-8 border border-slate-200/50 dark:border-white/5 space-y-6">
+              <div>
+                <h3 className="font-outfit text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                  <Beaker className="w-5 h-5 text-bronze-500" />
+                  Centro de Recursos de Cosmetología Profesional
+                </h3>
+                <p className="text-slate-500 dark:text-luxe-300 text-xs mt-1">
+                  Enlaces oficiales e informativos de laboratorios dermoestéticos líderes para la consulta de activos y protocolos clínicos.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                {[
+                  { name: 'Miguett', url: 'https://miguett.com/', desc: 'Fórmulas mexicanas de alta vanguardia cosmetológica.' },
+                  { name: 'Casmara', url: 'https://www.casmara.com/', desc: 'Tratamientos profesionales de alta cosmética y máscaras de alginato.' },
+                  { name: 'Germaine de Capuccini', url: 'https://germaine-de-capuccini.com/', desc: 'Cuidado de la piel profesional con laboratorios de nivel médico.' },
+                  { name: 'Mesoestetic', url: 'https://www.mesoestetic.com/', desc: 'Tratamientos de medicina estética y cosmecéuticos de grado clínico.' },
+                  { name: 'Skeyndor', url: 'https://skeyndor.com/', desc: 'Líder en cosmética científica con activos patentados.' },
+                  { name: 'Lidherma', url: 'https://www.lidherma.com/', desc: 'Productos de calidad médica para profesionales de la estética.' }
+                ].map(brand => (
+                  <a
+                    key={brand.name}
+                    href={brand.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-4 bg-white/40 dark:bg-luxe-950/20 border border-slate-200/50 dark:border-white/5 rounded-2xl flex flex-col justify-between hover:border-bronze-500/50 hover:shadow-lg transition-all duration-300 group"
+                  >
+                    <div>
+                      <span className="block text-xs font-bold text-slate-800 dark:text-white group-hover:text-bronze-500 transition-colors">
+                        {brand.name}
+                      </span>
+                      <p className="text-[10px] text-slate-500 dark:text-luxe-300 mt-1 leading-normal">
+                        {brand.desc}
+                      </p>
+                    </div>
+                    <span className="text-[9px] font-bold text-bronze-500 hover:underline mt-3 block self-start">
+                      Ver Catálogo Oficial →
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
         {/* TAB 3: RECORDS HISTORY */}
         {activeTab === 'records' && (
-          <div className="space-y-8">
-            <div>
-              <h2 className="font-outfit text-2xl font-bold text-slate-800 dark:text-white">Expedientes Clínicos Históricos</h2>
-              <p className="text-slate-500 dark:text-luxe-300 text-xs mt-1">Archivo de tratamientos integrales y hojas de diagnóstico cosmetológico.</p>
+          <div className="space-y-8 animate-fade-in">
+            {/* Header and Stats */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="font-outfit text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                  <FolderHeart className="w-6 h-6 text-bronze-500" />
+                  Archivo de Expedientes Clínicos
+                </h2>
+                <p className="text-slate-500 dark:text-luxe-300 text-xs mt-1">
+                  Carpetas clínicas digitales organizadas por paciente. Administra múltiples visitas y recetas.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 bg-slate-100/80 dark:bg-white/5 px-4 py-2 rounded-2xl border border-slate-200/50 dark:border-white/5">
+                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Total Pacientes:</span>
+                <span className="text-sm font-extrabold text-bronze-600 dark:text-bronze-400">{patients.length}</span>
+              </div>
             </div>
 
-            <div className="liquid-glass rounded-[32px] p-6 md:p-8 border border-slate-200/50 dark:border-white/5 shadow-xl relative overflow-hidden">
-              <div className="max-h-[600px] overflow-y-auto overflow-x-auto relative">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-luxe-900 border-b border-slate-200/50 dark:border-white/5 shadow-sm">
-                    <tr>
-                      <th className="py-3.5 px-4 font-bold">Nombre / Folio</th>
-                      <th className="py-3.5 px-4 font-bold">Fecha</th>
-                      <th className="py-3.5 px-4 font-bold">Biotipo</th>
-                      <th className="py-3.5 px-4 font-bold">Estado</th>
-                      <th className="py-3.5 px-4 font-bold">Notas SOAP</th>
-                      <th className="py-3.5 px-4 text-right font-bold">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
-                    {records.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 px-4 text-center text-slate-400">No hay expedientes clínicos guardados.</td>
-                      </tr>
-                    ) : (
-                      records.map(r => {
-                        const pat = patients.find(p => p.id === r.patientId);
-                        const patientName = pat ? `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}` : 'Paciente desconocido';
-                        return (
-                          <tr key={r.id}>
-                            <td className="py-3.5 px-4 font-bold">
-                              <div>{patientName}</div>
-                              <div className="text-[10px] text-slate-400 font-normal">{r.id}</div>
-                            </td>
-                            <td className="py-3.5 px-4">{new Date(r.visitDate).toLocaleDateString()}</td>
-                            <td className="py-3.5 px-4 text-amber-500 font-bold">{r.skinBiotype}</td>
-                            <td className="py-3.5 px-4">
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/10 text-amber-500">{r.state}</span>
-                            </td>
-                            <td className="py-3.5 px-4 truncate max-w-[200px]">{r.clinicalNotes}</td>
-                            <td className="py-3.5 px-4 text-right space-x-2">
-                              <button onClick={() => triggerPdfDownload('ficha', pat, r)} className="text-bronze-600 dark:text-bronze-400 hover:underline inline-flex items-center gap-1" title="Descargar Ficha PDF">
-                                <FileText className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => triggerPdfDownload('receta', pat, r)} className="text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1" title="Descargar Receta PDF">
-                                <FileUp className="w-4 h-4 rotate-180" />
-                              </button>
-                              <button onClick={() => handleEditConsultation(r)} className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1" title="Editar Expediente">
-                                <Edit className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+            {/* Filter and Search Bar */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50/50 dark:bg-white/5 p-4 rounded-3xl border border-slate-200/50 dark:border-white/5">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar paciente por nombre o teléfono..."
+                  value={folderSearchQuery}
+                  onChange={e => setFolderSearchQuery(e.target.value)}
+                  className="smart-input w-full pl-10"
+                />
               </div>
+
+              <div>
+                <select
+                  value={folderBiotypeFilter}
+                  onChange={e => setFolderBiotypeFilter(e.target.value)}
+                  className="smart-input w-full"
+                >
+                  <option value="">-- Todos los Biotipos --</option>
+                  <option value="Seca">Piel Seca</option>
+                  <option value="Mixta">Piel Mixta</option>
+                  <option value="Grasa">Piel Grasa</option>
+                  <option value="Eudérmica / Normal">Piel Normal / Eudérmica</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <button
+                  onClick={() => {
+                    setFolderSearchQuery('');
+                    setFolderBiotypeFilter('');
+                  }}
+                  className="text-xs font-bold text-bronze-600 dark:text-bronze-400 hover:underline"
+                >
+                  Restablecer Filtros
+                </button>
+              </div>
+            </div>
+
+            {/* Patients Folders Grid */}
+            <div className="space-y-4">
+              {(() => {
+                // Group records by patientId
+                const groupedRecords = records.reduce((acc, curr) => {
+                  if (!acc[curr.patientId]) {
+                    acc[curr.patientId] = [];
+                  }
+                  acc[curr.patientId].push(curr);
+                  return acc;
+                }, {} as Record<string, Consultation[]>);
+
+                // Filter patients
+                const filteredPatients = patients.filter(pat => {
+                  const fullName = `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}`.toLowerCase();
+                  const phone = (pat.phoneEncrypted || '').toLowerCase();
+                  const matchesSearch = fullName.includes(folderSearchQuery.toLowerCase()) || phone.includes(folderSearchQuery.toLowerCase());
+
+                  const patConsultations = groupedRecords[pat.id] || [];
+                  const latestConsultation = patConsultations.sort((a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime())[0];
+                  
+                  const matchesBiotype = !folderBiotypeFilter || (latestConsultation && latestConsultation.skinBiotype === folderBiotypeFilter);
+
+                  return matchesSearch && matchesBiotype;
+                });
+
+                if (filteredPatients.length === 0) {
+                  return (
+                    <div className="text-center py-12 liquid-glass rounded-3xl border border-slate-200/50 dark:border-white/5">
+                      <FolderHeart className="w-12 h-12 text-slate-350 dark:text-slate-600 mx-auto mb-3" />
+                      <p className="text-slate-400 italic text-xs">No se encontraron carpetas de pacientes con los filtros aplicados.</p>
+                    </div>
+                  );
+                }
+
+                return filteredPatients.map(pat => {
+                  const patConsultations = (groupedRecords[pat.id] || []).sort(
+                    (a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime()
+                  );
+                  const isExpanded = !!expandedPatientFolders[pat.id];
+                  const latestConsultation = patConsultations[0];
+
+                  // Calculate Age
+                  let ageStr = 'N/A';
+                  if (pat.dateOfBirth) {
+                    const birthDate = new Date(pat.dateOfBirth);
+                    const today = new Date();
+                    let age = today.getFullYear() - birthDate.getFullYear();
+                    const m = today.getMonth() - birthDate.getMonth();
+                    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+                      age--;
+                    }
+                    ageStr = `${age} años`;
+                  }
+
+                  return (
+                    <div
+                      key={pat.id}
+                      className={`liquid-glass rounded-3xl border border-slate-200/50 dark:border-white/5 transition-all duration-300 overflow-hidden shadow-sm hover:shadow-md ${
+                        isExpanded ? 'ring-2 ring-bronze-500/20 bg-white/60 dark:bg-luxe-950/20' : ''
+                      }`}
+                    >
+                      {/* Folder Row Summary Header */}
+                      <div
+                        onClick={() =>
+                          setExpandedPatientFolders(prev => ({
+                            ...prev,
+                            [pat.id]: !prev[pat.id]
+                          }))
+                        }
+                        className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer hover:bg-slate-500/5 transition-colors select-none"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`p-3 rounded-2xl transition-transform ${isExpanded ? 'bg-bronze-500/10 text-bronze-500 scale-110' : 'bg-slate-100 dark:bg-white/5 text-slate-400'}`}>
+                            <FolderHeart className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <h3 className="font-outfit text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                              {pat.firstNameEncrypted} {pat.lastNameEncrypted}
+                              <span className="text-[9px] bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-full font-bold text-slate-400 tracking-wider">
+                                {pat.id}
+                              </span>
+                            </h3>
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500 dark:text-luxe-300">
+                              <span>📅 Nacimiento: <strong>{pat.dateOfBirth}</strong> ({ageStr})</span>
+                              <span>📞 Cel: {pat.phoneEncrypted}</span>
+                              {latestConsultation && (
+                                <span className="text-bronze-600 dark:text-bronze-400">⚡ Biotipo Reciente: <strong>{latestConsultation.skinBiotype}</strong></span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className="text-right hidden sm:block">
+                            <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Sesiones Guardadas</span>
+                            <span className="text-sm font-extrabold text-slate-800 dark:text-white">{patConsultations.length} visitas</span>
+                          </div>
+                          <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-bronze-500' : ''}`} />
+                        </div>
+                      </div>
+
+                      {/* Folder Content (Visits and Demographics details) */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-200/50 dark:border-white/5 bg-slate-500/[0.02] p-6 space-y-6 animate-slide-up">
+                          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                            
+                            {/* Left panel: Anamnesis / Demographics */}
+                            <div className="lg:col-span-1 bg-white/40 dark:bg-luxe-950/20 p-4 rounded-2xl border border-slate-200/50 dark:border-white/5 space-y-4">
+                              <h4 className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest flex items-center gap-1">
+                                <Clipboard className="w-3.5 h-3.5 text-bronze-500" />
+                                Historial de Admisión
+                              </h4>
+                              
+                              <div className="space-y-3 text-xs">
+                                <div>
+                                  <span className="block text-[9px] text-slate-400 uppercase">Edad actual</span>
+                                  <span className="font-semibold text-slate-700 dark:text-luxe-100">{ageStr} ({pat.dateOfBirth})</span>
+                                </div>
+                                <div>
+                                  <span className="block text-[9px] text-slate-400 uppercase">Teléfono de contacto</span>
+                                  <span className="font-semibold text-slate-700 dark:text-luxe-100">{pat.phoneEncrypted}</span>
+                                </div>
+                                <div>
+                                  <span className="block text-[9px] text-slate-400 uppercase">Identificador</span>
+                                  <span className="font-mono text-[10px] text-slate-500 dark:text-luxe-300">{pat.id}</span>
+                                </div>
+                                <div className="pt-2 border-t border-slate-200/50 dark:border-white/5">
+                                  <span className="block text-[9px] text-slate-400 uppercase">Alergias Clínicas/Cosméticos</span>
+                                  <span className="text-[11px] font-medium text-red-500">
+                                    {latestConsultation?.allergies || 'Ninguna registrada'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="block text-[9px] text-slate-400 uppercase">Condiciones Médicas</span>
+                                  <span className="text-[11px] font-medium text-slate-700 dark:text-luxe-100">
+                                    {latestConsultation?.medicalConditions || 'Ninguna registrada'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleSelectPatient(pat.id)}
+                                className="w-full bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white py-2 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                              >
+                                <Plus className="w-3.5 h-3.5" /> Nueva Consulta / Visita
+                              </button>
+                            </div>
+
+                            {/* Right panel: Visits chronology */}
+                            <div className="lg:col-span-3 space-y-4">
+                              <h4 className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5 text-bronze-500" />
+                                Historial de Visitas y Hojas Clínicas ({patConsultations.length})
+                              </h4>
+
+                              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+                                {patConsultations.map(consultation => (
+                                  <div
+                                    key={consultation.id}
+                                    className="bg-white/60 dark:bg-luxe-950/40 p-4 rounded-2xl border border-slate-200/50 dark:border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-slate-300 dark:hover:border-white/10 transition-colors"
+                                  >
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-outfit text-xs font-bold text-slate-800 dark:text-white">
+                                          Sesión del {new Date(consultation.visitDate).toLocaleDateString()}
+                                        </span>
+                                        <span className="px-2 py-0.5 rounded-full text-[8px] font-bold uppercase bg-amber-500/10 text-amber-500">
+                                          {consultation.state}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 font-mono">({consultation.id})</span>
+                                      </div>
+                                      <div className="flex gap-4 text-[11px] text-slate-500 dark:text-luxe-300">
+                                        <span>Biotipo: <strong className="text-bronze-600 dark:text-bronze-400">{consultation.skinBiotype}</strong></span>
+                                        <span>Escala Fitzpatrick: <strong>{consultation.fitzpatrickScale}</strong></span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-500 dark:text-luxe-400 line-clamp-1 italic">
+                                        SOAP: {consultation.clinicalNotes}
+                                      </p>
+                                    </div>
+
+                                    {/* Action Buttons per Visit */}
+                                    <div className="flex items-center gap-2 self-end md:self-auto">
+                                      <button
+                                        onClick={() => triggerPdfDownload('ficha', pat, consultation)}
+                                        className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-600 dark:text-luxe-300 transition-colors"
+                                        title="Descargar Ficha Técnica PDF"
+                                      >
+                                        <FileText className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => triggerPdfDownload('receta', pat, consultation)}
+                                        className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-600 dark:text-luxe-300 transition-colors"
+                                        title="Descargar Receta de Apoyo en Casa PDF"
+                                      >
+                                        <FileUp className="w-4 h-4 rotate-180" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleEditConsultation(consultation)}
+                                        className="p-2 rounded-xl bg-bronze-500/10 text-bronze-600 dark:text-bronze-400 hover:bg-bronze-500/20 transition-colors"
+                                        title="Cargar / Editar en el Generador"
+                                      >
+                                        <Edit className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}

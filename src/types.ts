@@ -74,4 +74,6 @@ export interface Consultation {
   prescriptions?: Prescription[];
   allergies?: string;
   medicalConditions?: string;
+  recommendations?: string;
 }
+
