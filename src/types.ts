@@ -52,11 +52,16 @@ export interface ConsultationStep {
 export interface Prescription {
   id: string;
   consultationId: string;
-  productId: string;
+  productId?: string;
   productDetails?: Product; // Joineado desde el backend si aplica
   timeOfDay: 'Dia' | 'Noche' | 'Dia y Noche';
   dosageInstructions: string;
   applicationFrequency: string;
+  stepName?: string;
+  customProductName?: string;
+  customBrand?: string;
+  customActiveIngredients?: string;
+  customActions?: string;
 }
 
 export interface Consultation {

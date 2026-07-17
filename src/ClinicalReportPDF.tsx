@@ -368,18 +368,51 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
 
         {/* Sección de Recetas de Apoyo en Casa */}
         <View style={styles.card} wrap={true}>
-          <Text style={styles.cardTitle}>Receta de Apoyo Domiciliario</Text>
+          <Text style={styles.cardTitle}>Protocolo de Apoyo Domiciliario</Text>
           {consultation.prescriptions && consultation.prescriptions.length > 0 ? (
-            consultation.prescriptions.map((pres, idx) => (
-              <View key={pres.id} style={{ marginBottom: 6, paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: '#F7FAFC' }} wrap={false}>
-                <Text style={{ fontSize: 8.5, fontWeight: 'bold', color: '#1A365D' }}>
-                  {`${idx + 1}. ${pres.productDetails?.name || 'Producto Sugerido'} (${pres.productDetails?.brandLine || 'N/A'}) - Aplicación: ${pres.timeOfDay}`}
-                </Text>
-                <Text style={styles.value}>
-                  <Text style={{ fontWeight: 'bold' }}>Frecuencia: </Text>{pres.applicationFrequency} | <Text style={{ fontWeight: 'bold' }}>Instrucciones: </Text>{pres.dosageInstructions}
-                </Text>
-              </View>
-            ))
+            consultation.prescriptions.map((pres, idx) => {
+              const prodName = pres.customProductName || pres.productDetails?.name || 'Producto Sugerido';
+              const brand = pres.customBrand || pres.productDetails?.brandLine || 'N/A';
+              
+              let actives = pres.customActiveIngredients || '';
+              if (!actives && pres.productDetails?.activeIngredients) {
+                try {
+                  const parsed = JSON.parse(pres.productDetails.activeIngredients);
+                  actives = Array.isArray(parsed) ? parsed.join(', ') : pres.productDetails.activeIngredients;
+                } catch(e) {
+                  actives = pres.productDetails.activeIngredients;
+                }
+              }
+
+              let actions = pres.customActions || '';
+              if (!actions && pres.productDetails?.physiologicalActions) {
+                try {
+                  const parsed = JSON.parse(pres.productDetails.physiologicalActions);
+                  actions = Array.isArray(parsed) ? parsed.join(', ') : pres.productDetails.physiologicalActions;
+                } catch(e) {
+                  actions = pres.productDetails.physiologicalActions;
+                }
+              }
+
+              return (
+                <View key={pres.id} style={{ marginBottom: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#EEF2F6' }} wrap={false}>
+                  <Text style={{ fontSize: 8.5, fontWeight: 'bold', color: '#1A365D' }}>
+                    {`${idx + 1}. [${pres.stepName || 'Apoyo'}] ${prodName} (${brand})`}
+                  </Text>
+                  <Text style={{ fontSize: 7.5, color: '#4A5568', marginTop: 2 }}>
+                    <Text style={{ fontWeight: 'bold', color: '#B7791F' }}>Horario: </Text>{pres.timeOfDay} | <Text style={{ fontWeight: 'bold', color: '#B7791F' }}>Frecuencia: </Text>{pres.applicationFrequency}
+                  </Text>
+                  {actives ? (
+                    <Text style={{ fontSize: 7, color: '#718096', marginTop: 1 }}>
+                      <Text style={{ fontWeight: 'bold' }}>Activos: </Text>{actives} {actions ? `| Acción: ${actions}` : ''}
+                    </Text>
+                  ) : null}
+                  <Text style={{ fontSize: 7.5, color: '#2D3748', marginTop: 2 }}>
+                    <Text style={{ fontWeight: 'bold' }}>Instrucciones: </Text>{pres.dosageInstructions}
+                  </Text>
+                </View>
+              );
+            })
           ) : (
             <Text style={styles.value}>No se prescribieron productos para cuidado en el hogar en esta sesión.</Text>
           )}
