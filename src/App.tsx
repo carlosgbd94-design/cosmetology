@@ -187,11 +187,38 @@ export default function App() {
     setReportImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Levenshtein & AI recommender Widget states
-  const [checkerInput, setCheckerInput] = useState('');
-  const [checkerResults, setCheckerResults] = useState<string[]>([]);
-  const [aiNotes, setAiNotes] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
+  // APOYO EN CASA Widget states
+  const [selectedRoutineTime, setSelectedRoutineTime] = useState<'Dia' | 'Noche'>('Dia');
+  const [selectedRoutineTx, setSelectedRoutineTx] = useState<string>('Hidratante');
+  const [routineStepSelections, setRoutineStepSelections] = useState<Record<string, string>>({});
+
+  interface CustomRoutine {
+    name: string;
+    prescriptions: {
+      productId?: string;
+      timeOfDay: 'Dia' | 'Noche' | 'Dia y Noche';
+      dosageInstructions: string;
+      applicationFrequency: string;
+      stepName?: string;
+      customProductName?: string;
+      customBrand?: string;
+      customActiveIngredients?: string;
+      customActions?: string;
+      productDetails?: Product;
+    }[];
+  }
+
+  const [customRoutines, setCustomRoutines] = useState<CustomRoutine[]>(() => {
+    try {
+      const saved = localStorage.getItem('dermatique_custom_routines');
+      return saved ? JSON.parse(saved) : [];
+    } catch(e) {
+      return [];
+    }
+  });
+  const [showSaveRoutineModal, setShowSaveRoutineModal] = useState(false);
+  const [newRoutineName, setNewRoutineName] = useState('');
+  const [selectedCustomRoutine, setSelectedCustomRoutine] = useState<CustomRoutine | null>(null);
 
   // ----------------------------------------------------
   // INVENTORY TAB STATE
@@ -1222,17 +1249,21 @@ export default function App() {
 
       // Register patient on remote if online
       if (navigator.onLine) {
-        await executeQuery(
-          `INSERT OR REPLACE INTO patients (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [patientId, firstNameEnc, lastNameEnc, patientForm.dateOfBirth || '2000-01-01', emailH, phoneEnc]
-        );
+        try {
+          await executeQuery(
+            `INSERT OR REPLACE INTO patients (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [patientId, firstNameEnc, lastNameEnc, patientForm.dateOfBirth || '2000-01-01', emailH, phoneEnc]
+          );
 
-        await executeQuery(
-          `INSERT OR REPLACE INTO anamnesis (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [`A-${patientId}`, patientId, patientForm.medicalDiagnosis || null, patientForm.surgicalHistory || null, patientForm.allergiesCosmetics, patientForm.currentMedications, patientForm.lifestyleMetrics]
-        );
+          await executeQuery(
+            `INSERT OR REPLACE INTO anamnesis (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [`A-${patientId}`, patientId, patientForm.medicalDiagnosis || null, patientForm.surgicalHistory || null, patientForm.allergiesCosmetics, patientForm.currentMedications, patientForm.lifestyleMetrics]
+          );
+        } catch (remoteErr) {
+          console.warn("Fallo al registrar paciente en Turso, se continuará localmente:", remoteErr);
+        }
       }
 
       // Local Dexie Save for patient
@@ -1281,9 +1312,14 @@ export default function App() {
       const finalPrescriptions = prescriptionsList.map(p => ({ ...p, consultationId }));
 
       // Trigger ACID atomicity remote & local
-      await saveConsultationTransaction(finalConsultation, finalSteps, finalPrescriptions);
+      try {
+        await saveConsultationTransaction(finalConsultation, finalSteps, finalPrescriptions);
+        showToastMsg('Expediente clínico guardado y sincronizado.', 'success');
+      } catch (remoteErr) {
+        console.warn('Fallo al sincronizar consulta con Turso, guardado local completado:', remoteErr);
+        showToastMsg('Expediente guardado en local (Modo Offline). Se sincronizará al conectar.', 'info');
+      }
 
-      showToastMsg('Expediente clínico guardado atómicamente.', 'success');
       loadMasterCatalogs();
       resetPatientForm();
     } catch(err) {
@@ -1458,6 +1494,85 @@ export default function App() {
     setCurrentSteps(freshSteps.sort((a, b) => a.stepOrder - b.stepOrder));
     setPrescriptionsList(freshPrescriptions);
     showToastMsg(`Se cargaron los datos de la sesión del ${new Date(c.visitDate).toLocaleDateString()} como base.`, 'success');
+  };
+
+  const handleDeleteConsultation = async (consultationId: string, patientId: string) => {
+    if (!window.confirm('¿Está seguro de que desea eliminar permanentemente esta sesión de consulta/visita? Esta acción no se puede deshacer.')) {
+      return;
+    }
+    try {
+      // 1. Delete from local Dexie
+      await db.consultations.delete(consultationId);
+      await db.consultation_steps.where('consultationId').equals(consultationId).delete();
+      await db.prescriptions.where('consultationId').equals(consultationId).delete();
+
+      // 2. Delete from Turso if online
+      try {
+        await executeQuery('DELETE FROM consultations WHERE id = ?', [consultationId]);
+        await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [consultationId]);
+        await executeQuery('DELETE FROM prescriptions WHERE consultation_id = ?', [consultationId]);
+      } catch (err) {
+        console.warn('Fallo al eliminar de Turso, se reintentará en la sincronización:', err);
+      }
+
+      showToastMsg('Visita eliminada correctamente.', 'success');
+      
+      // If the deleted consultation was the active one, clear active session
+      if (activeConsultationId === consultationId) {
+        setActiveConsultationId('');
+        resetPatientForm();
+      }
+      
+      await loadMasterCatalogs(); // Refresh state lists
+    } catch (e) {
+      console.error(e);
+      showToastMsg('Error al eliminar la visita.', 'error');
+    }
+  };
+
+  const handleDeletePatient = async (patientId: string) => {
+    if (!window.confirm('¿Está seguro de que desea eliminar este paciente? Se borrará su expediente completo, incluyendo TODAS las consultas, prescripciones e historial clínico de forma permanente.')) {
+      return;
+    }
+    try {
+      // Get all consultations for this patient
+      const consultationsToDelete = records.filter(r => r.patientId === patientId);
+
+      // 1. Delete from local Dexie
+      await db.patients.delete(patientId);
+      await db.anamnesis.where('patientId').equals(patientId).delete();
+      for (const c of consultationsToDelete) {
+        await db.consultations.delete(c.id);
+        await db.consultation_steps.where('consultationId').equals(c.id).delete();
+        await db.prescriptions.where('consultationId').equals(c.id).delete();
+      }
+
+      // 2. Delete from Turso if online
+      try {
+        await executeQuery('DELETE FROM patients WHERE id = ?', [patientId]);
+        await executeQuery('DELETE FROM anamnesis WHERE patient_id = ?', [patientId]);
+        for (const c of consultationsToDelete) {
+          await executeQuery('DELETE FROM consultations WHERE id = ?', [c.id]);
+          await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [c.id]);
+          await executeQuery('DELETE FROM prescriptions WHERE consultation_id = ?', [c.id]);
+        }
+      } catch (err) {
+        console.warn('Fallo al eliminar del servidor Turso:', err);
+      }
+
+      showToastMsg('Expediente del paciente eliminado correctamente.', 'success');
+      
+      // If the active patient was this one, clear active patient
+      if (selectedPatientId === patientId) {
+        setSelectedPatientId('');
+        setActiveConsultationId('');
+        resetPatientForm();
+      }
+      await loadMasterCatalogs();
+    } catch (e) {
+      console.error(e);
+      showToastMsg('Error al eliminar el expediente del paciente.', 'error');
+    }
   };
 
   const resetPatientForm = () => {
@@ -1727,40 +1842,1370 @@ export default function App() {
 
   const predominantBiotype = Object.entries(biotypeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Ninguno';
 
-  // Levenshtein Corrector
-  const runLevenshteinCheck = () => {
-    if (!checkerInput.trim()) return;
-    const query = checkerInput.trim().toLowerCase();
-    
-    // Levenshtein distance implementation
-    const getDistance = (s: string, t: string) => {
-      if (!s.length) return t.length;
-      if (!t.length) return s.length;
-      const arr = [];
-      for (let i = 0; i <= t.length; i++) {
-        arr[i] = [i];
-      }
-      for (let j = 0; j <= s.length; j++) {
-        arr[0][j] = j;
-      }
-      for (let i = 1; i <= t.length; i++) {
-        for (let j = 1; j <= s.length; j++) {
-          arr[i][j] = t[i - 1] === s[j - 1]
-            ? arr[i - 1][j - 1]
-            : Math.min(arr[i - 1][j - 1] + 1, Math.min(arr[i][j - 1] + 1, arr[i - 1][j] + 1));
+  // ----------------------------------------------------
+  // ESTABLISHED ROUTINES DATABASE & LOGIC (APOYO EN CASA)
+  // ----------------------------------------------------
+  interface RoutineStepTemplate {
+    stepName: string;
+    keywords: string[];
+    defaultProductName: string;
+    defaultBrand: string;
+    defaultActiveIngredients: string;
+    defaultActions: string;
+    dosageInstructions: string;
+    applicationFrequency: string;
+  }
+
+  const ESTABLISHED_ROUTINES: Record<string, { Dia: RoutineStepTemplate[]; Noche: RoutineStepTemplate[] }> = {
+    "Hidratante": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "hidratante", "hydra", "sensible", "aloe", "leche"],
+          defaultProductName: "Leche Limpiadora Hidratante",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Aloe Vera, Manzanilla",
+          defaultActions: "Limpieza suave y aportación de humedad",
+          dosageInstructions: "Aplicar sobre rostro húmedo, masajear suavemente y enjuagar con abundante agua.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "hidratante", "aquatherm", "agua termal", "loto"],
+          defaultProductName: "Loción Hidratante Termal",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Agua Termal, Prebióticos",
+          defaultActions: "Equilibrar el pH e hidratar",
+          dosageInstructions: "Rociar sobre el rostro limpio o aplicar con un disco de algodón mediante toques suaves.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "suero", "hialurónico", "hyaluronic", "concentrado"],
+          defaultProductName: "Serum Concentrado de Ácido Hialurónico",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Hialurónico al 2%, Pantenol",
+          defaultActions: "Hidratación profunda y relleno de líneas",
+          dosageInstructions: "Aplicar 3-4 gotas en rostro, cuello y escote, realizando lisajes hasta su total absorción.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "emulsión", "hidratante", "comforting", "royal jelly", "jalea real"],
+          defaultProductName: "Emulsión Hidratante Comfort",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Jalea Real, Extracto de Poria Cocos",
+          defaultActions: "Nutrición, protección e hidratación duradera",
+          dosageInstructions: "Aplicar una pequeña cantidad en rostro y cuello con movimientos circulares ascendentes.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "bloqueador", "sunscreen", "fps"],
+          defaultProductName: "Protector Solar Hidratante FPS 50+",
+          defaultBrand: "General",
+          defaultActiveIngredients: "Filtros UVA/UVB, Vitamina E",
+          defaultActions: "Protección solar y antioxidante",
+          dosageInstructions: "Aplicar generosamente 30 minutos antes de la exposición solar. Reaplicar cada 4 horas.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "hidratante", "hydra", "sensible", "aloe", "leche"],
+          defaultProductName: "Leche Limpiadora Hidratante",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Aloe Vera, Manzanilla",
+          defaultActions: "Limpieza suave y aportación de humedad",
+          dosageInstructions: "Aplicar sobre rostro húmedo, masajear suavemente y enjuagar con abundante agua.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "hidratante", "aquatherm", "agua termal", "loto"],
+          defaultProductName: "Loción Hidratante Termal",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Agua Termal, Prebióticos",
+          defaultActions: "Equilibrar el pH e hidratar",
+          dosageInstructions: "Rociar sobre el rostro limpio o aplicar con un disco de algodón mediante toques suaves.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "suero", "hialurónico", "hyaluronic", "concentrado"],
+          defaultProductName: "Serum Concentrado de Ácido Hialurónico",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Hialurónico al 2%, Pantenol",
+          defaultActions: "Hidratación profunda y relleno de líneas",
+          dosageInstructions: "Aplicar 3-4 gotas en rostro, cuello y escote, realizando lisajes hasta su total absorción.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "night", "reparadora", "nourishing", "nutritiva"],
+          defaultProductName: "Crema Ultra-Hidratante de Noche",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Manteca de Karité, Ácido Hialurónico, Ceramidas",
+          defaultActions: "Reparación intensiva y nutrición nocturna",
+          dosageInstructions: "Aplicar por la noche sobre rostro y cuello limpios con suave masaje.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "Control de Melanogenesis": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "aclarante", "brightening", "glicólico", "facial wash"],
+          defaultProductName: "Gel Limpiador Aclarante",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Glicólico, Niacinamida",
+          defaultActions: "Limpieza profunda y microexfoliación aclaradora",
+          dosageInstructions: "Aplicar en rostro húmedo, masajear en círculos evitando ojos y enjuagar con agua fría.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "aclarante", "tónico", "iluminadora", "vitamina c"],
+          defaultProductName: "Loción Tónica Iluminadora Vitamina C",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Vitamina C Estabilizada, Extracto de Regaliz",
+          defaultActions: "Antioxidante, control de melanina e iluminación",
+          dosageInstructions: "Aplicar con palmaditas suaves en todo el rostro usando las manos limpias.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "vitamina c", "melano", "antioxidante", "c-vit"],
+          defaultProductName: "Serum Antioxidante Vitamina C y Ferúlico",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Vitamina C Pura al 10%, Ácido Ferúlico",
+          defaultActions: "Previene la oxidación de melanina y aporta luminosidad",
+          dosageInstructions: "Aplicar 3-5 gotas sobre el rostro limpio, deslizando suavemente.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "despigmentante", "melanogel", "pigment", "aclaradora"],
+          defaultProductName: "Crema Control de Melanogénesis FPS 20",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Kójico, Ácido Fítico, Niacinamida",
+          defaultActions: "Inhibición de la tirosinasa y control de pigmentación",
+          dosageInstructions: "Aplicar una capa delgada de manera uniforme en zonas con tendencia a manchas.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "despigmentante", "sunscreen", "physical", "pantalla"],
+          defaultProductName: "Pantalla Solar Despigmentante FPS 50+",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Filtros físicos, Activos despigmentantes",
+          defaultActions: "Alta protección solar y prevención de nuevas manchas",
+          dosageInstructions: "Aplicar abundantemente y de forma homogénea. Reaplicar rigurosamente cada 3 horas.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "aclarante", "brightening", "glicólico", "facial wash"],
+          defaultProductName: "Gel Limpiador Aclarante",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Glicólico, Niacinamida",
+          defaultActions: "Limpieza profunda y microexfoliación aclaradora",
+          dosageInstructions: "Aplicar en rostro húmedo, masajear en círculos evitando ojos y enjuagar con agua fría.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "aclarante", "tónico", "iluminadora", "vitamina c"],
+          defaultProductName: "Loción Tónica Iluminadora Vitamina C",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Vitamina C Estabilizada, Extracto de Regaliz",
+          defaultActions: "Antioxidante, control de melanina e iluminación",
+          dosageInstructions: "Aplicar con palmaditas suaves en todo el rostro usando las manos limpias.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "melanogel", "despigmentante", "concentrado", "retinol", "kójico"],
+          defaultProductName: "Gel Concentrado Regulador de Melanogénesis",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Kójico, Arbutina, Ácido Tranexámico",
+          defaultActions: "Tratamiento intensivo bloqueador de la melanina",
+          dosageInstructions: "Aplicar de manera focalizada en las manchas o en todo el rostro si es generalizado.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "despigmentante", "aclarante", "melanogel", "renovadora"],
+          defaultProductName: "Crema Renovadora Despigmentante de Noche",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Ácido Mandélico, Niacinamida, Retinol Liposomado",
+          defaultActions: "Exfoliación suave, renovación y aclaración nocturna",
+          dosageInstructions: "Aplicar por la noche sobre la piel limpia y seca. Iniciar en noches alternadas si hay sensibilidad.",
+          applicationFrequency: "Noches alternas o diario según tolerancia"
+        }
+      ]
+    },
+    "Regenerante": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "suave", "sensible", "calmante", "espuma", "foam"],
+          defaultProductName: "Espuma Limpiadora Regeneradora con Cica",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Centella Asiática, Pantenol",
+          defaultActions: "Limpieza respetuosa que promueve la barrera cutánea",
+          dosageInstructions: "Aplicar espuma en la palma de la mano, masajear el rostro y aclarar con agua tibia.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "calmante", "regenerante", "rosa mosqueta", "rosehip"],
+          defaultProductName: "Loción Tónica de Rosa Mosqueta",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Extracto de Rosa Mosqueta, Alantoína",
+          defaultActions: "Tonificación, calma y estimulación celular",
+          dosageInstructions: "Aplicar con bruma suave o toques con algodón.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "regenerante", "repair", "cica", "factor de crecimiento", "factores", "stem cell"],
+          defaultProductName: "Serum Regenerante Reparador Intensivo",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Centella Asiática, Factores de Crecimiento, Alantoína",
+          defaultActions: "Aceleración de la renovación celular y cicatrización",
+          dosageInstructions: "Colocar 4 gotas en las yemas de los dedos y presionar suavemente sobre el rostro.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "regeneradora", "repair", "cica", "elastina", "colágeno"],
+          defaultProductName: "Crema Activa Regenerante de Día",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Colágeno Soluble, Elastina, Ácido Hialurónico",
+          defaultActions: "Restauración de elasticidad y sostén dérmico",
+          dosageInstructions: "Extender sobre rostro y escote con suaves masajes hacia afuera.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "sunscreen", "fps", "cicatrizante", "barrier"],
+          defaultProductName: "Protector Solar Dermatológico Reparador FPS 50+",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Filtros solares de amplio espectro, Aloe Vera",
+          defaultActions: "Protección y regeneración de piel expuesta",
+          dosageInstructions: "Aplicar generosamente como último paso de la rutina matutina.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "suave", "sensible", "calmante", "espuma", "foam"],
+          defaultProductName: "Espuma Limpiadora Regeneradora con Cica",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Centella Asiática, Pantenol",
+          defaultActions: "Limpieza respetuosa que promueve la barrera cutánea",
+          dosageInstructions: "Aplicar espuma en la palma de la mano, masajear el rostro y aclarar con agua tibia.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "calmante", "regenerante", "rosa mosqueta", "rosehip"],
+          defaultProductName: "Loción Tónica de Rosa Mosqueta",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Extracto de Rosa Mosqueta, Alantoína",
+          defaultActions: "Tonificación, calma y estimulación celular",
+          dosageInstructions: "Aplicar con bruma suave o toques con algodón.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "regenerante", "repair", "cica", "factor de crecimiento", "factores", "stem cell"],
+          defaultProductName: "Serum Regenerante Reparador Intensivo",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Centella Asiática, Factores de Crecimiento, Alantoína",
+          defaultActions: "Aceleración de la renovación celular y cicatrización",
+          dosageInstructions: "Colocar 4 gotas en las yemas de los dedos y presionar suavemente sobre el rostro.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "regeneradora", "royal jelly", "jalea real", "nutritiva", "repair"],
+          defaultProductName: "Crema Nutritiva Regeneradora Jalea Real",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Jalea Real, Aceite de Rosa Mosqueta, Pantenol",
+          defaultActions: "Nutrición y reestructuración dérmica nocturna profunda",
+          dosageInstructions: "Aplicar por la noche en rostro, cuello y escote limpios, masajeando hasta absorber.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "Hidratacion piel grasa": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["grasa", "sebo", "salicílico", "purificante", "acné", "seboregulator"],
+          defaultProductName: "Gel Purificante Seborregulador",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Ácido Salicílico, Extracto de Árbol de Té",
+          defaultActions: "Control de grasa y limpieza de poros",
+          dosageInstructions: "Lavar el rostro por la mañana haciendo espuma suave y retirar con agua tibia.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "balance", "grasa", "sebo", "astringente", "equilibrante"],
+          defaultProductName: "Loción Equilibrante Piel Grasa",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Zinc PCA, Hamamelis",
+          defaultActions: "Matificación y regulación de la producción sebácea",
+          dosageInstructions: "Brumizar a distancia o aplicar con pequeños toques sin arrastrar.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "grasa", "niacinamida", "sebo", "matificante", "oil free"],
+          defaultProductName: "Serum Matificante Niacinamida 10%",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Niacinamida, Zinc PCA",
+          defaultActions: "Regulación de sebo, hidratación ligera y minimizador de poros",
+          dosageInstructions: "Aplicar 3 gotas en el rostro limpio extendiéndolo de forma homogénea.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "gel", "grasa", "balance", "sebo", "matificante", "gel-crema"],
+          defaultProductName: "Crema Balance Equilibrante Mate (Gel-Cream)",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Extracto de Flor de Loto, Alantoína",
+          defaultActions: "Hidratación libre de aceites y control de brillos",
+          dosageInstructions: "Aplicar en rostro limpio mediante ligeros toques hasta su total absorción.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "grasa", "oil-free", "toque seco", "dry touch", "mate"],
+          defaultProductName: "Protector Solar Toque Seco Mate FPS 50+",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Filtros solares inteligentes, Sílice matificante",
+          defaultActions: "Protección solar sin aportar oleosidad ni brillos",
+          dosageInstructions: "Aplicar en rostro y cuello como paso final de la rutina matutina.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["grasa", "sebo", "salicílico", "purificante", "acné", "seboregulator"],
+          defaultProductName: "Gel Purificante Seborregulador",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Ácido Salicílico, Extracto de Árbol de Té",
+          defaultActions: "Control de grasa y limpieza de poros",
+          dosageInstructions: "Lavar el rostro por la noche haciendo espuma suave y retirar con agua tibia.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "balance", "grasa", "sebo", "astringente", "equilibrante"],
+          defaultProductName: "Loción Equilibrante Piel Grasa",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Zinc PCA, Hamamelis",
+          defaultActions: "Matificación y regulación de la producción sebácea",
+          dosageInstructions: "Brumizar a distancia o aplicar con pequeños toques sin arrastrar.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "grasa", "niacinamida", "sebo", "matificante", "oil free"],
+          defaultProductName: "Serum Matificante Niacinamida 10%",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Niacinamida, Zinc PCA",
+          defaultActions: "Regulación de sebo, hidratación ligera y minimizador de poros",
+          dosageInstructions: "Aplicar 3 gotas en el rostro limpio extendiéndolo de forma homogénea.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "gel", "grasa", "balance", "sebo", "seborreguladora", "renovadora"],
+          defaultProductName: "Gel-Crema Renovadora y Seborreguladora de Noche",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Salicílico, Ácido Mandélico, Niacinamida",
+          defaultActions: "Renovación celular suave, prevención de brotes e hidratación seborregulada",
+          dosageInstructions: "Aplicar una ligera capa por la noche sobre el rostro limpio y seco.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "Despigmentante": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "aclarante", "brightening", "glicólico", "facial wash"],
+          defaultProductName: "Gel Limpiador Despigmentante Aclarante",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Glicólico, Niacinamida",
+          defaultActions: "Higiene y exfoliación biológica aclaradora",
+          dosageInstructions: "Masajear con agua sobre el rostro para limpiar y enjuagar abundantemente.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "aclarante", "tónico", "iluminadora", "vitamina c"],
+          defaultProductName: "Loción Tónica Despigmentante Iluminadora",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Vitamina C, Extracto de Regaliz",
+          defaultActions: "Unificar tono e hidratar la piel",
+          dosageInstructions: "Brumizar o aplicar suavemente con disco de algodón en toda la cara.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "vitamina c", "melano", "antioxidante", "c-vit"],
+          defaultProductName: "Suero Despigmentante Antioxidante Vitamina C",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Vitamina C Pura al 10%, Ácido Ferúlico",
+          defaultActions: "Combate la pigmentación y estimula colágeno",
+          dosageInstructions: "Aplicar 4 gotas por la mañana y masajear con movimientos ascendentes.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "despigmentante", "melanogel", "pigment", "aclaradora"],
+          defaultProductName: "Crema Activa Despigmentante de Día",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Ácido Fítico, Ácido Kójico, Niacinamida",
+          defaultActions: "Inhibidor de melanogénesis e hidratación profunda",
+          dosageInstructions: "Aplicar en todo el rostro o sobre zonas manchadas después del serum.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "despigmentante", "sunscreen", "physical", "pantalla"],
+          defaultProductName: "Bloqueador Despigmentante Preventivo FPS 50+",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Filtros físicos, Activos aclarantes",
+          defaultActions: "Protección total anti-manchas y antioxidante",
+          dosageInstructions: "Aplicar como último paso. Reaplicar obligatoriamente cada 3 horas.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "aclarante", "brightening", "glicólico", "facial wash"],
+          defaultProductName: "Gel Limpiador Despigmentante Aclarante",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Glicólico, Niacinamida",
+          defaultActions: "Higiene y exfoliación biológica aclaradora",
+          dosageInstructions: "Masajear con agua sobre el rostro para limpiar y enjuagar abundantemente.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "aclarante", "tónico", "iluminadora", "vitamina c"],
+          defaultProductName: "Loción Tónica Despigmentante Iluminadora",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Vitamina C, Extracto de Regaliz",
+          defaultActions: "Unificar tono e hidratar la piel",
+          dosageInstructions: "Brumizar o aplicar suavemente con disco de algodón en toda la cara.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "melanogel", "despigmentante", "concentrado", "retinol", "kójico", "tranexámico"],
+          defaultProductName: "Concentrado Despigmentante Intensivo de Noche",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Tranexámico, Ácido Kójico, Arbutina",
+          defaultActions: "Ataque intensivo a las máculas e hiperpigmentación",
+          dosageInstructions: "Aplicar 3 gotas focalizado en manchas por la noche sobre rostro seco.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "despigmentante", "aclarante", "melanogel", "renovadora", "mandélico", "glycolic"],
+          defaultProductName: "Crema Despigmentante Renovadora Mandélica de Noche",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Ácido Mandélico, Retinol Liposomado, Resveratroles",
+          defaultActions: "Acción exfoliante progresiva, aclarante y renovadora",
+          dosageInstructions: "Aplicar capa ligera en la noche. Suspender temporalmente si hay enrojecimiento excesivo.",
+          applicationFrequency: "Diario o noches alternadas"
+        }
+      ]
+    },
+    "reductivo de cuello": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "suave", "espuma", "facial wash"],
+          defaultProductName: "Gel de Higiene Suave Facial y Cuello",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Aloe Vera, Alantoína",
+          defaultActions: "Preparar la piel de cuello y escote",
+          dosageInstructions: "Limpiar la zona del cuello con movimientos ascendentes suaves y enjuagar.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["cuello", "reductivo", "papada", "tensor", "neck", "serum", "ampolleta"],
+          defaultProductName: "Serum Tensor y Reductor de Papada / Cuello",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Péptidos tensores, Cafeína vectorizada",
+          defaultActions: "Acción lipolítica reductora de grasa localizada y tensora",
+          dosageInstructions: "Aplicar en el contorno del óvalo facial y cuello, masajeando con los nudillos hacia arriba.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["cuello", "crema cuello", "neck", "papada", "firming neck", "reductivo", "tensora"],
+          defaultProductName: "Crema Reductora Definidora de Cuello y Escote",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Extracto de Glaucina, Cafeína, Silicio Orgánico",
+          defaultActions: "Drenante, reducción de tejido graso doble mentón",
+          dosageInstructions: "Extender sobre cuello y escote mediante un masaje ascendente hasta la base de las orejas.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "sunscreen", "fps"],
+          defaultProductName: "Protector Solar Anti-Fotoenvejecimiento FPS 50+",
+          defaultBrand: "General",
+          defaultActiveIngredients: "Filtros solares, Vitamina E, Coenzima Q10",
+          defaultActions: "Evita la flacidez del cuello por fotoenvejecimiento",
+          dosageInstructions: "Aplicar en la zona de cuello y escote antes de salir al sol.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "suave", "espuma", "facial wash"],
+          defaultProductName: "Gel de Higiene Suave Facial y Cuello",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Aloe Vera, Alantoína",
+          defaultActions: "Preparar la piel de cuello y escote",
+          dosageInstructions: "Limpiar la zona del cuello con movimientos ascendentes suaves y enjuagar.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["cuello", "reductivo", "papada", "tensor", "neck", "serum", "ampolleta"],
+          defaultProductName: "Serum Tensor y Reductor de Papada / Cuello",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Péptidos tensores, Cafeína vectorizada",
+          defaultActions: "Acción lipolítica reductora de grasa localizada y tensora",
+          dosageInstructions: "Aplicar en el contorno del óvalo facial y cuello, masajeando con los nudillos hacia arriba.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["cuello", "crema cuello", "neck", "papada", "firming neck", "reductivo", "tensora", "noche"],
+          defaultProductName: "Crema Reductora Definidora de Cuello y Escote",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Extracto de Glaucina, Cafeína, Silicio Orgánico",
+          defaultActions: "Drenante, reducción de tejido graso doble mentón",
+          dosageInstructions: "Extender sobre cuello y escote mediante un masaje ascendente hasta la base de las orejas.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "reafirmante facial y cuello": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "regenerante", "suave", "leche", "cleansing milk"],
+          defaultProductName: "Leche Cleanser Tenso-Activa",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Colágeno, Elastina",
+          defaultActions: "Limpieza tónica que prepara la firmeza",
+          dosageInstructions: "Limpiar cara y cuello suavemente, retirar con esponja húmeda.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "reafirmante", "dmae", "tensor"],
+          defaultProductName: "Loción Reafirmante Tensora",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "DMAE, Silicio Orgánico",
+          defaultActions: "Tonifica las fibras elásticas cutáneas",
+          dosageInstructions: "Aplicar pulverizando sobre rostro y cuello, palmeando suavemente.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "reafirmante", "tensor", "firming", "lifting", "dmae", "tens-up"],
+          defaultProductName: "Serum de Firmeza Intensiva DMAE",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "DMAE al 3%, Silicio, Péptidos Tensores",
+          defaultActions: "Efecto lifting inmediato y reafirmante a largo plazo",
+          dosageInstructions: "Colocar unas gotas y extender con las manos de forma ascendente en rostro y cuello.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "reafirmante", "tensor", "lifting", "firming", "collagen"],
+          defaultProductName: "Crema Reafirmante Voluminizadora Facial y Cuello",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "DMAE, Ácido Hialurónico, Colágeno",
+          defaultActions: "Redefinición del óvalo facial y turgencia",
+          dosageInstructions: "Aplicar en cara, cuello y escote realizando masajes lisantes de abajo hacia arriba.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "tensor", "sunscreen", "firming"],
+          defaultProductName: "Filtro Solar Reafirmante Antiedad FPS 50+",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Filtros solares, Extracto de Cacao antioxidante",
+          defaultActions: "Protección solar y prevención de flacidez actínica",
+          dosageInstructions: "Aplicar homogéneamente en rostro, orejas y cuello.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "regenerante", "suave", "leche", "cleansing milk"],
+          defaultProductName: "Leche Cleanser Tenso-Activa",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Colágeno, Elastina",
+          defaultActions: "Limpieza tónica que prepara la firmeza",
+          dosageInstructions: "Limpiar cara y cuello suavemente, retirar con esponja húmeda.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "reafirmante", "dmae", "tensor"],
+          defaultProductName: "Loción Reafirmante Tensora",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "DMAE, Silicio Orgánico",
+          defaultActions: "Tonifica las fibras elásticas cutáneas",
+          dosageInstructions: "Aplicar pulverizando sobre rostro y cuello, palmeando suavemente.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "reafirmante", "tensor", "firming", "lifting", "dmae", "tens-up"],
+          defaultProductName: "Serum de Firmeza Intensiva DMAE",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "DMAE al 3%, Silicio, Péptidos Tensores",
+          defaultActions: "Efecto lifting inmediato y reafirmante a largo plazo",
+          dosageInstructions: "Colocar unas gotas y extender con las manos de forma ascendente en rostro y cuello.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "reafirmante", "nutritiva", "lifting", "firming", "night cream"],
+          defaultProductName: "Crema Reestructurante Reafirmante Nocturna",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Coenzima Q10, Ácido Hialurónico, Péptidos de Colágeno",
+          defaultActions: "Nutrición profunda y reestructuración celular nocturna",
+          dosageInstructions: "Aplicar en cara y cuello limpios con suave masaje ascendente antes de dormir.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "anti envejecimiento piel grasa": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["grasa", "sebo", "limpiador", "salicílico", "purificante", "glycolic"],
+          defaultProductName: "Gel Limpiador Renovador Ácido Glicólico",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Glicólico, Ácido Salicílico",
+          defaultActions: "Eliminación de células muertas y seborregulación",
+          dosageInstructions: "Aplicar sobre piel húmeda, masajear 1 minuto y enjuagar abundantemente.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "balance", "grasa", "sebo", "ácidos", "astringente"],
+          defaultProductName: "Loción Astringente Renovadora Antiedad",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Ácido Glicólico, Niacinamida",
+          defaultActions: "Disminuir poros y alisar textura",
+          dosageInstructions: "Aplicar con disco de algodón dando toques en las zonas más grasas.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "retinol", "hialurónico", "grasa", "anti-age", "pore", "antienvejecimiento"],
+          defaultProductName: "Serum Antiedad de Hidratación Ligera Hialurónica",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Ácido Hialurónico de bajo peso molecular, Zinc PCA",
+          defaultActions: "Hidrata sin aportar grasa y rellena finas líneas",
+          dosageInstructions: "Colocar 3 gotas y masajear. Textura toque seco de rápida absorción.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "gel", "grasa", "antiedad", "antiarrugas", "matificante", "gel-cream"],
+          defaultProductName: "Gel-Crema Revitalizante Antiedad Libre de Aceite",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Vitamina C Liposomada, Coenzima Q10, Polvos matificantes",
+          defaultActions: "Acción antienvejecimiento, luminosidad y control de brillo",
+          dosageInstructions: "Extender una pequeña cantidad en rostro evitando contorno de ojos.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "grasa", "toque seco", "dry touch", "mate"],
+          defaultProductName: "Filtro Solar Fluido Toque Seco FPS 50+",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Filtros de amplio espectro, Activos seborreguladores",
+          defaultActions: "Protección solar y prevención del fotoenvejecimiento graso",
+          dosageInstructions: "Aplicar por la mañana como último paso. Reaplicar al mediodía.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["grasa", "sebo", "limpiador", "salicílico", "purificante", "glycolic"],
+          defaultProductName: "Gel Limpiador Renovador Ácido Glicólico",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Glicólico, Ácido Salicílico",
+          defaultActions: "Eliminación de células muertas y seborregulación",
+          dosageInstructions: "Aplicar sobre piel húmeda, masajear 1 minuto y enjuagar abundantemente.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "balance", "grasa", "sebo", "ácidos", "astringente"],
+          defaultProductName: "Loción Astringente Renovadora Antiedad",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Ácido Glicólico, Niacinamida",
+          defaultActions: "Disminuir poros y alisar textura",
+          dosageInstructions: "Aplicar con disco de algodón dando toques en las zonas más grasas.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "retinol", "envejecimiento", "noche", "grasa", "renovador", "anti-age"],
+          defaultProductName: "Serum Retinol Renovador Nocturno Piel Grasa",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Retinol Puro al 0.3%, Ácido Salicílico",
+          defaultActions: "Estimula colágeno, reduce arrugas, manchas y sebo",
+          dosageInstructions: "Aplicar 3 gotas de noche sobre el rostro limpio y seco. Iniciar progresivamente.",
+          applicationFrequency: "De 2 a 3 veces por semana, aumentando frecuencia según tolerancia"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "gel", "grasa", "antiedad", "renovadora", "mandélico", "glycolic"],
+          defaultProductName: "Crema Renovadora Ácido Mandélico y Niacinamida",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Ácido Mandélico al 8%, Niacinamida",
+          defaultActions: "Renovación nocturna, alisa arrugas y controla la grasa",
+          dosageInstructions: "Aplicar una fina capa por la noche sobre el rostro limpio.",
+          applicationFrequency: "Diario por la noche (en noches que no se use Retinol)"
+        }
+      ]
+    },
+    "oxigenante": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "oxigenante", "detox", "espuma", "carbón", "pollution"],
+          defaultProductName: "Espuma Limpiadora Oxigenante Detox",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Oxígeno Activo microencapsulado, Extracto de Té Verde",
+          defaultActions: "Limpieza profunda de toxinas and oxigenación",
+          dosageInstructions: "Aplicar en rostro húmedo, dejar actuar 30 segundos hasta que burbujee, enjuagar.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "oxigenante", "detox", "mist", "bruma"],
+          defaultProductName: "Loción Tónica Bruma Anti-Polución",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Extracto de Moringa, Alga Marina",
+          defaultActions: "Escudo antipolución y refrescante celular",
+          dosageInstructions: "Brumizar a unos 20 cm del rostro y dejar absorber al aire.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "oxigenante", "oxygen", "detox", "antipolución", "energizante"],
+          defaultProductName: "Suero Oxigenante Energizante Protector",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Detoxificantes celulares, Oxígeno vectorizado",
+          defaultActions: "Estimula la respiración mitocondrial celular",
+          dosageInstructions: "Aplicar sobre el rostro, realizando suaves toques ascendentes.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "oxigenante", "oxygen", "detox", "antipolución", "revitalizante"],
+          defaultProductName: "Crema Hidratante Oxigenante Anti-Polución",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Citocinas protectoras, Oxígeno, Filtro de polución",
+          defaultActions: "Protección ambiental y revitalización de pieles asfixiadas",
+          dosageInstructions: "Aplicar en todo el rostro masajeando suavemente hasta su completa penetración.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "detox", "sunscreen", "fps"],
+          defaultProductName: "Escudo Solar Urbano Antipolución FPS 50+",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Filtros de amplio espectro, Vitamina E antipolución",
+          defaultActions: "Filtro UV de alto grado y protección ambiental urbana",
+          dosageInstructions: "Aplicar como último paso protector por la mañana.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "oxigenante", "detox", "espuma", "carbón", "pollution"],
+          defaultProductName: "Espuma Limpiadora Oxigenante Detox",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Oxígeno Activo microencapsulado, Extracto de Té Verde",
+          defaultActions: "Limpieza profunda de toxinas y oxigenación",
+          dosageInstructions: "Aplicar en rostro húmedo, dejar actuar 30 segundos hasta que burbujee, enjuagar.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "oxigenante", "detox", "mist", "bruma"],
+          defaultProductName: "Loción Tónica Bruma Anti-Polución",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Extracto de Moringa, Alga Marina",
+          defaultActions: "Escudo antipolución y refrescante celular",
+          dosageInstructions: "Brumizar a unos 20 cm del rostro y dejar absorber al aire.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "oxigenante", "oxygen", "detox", "antipolución", "energizante"],
+          defaultProductName: "Suero Oxigenante Energizante Protector",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Detoxificantes celulares, Oxígeno vectorizado",
+          defaultActions: "Estimula la respiración mitocondrial celular",
+          dosageInstructions: "Aplicar sobre el rostro, realizando suaves toques ascendentes.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "oxigenante", "detox", "reparadora", "night"],
+          defaultProductName: "Crema de Noche Reparadora Oxigenante",
+          defaultBrand: "Casmara",
+          defaultActiveIngredients: "Extracto de Levadura, Manteca de Karité, Bio-flavonoides",
+          defaultActions: "Reparación celular profunda y eliminación de impurezas nocturna",
+          dosageInstructions: "Aplicar por la noche sobre cara limpia y cuello con masajes lentos.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "piel sensible": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "sensible", "calmante", "sensitive", "agua micelar", "leche"],
+          defaultProductName: "Emulsión Limpiadora Ultra-Calmante",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Agua Termal, Extracto de Avena, Manzanilla",
+          defaultActions: "Higiene delicada libre de irritantes",
+          dosageInstructions: "Aplicar con las manos o disco de algodón muy suave, retirar sin frotar con agua tibia.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "aquatherm", "calmante", "sensitive", "sensible", "avena"],
+          defaultProductName: "Loción Concentrada Térmica Piel Sensible",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Agua Termal, Prebióticos azucarados",
+          defaultActions: "Descongestionar y reponer los lípidos de barrera",
+          dosageInstructions: "Rociar a distancia o humedecer un algodón y aplicar mediante ligeras presiones.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "sensible", "sensitive", "calmante", "bisabolol", "aloe", "caléndula", "redness", "rojez"],
+          defaultProductName: "Serum Desensibilizante Calmante de Caléndula",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Centella Asiática, Alfa-bisabolol, Caléndula",
+          defaultActions: "Alivia el enrojecimiento y repara la epidermis sensible",
+          dosageInstructions: "Esparcir 3-4 gotas suavemente con la palma de las manos presionando ligeramente.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "sensible", "sensitive", "calmante", "aquatherm", "comfort", "aloe"],
+          defaultProductName: "Aquatherm Harmonizing Cream F1",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Agua Termal, Ceramidas, Extracto de Avena",
+          defaultActions: "Calma de rojeces, hidratación y reparación de barrera",
+          dosageInstructions: "Aplicar en rostro y cuello con masajes alisantes muy ligeros.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "sensible", "mineral", "physical", "sunscreen", "fps"],
+          defaultProductName: "Filtro Solar Fluido Mineral Piel Sensible FPS 50+",
+          defaultBrand: "General",
+          defaultActiveIngredients: "Óxido de Zinc, Dióxido de Titanio (Filtros 100% Minerales)",
+          defaultActions: "Máxima protección solar hipoalergénica sin irritar",
+          dosageInstructions: "Aplicar uniformemente en rostro y cuello. Ideal para pieles reactivas.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "sensible", "calmante", "sensitive", "agua micelar", "leche"],
+          defaultProductName: "Emulsión Limpiadora Ultra-Calmante",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Agua Termal, Extracto de Avena, Manzanilla",
+          defaultActions: "Higiene delicada libre de irritantes",
+          dosageInstructions: "Aplicar con las manos o disco de algodón muy suave, retirar sin frotar con agua tibia.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "aquatherm", "calmante", "sensitive", "sensible", "avena"],
+          defaultProductName: "Loción Concentrada Térmica Piel Sensible",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Agua Termal, Prebióticos azucarados",
+          defaultActions: "Descongestionar y reponer los lípidos de barrera",
+          dosageInstructions: "Rociar a distancia o humedecer un algodón y aplicar mediante ligeras presiones.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "sensible", "sensitive", "calmante", "bisabolol", "aloe", "caléndula", "redness", "rojez"],
+          defaultProductName: "Serum Desensibilizante Calmante de Caléndula",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Centella Asiática, Alfa-bisabolol, Caléndula",
+          defaultActions: "Alivia el enrojecimiento y repara la epidermis sensible",
+          dosageInstructions: "Esparcir 3-4 gotas suavemente con la palma de las manos presionando ligeramente.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "sensible", "sensitive", "calmante", "nourishing", "reparadora"],
+          defaultProductName: "Sense Control Harmonizing Treatment",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Péptidos desensibilizantes, Aloe Vera, Avena",
+          defaultActions: "Restauración nocturna, disminuye la rojez cutánea reactiva",
+          dosageInstructions: "Aplicar por la noche en todo el rostro con caricias ascendentes suaves.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "hidratacion corporal": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["corporal", "baño", "shower gel", "body wash"],
+          defaultProductName: "Gel de Baño Corporal Hidratante",
+          defaultBrand: "General",
+          defaultActiveIngredients: "Glicerina vegetal, Aloe Vera",
+          defaultActions: "Higiene y mantenimiento de humedad corporal",
+          dosageInstructions: "Utilizar en la ducha diaria masajeando suavemente sobre el cuerpo y enjuagar.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["corporal", "body", "crema corporal", "hidratación corporal", "hidratante corporal", "urea"],
+          defaultProductName: "Crema Corporal de Hidratación Profunda con Urea",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Urea al 10%, Ácido Hialurónico, Aceite de Almendras",
+          defaultActions: "Hidratación corporal, emoliencia y suavidad",
+          dosageInstructions: "Aplicar después del baño en todo el cuerpo, especialmente en rodillas, codos y talones.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["corporal", "baño", "shower gel", "body wash"],
+          defaultProductName: "Gel de Baño Corporal Hidratante",
+          defaultBrand: "General",
+          defaultActiveIngredients: "Glicerina vegetal, Aloe Vera",
+          defaultActions: "Higiene y mantenimiento de humedad corporal",
+          dosageInstructions: "Utilizar en la ducha diaria masajeando suavemente sobre el cuerpo y enjuagar.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["corporal", "body", "crema corporal", "hidratación corporal", "hidratante corporal", "urea", "nutritiva"],
+          defaultProductName: "Crema Corporal de Hidratación Profunda con Urea",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Urea al 10%, Ácido Hialurónico, Aceite de Almendras",
+          defaultActions: "Nutrición corporal, restauración lipídica nocturna",
+          dosageInstructions: "Aplicar por la noche sobre la piel limpia corporal mediante masajes circulares.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "nutricion": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "nutritivo", "leche", "cleansing milk", "nourishing", "hidratante"],
+          defaultProductName: "Leche Limpiadora de Jalea Real y Nutrientes",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Jalea Real, Manteca de Karité",
+          defaultActions: "Higiene lipídica y confort inmediato",
+          dosageInstructions: "Masajear sobre el rostro seco y retirar con esponjas humedecidas en agua tibia.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "nutritivo", "nourishing", "mist"],
+          defaultProductName: "Loción Tónica Suave Nutritiva",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Extracto de Jalea Real, Alantoína",
+          defaultActions: "Preparación de la piel para activos lipídicos",
+          dosageInstructions: "Aplicar con gasas o brumizar sobre el rostro.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "nutritivo", "argán", "aceite", "oil", "ampolla", "royal jelly"],
+          defaultProductName: "Serum Nutritivo de Jalea Real y Vitaminas",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Jalea Real, Poria Cocos, Vitamina F",
+          defaultActions: "Restauración de lípidos esenciales, nutrición intensa",
+          dosageInstructions: "Aplicar 4 gotas calentando el producto en las manos y presionar sobre la piel.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "nutritiva", "nourishing", "comfort", "royal jelly", "jalea real"],
+          defaultProductName: "Royal Jelly Comforting Emulsion",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Jalea Real, Extracto de Poria Cocos, Pantenol",
+          defaultActions: "Aporta nutrientes, elasticidad y protección",
+          dosageInstructions: "Masajear suavemente en rostro y cuello hasta absorber.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "sunscreen", "fps", "rich", "crema"],
+          defaultProductName: "Protector Solar Crema Nutritiva FPS 50+",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Filtros solares, Coenzima Q10",
+          defaultActions: "Protección UV y nutrición antioxidante",
+          dosageInstructions: "Aplicar uniformemente en rostro y cuello como último paso matutino.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "nutritivo", "leche", "cleansing milk", "nourishing", "hidratante"],
+          defaultProductName: "Leche Limpiadora de Jalea Real y Nutrientes",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Jalea Real, Manteca de Karité",
+          defaultActions: "Higiene lipídica y confort inmediato",
+          dosageInstructions: "Masajear sobre el rostro seco y retirar con esponjas humedecidas en agua tibia.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "nutritivo", "nourishing", "mist"],
+          defaultProductName: "Loción Tónica Suave Nutritiva",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Extracto de Jalea Real, Alantoína",
+          defaultActions: "Preparación de la piel para activos lipídicos",
+          dosageInstructions: "Aplicar con gasas o brumizar sobre el rostro.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "nutritivo", "argán", "aceite", "oil", "ampolla", "royal jelly"],
+          defaultProductName: "Serum Nutritivo de Jalea Real y Vitaminas",
+          defaultBrand: "Germaine de Capuccini",
+          defaultActiveIngredients: "Jalea Real, Poria Cocos, Vitamina F",
+          defaultActions: "Restauración de lípidos esenciales, nutrición intensa",
+          dosageInstructions: "Aplicar 4 gotas calentando el product en las manos y presionar sobre la piel.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "nutritiva", "nourishing", "repair", "karité", "argán"],
+          defaultProductName: "Crema Súper Nutritiva Reparadora de Noche",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Aceite de Argán, Manteca de Karité, Ácido Hialurónico",
+          defaultActions: "Recuperación lipídica nocturna y nutrición regeneradora",
+          dosageInstructions: "Aplicar generosamente en rostro y cuello masajeando de manera relajante.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    },
+    "anti acne": {
+      Dia: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "grasa", "sebo", "salicílico", "purificante", "acné", "seboregulator"],
+          defaultProductName: "Gel Limpiador Anti-Acné Ácido Salicílico",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Salicílico, Zinc",
+          defaultActions: "Higiene profunda bactericida y seborreguladora",
+          dosageInstructions: "Aplicar en rostro húmedo, masajear en zonas propensas a brotes y aclarar con abundante agua.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "balance", "grasa", "sebo", "astringente", "salicílico", "acné"],
+          defaultProductName: "Loción Aclarante Anti-Acné",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Ácido Salicílico, Extracto de Hamamelis",
+          defaultActions: "Desinfectante, astringente y calmante de brotes",
+          dosageInstructions: "Aplicar con un disco de algodón de manera localizada en las zonas acneicas.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "acné", "acne", "salicílico", "niacinamida", "zinc", "purificante"],
+          defaultProductName: "Serum Regulador Anti-Acné Focal",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Ácido Salicílico al 2%, Niacinamida",
+          defaultActions: "Desinflamación de pápulas y control de la queratinización",
+          dosageInstructions: "Aplicar una gota directo en el brote o una fina película en áreas de comedones.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Crema de Día",
+          keywords: ["crema", "gel", "grasa", "acné", "purificante", "seborreguladora", "oil-free"],
+          defaultProductName: "Gel Crema Matificante Hidratante Anti-Acné",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Zinc PCA, Ácido Salicílico",
+          defaultActions: "Aporta hidratación libre de grasa y disminuye la rojez del acné",
+          dosageInstructions: "Extender una pequeña cantidad con las manos bien limpias.",
+          applicationFrequency: "Diario por la mañana"
+        },
+        {
+          stepName: "Protección Solar",
+          keywords: ["protección", "solar", "grasa", "oil-free", "toque seco", "dry touch", "mate"],
+          defaultProductName: "Filtro Solar Toque Seco Mate FPS 50+",
+          defaultBrand: "Skeyndor",
+          defaultActiveIngredients: "Filtros solares, Polvos matificantes",
+          defaultActions: "Protección UV sin ocluir poros ni aportar oleosidad",
+          dosageInstructions: "Aplicar sobre el rostro seco antes de exponerse al sol. Reaplicar regularmente.",
+          applicationFrequency: "Diario por la mañana"
+        }
+      ],
+      Noche: [
+        {
+          stepName: "Limpieza",
+          keywords: ["limpiador", "grasa", "sebo", "salicílico", "purificante", "acné", "seboregulator"],
+          defaultProductName: "Gel Limpiador Anti-Acné Ácido Salicílico",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Salicílico, Zinc",
+          defaultActions: "Higiene profunda bactericida y seborreguladora",
+          dosageInstructions: "Aplicar en rostro húmedo, masajear en zonas propensas a brotes y aclarar con abundante agua.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Tonificación",
+          keywords: ["loción", "tónico", "balance", "grasa", "sebo", "astringente", "salicílico", "acné"],
+          defaultProductName: "Loción Aclarante Anti-Acné",
+          defaultBrand: "Miguett",
+          defaultActiveIngredients: "Ácido Salicílico, Extracto de Hamamelis",
+          defaultActions: "Desinfectante, astringente y calmante de brotes",
+          dosageInstructions: "Aplicar con un disco de algodón de manera localizada en las zonas acneicas.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Suero / Activo",
+          keywords: ["serum", "acné", "acne", "salicílico", "niacinamida", "zinc", "purificante", "glycolic", "mandélico"],
+          defaultProductName: "Concentrado Renovador Anti-Acné de Noche",
+          defaultBrand: "Mesoestetic",
+          defaultActiveIngredients: "Ácido Mandélico, Ácido Salicílico, Tea Tree Oil",
+          defaultActions: "Renovador celular de poros obstruidos, secante y sebostático",
+          dosageInstructions: "Aplicar por la noche sobre la piel limpia y seca. Sensación de hormigueo normal al inicio.",
+          applicationFrequency: "Diario por la noche"
+        },
+        {
+          stepName: "Crema de Noche",
+          keywords: ["crema", "noche", "gel", "grasa", "acné", "purificante", "seborreguladora", "renovadora"],
+          defaultProductName: "Gel Crema Seborregulador Intensivo Nocturno",
+          defaultBrand: "Lidherma",
+          defaultActiveIngredients: "Retinol Liposomado, Ácido Salicílico, Zinc PCA",
+          defaultActions: "Regeneración nocturna y control bacteriano profundo contra el acné",
+          dosageInstructions: "Aplicar una fina capa antes de dormir en las áreas afectadas.",
+          applicationFrequency: "Diario por la noche"
+        }
+      ]
+    }
+  };
+
+  const getMatchingProductsForStep = (step: RoutineStepTemplate): Product[] => {
+    return products.filter(p => {
+      const nameLower = p.name.toLowerCase();
+      const brandLower = p.brandLine.toLowerCase();
+      
+      let activeIngredientsArray: string[] = [];
+      try {
+        activeIngredientsArray = JSON.parse(p.activeIngredients || '[]');
+      } catch(e) {
+        if (p.activeIngredients) {
+          activeIngredientsArray = [p.activeIngredients];
         }
       }
-      return arr[t.length][s.length];
+      
+      return step.keywords.some((keyword: string) => {
+        const kw = keyword.toLowerCase();
+        if (nameLower.includes(kw)) return true;
+        if (brandLower.includes(kw)) return true;
+        if (activeIngredientsArray.some(act => act.toLowerCase().includes(kw))) return true;
+        return false;
+      });
+    });
+  };
+
+  const applySelectedRoutineToPatient = () => {
+    if (!selectedPatientId) {
+      showToastMsg('Por favor seleccione o cree un paciente primero.', 'error');
+      return;
+    }
+    const routine = ESTABLISHED_ROUTINES[selectedRoutineTx];
+    if (!routine) return;
+    const steps = selectedRoutineTime === 'Dia' ? routine.Dia : routine.Noche;
+    
+    const newPrescriptions: Prescription[] = steps.map((step, index) => {
+      const selectionKey = `${selectedRoutineTx}_${selectedRoutineTime}_${index}`;
+      const selectedValue = routineStepSelections[selectionKey] || 'default';
+      
+      let pId: string | undefined = undefined;
+      let pName = step.defaultProductName;
+      let pBrand = step.defaultBrand;
+      let pActives = step.defaultActiveIngredients;
+      let pActions = step.defaultActions;
+      let prodDetails: Product | undefined = undefined;
+
+      if (selectedValue !== 'default') {
+        const found = products.find(p => p.id === selectedValue);
+        if (found) {
+          pId = found.id;
+          pName = found.name;
+          pBrand = found.brandLine;
+          
+          try {
+            const parsed = JSON.parse(found.activeIngredients || '[]');
+            pActives = Array.isArray(parsed) ? parsed.join(', ') : found.activeIngredients;
+          } catch(e) {
+            pActives = found.activeIngredients;
+          }
+
+          try {
+            const parsed = JSON.parse(found.physiologicalActions || '[]');
+            pActions = Array.isArray(parsed) ? parsed.join(', ') : found.physiologicalActions;
+          } catch(e) {
+            pActions = found.physiologicalActions;
+          }
+          prodDetails = found;
+        }
+      }
+
+      return {
+        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+        consultationId: patientForm.id || 'TEMP',
+        productId: pId,
+        timeOfDay: selectedRoutineTime === 'Dia' ? 'Dia' : 'Noche',
+        dosageInstructions: step.dosageInstructions,
+        applicationFrequency: step.applicationFrequency,
+        stepName: step.stepName,
+        customProductName: pName,
+        customBrand: pBrand,
+        customActiveIngredients: pActives,
+        customActions: pActions,
+        productDetails: prodDetails
+      };
+    });
+
+    setPrescriptionsList(prev => [...prev, ...newPrescriptions]);
+    showToastMsg(`Rutina ${selectedRoutineTx} (${selectedRoutineTime === 'Dia' ? 'Día' : 'Noche'}) agregada al protocolo de apoyo.`, 'success');
+  };
+  const handleSaveCurrentProtocolAsPreset = () => {
+    if (prescriptionsList.length === 0) {
+      showToastMsg('No hay productos en el protocolo de apoyo actual para guardar.', 'error');
+      return;
+    }
+    setNewRoutineName('');
+    setShowSaveRoutineModal(true);
+  };
+
+  const handleConfirmSaveRoutine = () => {
+    const trimmedName = newRoutineName.trim();
+    if (!trimmedName) {
+      showToastMsg('Por favor ingrese un nombre para la rutina.', 'error');
+      return;
+    }
+
+    if (customRoutines.some(r => r.name.toLowerCase() === trimmedName.toLowerCase())) {
+      showToastMsg('Ya existe una rutina con ese nombre.', 'error');
+      return;
+    }
+
+    const newRoutine: CustomRoutine = {
+      name: trimmedName,
+      prescriptions: prescriptionsList.map(p => ({
+        productId: p.productId,
+        timeOfDay: p.timeOfDay,
+        dosageInstructions: p.dosageInstructions,
+        applicationFrequency: p.applicationFrequency,
+        stepName: p.stepName,
+        customProductName: p.customProductName,
+        customBrand: p.customBrand,
+        customActiveIngredients: p.customActiveIngredients,
+        customActions: p.customActions,
+        productDetails: p.productDetails
+      }))
     };
 
-    const matches = ingredients
-      .map(i => ({ name: i.name, dist: getDistance(query, i.name.toLowerCase()) }))
-      .filter(m => m.dist < 5)
-      .sort((a, b) => a.dist - b.dist)
-      .map(m => m.name);
-
-    setCheckerResults(matches.length > 0 ? matches : ['No se encontraron sugerencias cercanas.']);
+    const updated = [...customRoutines, newRoutine];
+    setCustomRoutines(updated);
+    localStorage.setItem('dermatique_custom_routines', JSON.stringify(updated));
+    setShowSaveRoutineModal(false);
+    showToastMsg(`Rutina "${trimmedName}" guardada como predeterminada.`, 'success');
   };
+
+  const handleDeleteCustomRoutine = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = customRoutines.filter(r => r.name !== name);
+    setCustomRoutines(updated);
+    localStorage.setItem('dermatique_custom_routines', JSON.stringify(updated));
+    
+    if (selectedCustomRoutine?.name === name) {
+      setSelectedCustomRoutine(null);
+    }
+    showToastMsg(`Rutina "${name}" eliminada.`, 'success');
+  };
+
+  const applyCustomRoutineToPatient = () => {
+    if (!selectedPatientId) {
+      showToastMsg('Por favor seleccione o cree un paciente primero.', 'error');
+      return;
+    }
+    if (!selectedCustomRoutine) return;
+
+    const newPrescriptions: Prescription[] = selectedCustomRoutine.prescriptions.map(p => ({
+      id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+      consultationId: patientForm.id || 'TEMP',
+      productId: p.productId,
+      timeOfDay: p.timeOfDay,
+      dosageInstructions: p.dosageInstructions,
+      applicationFrequency: p.applicationFrequency,
+      stepName: p.stepName,
+      customProductName: p.customProductName,
+      customBrand: p.customBrand,
+      customActiveIngredients: p.customActiveIngredients,
+      customActions: p.customActions,
+      productDetails: p.productDetails
+    }));
+
+    setPrescriptionsList(prev => [...prev, ...newPrescriptions]);
+    showToastMsg(`Rutina "${selectedCustomRoutine.name}" cargada al protocolo de apoyo.`, 'success');
+  };
+
 
   // ----------------------------------------------------
   // EXCEL BULK INGEST (PapaParse / SheetJS)
@@ -2050,6 +3495,32 @@ export default function App() {
                 </div>
               </div>
 
+              {activeConsultationId && (
+                <div className="bg-gradient-to-r from-amber-500/10 via-amber-600/10 to-amber-700/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-outfit text-sm font-bold text-slate-800 dark:text-white">Modo Edición Activo</h4>
+                      <p className="text-[11px] text-slate-500 dark:text-luxe-300">
+                        Estás modificando la sesión ID <strong className="font-mono">{activeConsultationId}</strong>. Los cambios reemplazarán el registro anterior al guardar.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveConsultationId('');
+                      resetPatientForm();
+                      showToastMsg('Iniciando nueva consulta de expediente.', 'success');
+                    }}
+                    className="px-4 py-2 bg-white dark:bg-luxe-950/20 border border-slate-200/50 dark:border-white/5 rounded-xl text-xs font-bold text-slate-700 dark:text-luxe-200 hover:bg-slate-100 dark:hover:bg-white/5 transition-all shadow-sm flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Nueva Consulta / Limpiar
+                  </button>
+                </div>
+              )}
               <form onSubmit={handleSaveConsultation} className="space-y-6">
                 {/* Seguimiento de Pacientes */}
                 <div className="bg-slate-50/50 dark:bg-white/5 p-5 rounded-2xl border border-slate-200/50 dark:border-white/5 space-y-4">
@@ -2375,6 +3846,17 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+                    {prescriptionsList.length > 0 && (
+                      <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex justify-end bg-slate-50/50 dark:bg-luxe-950/10">
+                        <button
+                          type="button"
+                          onClick={handleSaveCurrentProtocolAsPreset}
+                          className="bg-gradient-to-r from-amber-500/10 to-amber-600/10 hover:from-amber-500/20 hover:to-amber-600/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Save className="w-3.5 h-3.5" /> Guardar como Rutina Predeterminada
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2500,6 +3982,17 @@ export default function App() {
                         )}
                       </tbody>
                     </table>
+                    {prescriptionsList.length > 0 && (
+                      <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex justify-end bg-slate-50/50 dark:bg-luxe-950/10">
+                        <button
+                          type="button"
+                          onClick={handleSaveCurrentProtocolAsPreset}
+                          className="bg-gradient-to-r from-amber-500/10 to-amber-600/10 hover:from-amber-500/20 hover:to-amber-600/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Save className="w-3.5 h-3.5" /> Guardar como Rutina Predeterminada
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2541,7 +4034,241 @@ export default function App() {
               </form>
             </div>
 
+            {/* Rutinas Preestablecidas de Apoyo en Casa */}
+            <div className="liquid-glass rounded-3xl p-8 space-y-6 border border-slate-200/50 dark:border-white/5">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-outfit text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-amber-500" />
+                    APOYO EN CASA
+                  </h2>
+                  <p className="text-slate-500 dark:text-luxe-300 text-xs mt-1">
+                    Seleccione un horario y tipo de tratamiento para cargar automáticamente rutinas preestablecidas con productos del catálogo o elija sus rutinas guardadas.
+                  </p>
+                </div>
+              </div>
 
+              {/* Botón Opción: Dia o Noche */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Horario de Rutina</span>
+                <div className="flex gap-2">
+                  {[
+                    { value: 'Dia', label: 'Día', icon: Sun },
+                    { value: 'Noche', label: 'Noche', icon: Moon }
+                  ].map(opt => {
+                    const Icon = opt.icon;
+                    const isSelected = selectedRoutineTime === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setSelectedRoutineTime(opt.value as any)}
+                        className={`flex items-center gap-1.5 px-6 py-2.5 rounded-xl text-xs font-bold transition-all border ${
+                          isSelected
+                            ? 'bg-gradient-to-r from-amber-500 to-amber-600 border-amber-500 text-white shadow-md'
+                            : 'bg-white/40 dark:bg-luxe-950/20 border-slate-200/50 dark:border-white/5 text-slate-600 dark:text-luxe-200 hover:bg-slate-100 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Botón Tx (con opciones) */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Opciones de Tratamiento (Tx)</span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Hidratante', 'Control de Melanogenesis', 'Regenerante', 'Hidratacion piel grasa',
+                    'Despigmentante', 'reductivo de cuello', 'reafirmante facial y cuello',
+                    'anti envejecimiento piel grasa', 'oxigenante', 'piel sensible',
+                    'hidratacion corporal', 'nutricion', 'anti acne'
+                  ].map(tx => {
+                    const isSelected = selectedRoutineTx === tx && !selectedCustomRoutine;
+                    return (
+                      <button
+                        key={tx}
+                        type="button"
+                        onClick={() => {
+                          setSelectedRoutineTx(tx);
+                          setSelectedCustomRoutine(null);
+                        }}
+                        className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                          isSelected
+                            ? 'bg-amber-600/15 border-amber-550 text-amber-600 dark:text-amber-400 shadow-sm'
+                            : 'bg-white/20 dark:bg-luxe-950/10 border-slate-200/30 dark:border-white/5 text-slate-600 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        {tx}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Rutinas Guardadas Personalizadas */}
+              {customRoutines.length > 0 && (
+                <div className="flex flex-col gap-2 border-t border-slate-200/20 pt-4">
+                  <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Mis Rutinas Predeterminadas</span>
+                  <div className="flex flex-wrap gap-2">
+                    {customRoutines.map(r => {
+                      const isSelected = selectedCustomRoutine?.name === r.name;
+                      return (
+                        <div
+                          key={r.name}
+                          className={`flex items-center bg-white/20 dark:bg-luxe-950/10 border rounded-xl overflow-hidden hover:bg-slate-100 dark:hover:bg-white/5 transition-all ${
+                            isSelected ? 'border-amber-500/50' : 'border-slate-200/30 dark:border-white/5'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCustomRoutine(r);
+                              setSelectedRoutineTx('');
+                            }}
+                            className={`px-4 py-2 text-xs font-semibold transition-all ${
+                              isSelected
+                                ? 'bg-amber-600/15 text-amber-600 dark:text-amber-400 font-bold'
+                                : 'text-slate-600 dark:text-luxe-300'
+                            }`}
+                          >
+                            ⭐ {r.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteCustomRoutine(r.name, e)}
+                            className="px-2.5 py-2 text-red-500 hover:text-red-650 hover:bg-red-500/10 border-l border-slate-200/20 dark:border-white/5 transition-all text-xs"
+                            title="Eliminar rutina"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Preview and Catalog Matching Section */}
+              {selectedCustomRoutine ? (
+                <div className="bg-slate-500/5 p-6 rounded-[24px] border border-slate-200/20 space-y-4 animate-fade-in">
+                  <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
+                    Detalle de la Rutina Guardada: {selectedCustomRoutine.name}
+                  </h3>
+
+                  <div className="space-y-4 divide-y divide-slate-200/10">
+                    {selectedCustomRoutine.prescriptions.map((pres, idx) => (
+                      <div key={idx} className="pt-4 first:pt-0 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-1">
+                          <span className="inline-block bg-amber-550/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                            {pres.stepName}
+                          </span>
+                          <h4 className="text-xs font-bold text-slate-800 dark:text-white mt-1">
+                            {pres.customProductName || pres.productDetails?.name}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 italic">
+                            {pres.customBrand || pres.productDetails?.brandLine} - {pres.customActiveIngredients || 'N/A'}
+                          </p>
+                        </div>
+                        
+                        <div className="text-[11px] text-slate-650 dark:text-luxe-200 space-y-1 self-center col-span-2">
+                          <p><strong>Horario:</strong> <span className="font-semibold text-amber-600 dark:text-amber-400">{pres.timeOfDay}</span></p>
+                          <p><strong>Frecuencia:</strong> {pres.applicationFrequency}</p>
+                          <p className="text-[10.5px]"><strong>Indicación:</strong> {pres.dosageInstructions}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={applyCustomRoutineToPatient}
+                      className="bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white px-8 py-3 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
+                    >
+                      <Plus className="w-4.5 h-4.5" />
+                      Cargar Rutina al Protocolo del Paciente
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-slate-500/5 p-6 rounded-[24px] border border-slate-200/20 space-y-4 animate-fade-in">
+                  <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
+                    Detalle de la Rutina: {selectedRoutineTx} ({selectedRoutineTime === 'Dia' ? 'Día' : 'Noche'})
+                  </h3>
+
+                  <div className="space-y-4 divide-y divide-slate-200/10">
+                    {(() => {
+                      const routine = ESTABLISHED_ROUTINES[selectedRoutineTx];
+                      if (!routine) return <p className="text-xs text-slate-400 italic">No se encontró la rutina.</p>;
+                      const steps = selectedRoutineTime === 'Dia' ? routine.Dia : routine.Noche;
+
+                      return steps.map((step, idx) => {
+                        const selectionKey = selectedRoutineTx + "_" + selectedRoutineTime + "_" + String(idx);
+                        const selectedVal = routineStepSelections[selectionKey] || 'default';
+                        const matches = getMatchingProductsForStep(step);
+
+                        return (
+                          <div key={idx} className="pt-4 first:pt-0 grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-1">
+                              <span className="inline-block bg-amber-550/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                {step.stepName}
+                              </span>
+                              <h4 className="text-xs font-bold text-slate-800 dark:text-white mt-1">{step.defaultProductName}</h4>
+                              <p className="text-[10px] text-slate-400 italic">{step.defaultBrand} - {step.defaultActiveIngredients}</p>
+                            </div>
+                            
+                            <div className="text-[11px] text-slate-650 dark:text-luxe-200 space-y-1 self-center">
+                              <p><strong>Frecuencia:</strong> {step.applicationFrequency}</p>
+                              <p className="text-[10.5px]"><strong>Indicación:</strong> {step.dosageInstructions}</p>
+                            </div>
+
+                            <div className="flex flex-col justify-center gap-1.5">
+                              <label className="text-[9px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Asociar Producto del Catálogo</label>
+                              <select
+                                value={selectedVal}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setRoutineStepSelections(prev => ({
+                                    ...prev,
+                                    [selectionKey]: val
+                                  }));
+                                }}
+                                className="smart-input w-full text-xs py-1.5"
+                              >
+                                <option value="default">✨ Recomendación por defecto</option>
+                                {matches.map(p => (
+                                  <option key={p.id} value={p.id}>
+                                    📦 {p.name} ({p.brandLine})
+                                  </option>
+                                ))}
+                                {matches.length === 0 && (
+                                  <option disabled>⚠️ No hay productos con palabras clave similares</option>
+                                )}
+                              </select>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                  <div className="pt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={applySelectedRoutineToPatient}
+                      className="bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white px-8 py-3 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2"
+                    >
+                      <Plus className="w-4.5 h-4.5" />
+                      Cargar Rutina al Protocolo del Paciente
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Analytics Summary */}
             <div className="liquid-glass rounded-3xl p-8">
@@ -2814,19 +4541,21 @@ export default function App() {
 
               <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                 {[
-                  { name: 'Miguett', url: 'https://miguett.com/', desc: 'Fórmulas mexicanas de alta vanguardia cosmetológica.' },
-                  { name: 'Casmara', url: 'https://www.casmara.com/', desc: 'Tratamientos profesionales de alta cosmética y máscaras de alginato.' },
-                  { name: 'Germaine de Capuccini', url: 'https://germaine-de-capuccini.com/', desc: 'Cuidado de la piel profesional con laboratorios de nivel médico.' },
-                  { name: 'Mesoestetic', url: 'https://www.mesoestetic.com/', desc: 'Tratamientos de medicina estética y cosmecéuticos de grado clínico.' },
-                  { name: 'Skeyndor', url: 'https://skeyndor.com/', desc: 'Líder en cosmética científica con activos patentados.' },
-                  { name: 'Lidherma', url: 'https://www.lidherma.com/', desc: 'Productos de calidad médica para profesionales de la estética.' }
+                  { name: 'Miguett', url: 'https://miguett.com/collections/todos-los-productos', desc: 'Fórmulas mexicanas de alta vanguardia cosmetológica.' },
+                  { name: 'Casmara', url: 'https://www.casmara.com/es/productos/', desc: 'Tratamientos profesionales de alta cosmética y máscaras de alginato.' },
+                  { name: 'Germaine de Capuccini', url: 'https://germainedecapuccini.es/tienda/', desc: 'Cuidado de la piel profesional con laboratorios de nivel médico.' },
+                  { name: 'Mesoestetic', url: 'https://www.mesoestetic.com/es/cuidado-de-la-piel', desc: 'Tratamientos de medicina estética y cosmecéuticos de grado clínico.' },
+                  { name: 'Skeyndor', url: 'https://skeyndor.com/es/productos.html', desc: 'Líder en cosmética científica con activos patentados.' },
+                  { name: 'Lidherma', url: 'https://www.lidherma.com/productos', desc: 'Productos de calidad médica para profesionales de la estética.' }
                 ].map(brand => (
-                  <a
+                  <div
                     key={brand.name}
-                    href={brand.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-4 bg-white/40 dark:bg-luxe-950/20 border border-slate-200/50 dark:border-white/5 rounded-2xl flex flex-col justify-between hover:border-bronze-500/50 hover:shadow-lg transition-all duration-300 group"
+                    onClick={() => {
+                      setCatalogSearch(brand.name);
+                      setActiveTab('inventory');
+                      showToastMsg('Mostrando catálogo de ' + brand.name + ' en inventario.', 'success');
+                    }}
+                    className="p-4 bg-white/40 dark:bg-luxe-950/20 border border-slate-200/50 dark:border-white/5 rounded-2xl flex flex-col justify-between hover:border-bronze-500/50 hover:shadow-lg transition-all duration-300 group cursor-pointer"
                   >
                     <div>
                       <span className="block text-xs font-bold text-slate-800 dark:text-white group-hover:text-bronze-500 transition-colors">
@@ -2836,10 +4565,21 @@ export default function App() {
                         {brand.desc}
                       </p>
                     </div>
-                    <span className="text-[9px] font-bold text-bronze-500 hover:underline mt-3 block self-start">
-                      Ver Catálogo Oficial →
-                    </span>
-                  </a>
+                    <div className="flex items-center justify-between mt-3 flex-wrap gap-1">
+                      <a
+                        href={brand.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[9px] font-bold text-bronze-500 hover:underline"
+                      >
+                        Sitio Oficial ↗
+                      </a>
+                      <span className="text-[9px] font-bold text-slate-400 dark:text-luxe-400 group-hover:text-bronze-500 transition-colors">
+                        Ver Catálogo →
+                      </span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -3054,6 +4794,14 @@ export default function App() {
                               >
                                 <Plus className="w-3.5 h-3.5" /> Nueva Consulta / Visita
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePatient(pat.id)}
+                                className="w-full bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 py-2 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 mt-2 border border-red-500/20"
+                                title="Eliminar Expediente Completo"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Eliminar Expediente Clínico
+                              </button>
                             </div>
 
                             {/* Right panel: Visits chronology */}
@@ -3110,6 +4858,13 @@ export default function App() {
                                         title="Cargar / Editar en el Generador"
                                       >
                                         <Edit className="w-4 h-4" />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteConsultation(consultation.id, pat.id)}
+                                        className="p-2 rounded-xl bg-red-500/10 text-red-650 hover:bg-red-500/20 transition-colors"
+                                        title="Eliminar esta consulta"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
                                       </button>
                                     </div>
                                   </div>
