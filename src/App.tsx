@@ -1429,29 +1429,11 @@ export default function App() {
       recommendations: latestConsultation ? (latestConsultation.recommendations || '') : '',
     }));
 
+    setCurrentSteps([]);
+    setPrescriptionsList([]);
     if (latestConsultation) {
-      const steps = await db.consultation_steps.where('consultationId').equals(latestConsultation.id).toArray();
-      const prescriptions = await db.prescriptions.where('consultationId').equals(latestConsultation.id).toArray();
-      
-      const freshSteps = steps.map(s => ({
-        ...s,
-        id: `STEP-${Math.floor(Math.random() * 1000000)}`,
-        consultationId: ''
-      }));
-
-      const freshPrescriptions = prescriptions.map(p => ({
-        ...p,
-        id: `PRES-${Math.floor(Math.random() * 1000000)}`,
-        consultationId: ''
-      }));
-
-      setCurrentSteps(freshSteps.sort((a, b) => a.stepOrder - b.stepOrder));
-      setPrescriptionsList(freshPrescriptions);
-
-      showToastMsg(`Historial de ${pat.firstNameEncrypted} cargado: se copiaron datos y protocolo de la última sesión.`, 'success');
+      showToastMsg(`Paciente ${pat.firstNameEncrypted} seleccionado. Datos clínicos cargados, protocolo de tratamiento iniciado en blanco para nueva visita.`, 'success');
     } else {
-      setCurrentSteps([]);
-      setPrescriptionsList([]);
       showToastMsg(`Paciente ${pat.firstNameEncrypted} seleccionado. Sin consultas previas.`, 'success');
     }
   };
