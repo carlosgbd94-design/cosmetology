@@ -1484,15 +1484,15 @@ export default function App() {
     }
     try {
       // 1. Delete from local Dexie
-      await db.consultations.delete(consultationId);
-      await db.consultation_steps.where('consultationId').equals(consultationId).delete();
       await db.prescriptions.where('consultationId').equals(consultationId).delete();
+      await db.consultation_steps.where('consultationId').equals(consultationId).delete();
+      await db.consultations.delete(consultationId);
 
       // 2. Delete from Turso if online
       try {
-        await executeQuery('DELETE FROM consultations WHERE id = ?', [consultationId]);
-        await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [consultationId]);
         await executeQuery('DELETE FROM prescriptions WHERE consultation_id = ?', [consultationId]);
+        await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [consultationId]);
+        await executeQuery('DELETE FROM consultations WHERE id = ?', [consultationId]);
       } catch (err) {
         console.warn('Fallo al eliminar de Turso, se reintentará en la sincronización:', err);
       }
@@ -1521,23 +1521,23 @@ export default function App() {
       const consultationsToDelete = records.filter(r => r.patientId === patientId);
 
       // 1. Delete from local Dexie
-      await db.patients.delete(patientId);
-      await db.anamnesis.where('patientId').equals(patientId).delete();
       for (const c of consultationsToDelete) {
-        await db.consultations.delete(c.id);
-        await db.consultation_steps.where('consultationId').equals(c.id).delete();
         await db.prescriptions.where('consultationId').equals(c.id).delete();
+        await db.consultation_steps.where('consultationId').equals(c.id).delete();
+        await db.consultations.delete(c.id);
       }
+      await db.anamnesis.where('patientId').equals(patientId).delete();
+      await db.patients.delete(patientId);
 
       // 2. Delete from Turso if online
       try {
-        await executeQuery('DELETE FROM patients WHERE id = ?', [patientId]);
-        await executeQuery('DELETE FROM anamnesis WHERE patient_id = ?', [patientId]);
         for (const c of consultationsToDelete) {
-          await executeQuery('DELETE FROM consultations WHERE id = ?', [c.id]);
-          await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [c.id]);
           await executeQuery('DELETE FROM prescriptions WHERE consultation_id = ?', [c.id]);
+          await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [c.id]);
+          await executeQuery('DELETE FROM consultations WHERE id = ?', [c.id]);
         }
+        await executeQuery('DELETE FROM anamnesis WHERE patient_id = ?', [patientId]);
+        await executeQuery('DELETE FROM patients WHERE id = ?', [patientId]);
       } catch (err) {
         console.warn('Fallo al eliminar del servidor Turso:', err);
       }
