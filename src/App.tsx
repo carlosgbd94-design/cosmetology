@@ -12,9 +12,10 @@ import Papa from 'papaparse';
 import { 
   Activity, Award, Beaker, CheckCircle, ChevronDown, Clipboard, Clock, CloudDownload, 
   Database, FileText, FileUp, FolderHeart, Info, Layers, Lock, Moon, Plus, Printer, 
-  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil
+  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, Calendar, Droplets
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
+import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine } from './cosmetologyLogic';
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
@@ -118,6 +119,9 @@ export default function App() {
   const [editingPrescriptionIndex, setEditingPrescriptionIndex] = useState<number | null>(null);
   const [presSuggestions, setPresSuggestions] = useState<Product[]>([]);
   const [selectedPresProduct, setSelectedPresProduct] = useState<Product | null>(null);
+  const [activeProtocolTab, setActiveProtocolTab] = useState<'AM' | 'PM' | 'SEMANAL'>('AM');
+  const [categoryFilter, setCategoryFilter] = useState<string>('Todos');
+  const [showDigitalClientModal, setShowDigitalClientModal] = useState<boolean>(false);
 
   // Facial interactive canvas state
   const [activeFacialZones, setActiveFacialZones] = useState<Record<string, boolean>>({
@@ -1086,14 +1090,64 @@ export default function App() {
       actions = p.physiologicalActions;
     }
 
+    // Inferir fase técnica basada en el orden de capas cosmetológicas
+    const order = getLayerOrder(p.name + ' ' + p.brandLine);
+    let inferredStep = 'Otro';
+    if (order === 1) inferredStep = 'Limpieza / Higiene';
+    else if (order === 2) inferredStep = 'Tonificación / Loción';
+    else if (order === 3) inferredStep = 'Contorno de Ojos';
+    else if (order === 4) inferredStep = 'Suero / Activo Concentrado';
+    else if (order === 5) inferredStep = 'Crema / Emulsión / Hidratante';
+    else if (order === 6) inferredStep = 'Protección Solar';
+    else if (order === 7) inferredStep = 'Mascarilla Semanal';
+    else if (order === 8) inferredStep = 'Exfoliación Semanal';
+
     setPresInput(prev => ({
       ...prev,
       productId: p.id,
+      stepName: inferredStep !== 'Otro' ? inferredStep : prev.stepName,
       customProductName: p.name,
       customBrand: p.brandLine,
       customActiveIngredients: actives,
-      customActions: actions
+      customActions: actions,
+      dosageInstructions: prev.dosageInstructions || 'Aplicar según protocolo.',
+      applicationFrequency: prev.applicationFrequency || 'Diario'
     }));
+  };
+
+  const handleAutoGenerateHomeRoutine = () => {
+    let condsStr = '';
+    try {
+      const parsed = JSON.parse(patientForm.skinConditions || '[]');
+      condsStr = Array.isArray(parsed) ? parsed.join(', ') : patientForm.skinConditions;
+    } catch (e) {
+      condsStr = patientForm.skinConditions || '';
+    }
+
+    const currentBio = patientForm.skinBiotype || 'Piel Eudérmica';
+    const suggested = generateSuggestedHomeRoutine(currentBio, condsStr, products);
+    if (suggested.length === 0) {
+      showToastMsg('No se pudieron generar sugerencias para el biotipo actual.', 'error');
+      return;
+    }
+
+    const newList: Prescription[] = suggested.map(s => ({
+      id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+      consultationId: patientForm.id || 'TEMP',
+      productId: s.productId,
+      timeOfDay: s.timeOfDay || 'Dia',
+      dosageInstructions: s.dosageInstructions || '',
+      applicationFrequency: s.applicationFrequency || '',
+      stepName: s.stepName,
+      customProductName: s.customProductName,
+      customBrand: s.customBrand,
+      customActiveIngredients: s.customActiveIngredients,
+      customActions: s.customActions,
+      productDetails: s.productDetails
+    }));
+
+    setPrescriptionsList(newList);
+    showToastMsg(`⚡ Rutina sugerida por biotipo (${currentBio}) cargada.`, 'success');
   };
 
   const handleAddPrescription = () => {
@@ -3056,34 +3110,36 @@ export default function App() {
       const selectionKey = `${selectedRoutineTx}_${selectedRoutineTime}_${index}`;
       const selectedValue = routineStepSelections[selectionKey] || 'default';
       
-      let pId: string | undefined = undefined;
-      let pName = step.defaultProductName;
-      let pBrand = step.defaultBrand;
-      let pActives = step.defaultActiveIngredients;
-      let pActions = step.defaultActions;
-      let prodDetails: Product | undefined = undefined;
+      let targetProduct: Product | undefined = undefined;
 
       if (selectedValue !== 'default') {
-        const found = products.find(p => p.id === selectedValue);
-        if (found) {
-          pId = found.id;
-          pName = found.name;
-          pBrand = found.brandLine;
-          
-          try {
-            const parsed = JSON.parse(found.activeIngredients || '[]');
-            pActives = Array.isArray(parsed) ? parsed.join(', ') : found.activeIngredients;
-          } catch(e) {
-            pActives = found.activeIngredients;
-          }
+        targetProduct = products.find(p => p.id === selectedValue);
+      } else {
+        const matches = getMatchingProductsForStep(step);
+        if (matches.length > 0) {
+          targetProduct = matches[0];
+        }
+      }
 
-          try {
-            const parsed = JSON.parse(found.physiologicalActions || '[]');
-            pActions = Array.isArray(parsed) ? parsed.join(', ') : found.physiologicalActions;
-          } catch(e) {
-            pActions = found.physiologicalActions;
-          }
-          prodDetails = found;
+      let pId: string | undefined = targetProduct?.id;
+      let pName = targetProduct ? targetProduct.name : step.defaultProductName;
+      let pBrand = targetProduct ? targetProduct.brandLine : step.defaultBrand;
+      let pActives = step.defaultActiveIngredients;
+      let pActions = step.defaultActions;
+
+      if (targetProduct) {
+        try {
+          const parsed = JSON.parse(targetProduct.activeIngredients || '[]');
+          pActives = Array.isArray(parsed) ? parsed.join(', ') : targetProduct.activeIngredients;
+        } catch(e) {
+          pActives = targetProduct.activeIngredients;
+        }
+
+        try {
+          const parsed = JSON.parse(targetProduct.physiologicalActions || '[]');
+          pActions = Array.isArray(parsed) ? parsed.join(', ') : targetProduct.physiologicalActions;
+        } catch(e) {
+          pActions = targetProduct.physiologicalActions;
         }
       }
 
@@ -3099,12 +3155,12 @@ export default function App() {
         customBrand: pBrand,
         customActiveIngredients: pActives,
         customActions: pActions,
-        productDetails: prodDetails
+        productDetails: targetProduct
       };
     });
 
     setPrescriptionsList(prev => [...prev, ...newPrescriptions]);
-    showToastMsg(`Rutina ${selectedRoutineTx} (${selectedRoutineTime === 'Dia' ? 'Día' : 'Noche'}) agregada al protocolo de apoyo.`, 'success');
+    showToastMsg(`Rutina ${selectedRoutineTx} (${selectedRoutineTime === 'Dia' ? 'Día' : 'Noche'}) vinculada del catálogo y agregada al protocolo.`, 'success');
   };
   const handleSaveCurrentProtocolAsPreset = () => {
     if (prescriptionsList.length === 0) {
@@ -3842,41 +3898,109 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Protocolos de Apoyo en Casa */}
+                {/* Protocolos de Apoyo en Casa (Rediseño Vanguardista Cosmetológico) */}
                 <div className="liquid-glass-light rounded-2xl p-6 border border-slate-200/50 dark:border-white/5 space-y-6">
-                  <h3 className="font-outfit text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                    <Wand2 className="w-4 h-4 text-amber-500" />
-                    Diseñador de Protocolo de Apoyo en Casa
-                  </h3>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/50 dark:border-white/5 pb-4">
+                    <div>
+                      <h3 className="font-outfit text-base font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                        <Wand2 className="w-5 h-5 text-amber-500" />
+                        Diseñador Inteligente de Apoyo Domiciliario
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-luxe-300 mt-0.5">
+                        Prescripción cosmetológica guiada por biotipo, capas de aplicación (Layering) y control clínico de activos.
+                      </p>
+                    </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-500/5 p-6 rounded-[24px] border border-slate-200/20 animate-fade-in">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAutoGenerateHomeRoutine}
+                        className="bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md"
+                        title="Genera automáticamente el kit de inicio sugerido para el biotipo actual"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> Sugerir por Biotipo ({patientForm.skinBiotype || 'General'})
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowDigitalClientModal(true)}
+                        className="bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-slate-200/50 dark:border-white/10"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-blue-500" /> Vista Digital Paciente
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Banner de Alertas Clínicas de Seguridad e Incompatibilidad de Activos */}
+                  {(() => {
+                    const alerts = analyzePrescriptionSafety(prescriptionsList);
+                    if (alerts.length === 0) return null;
+                    return (
+                      <div className="space-y-2 animate-fade-in">
+                        {alerts.map((alert, i) => (
+                          <div
+                            key={i}
+                            className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
+                              alert.severity === 'danger'
+                                ? 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300'
+                                : alert.severity === 'warning'
+                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+                                : 'bg-blue-500/10 border-blue-500/30 text-blue-800 dark:text-blue-300'
+                            }`}
+                          >
+                            <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+                            <div className="space-y-0.5">
+                              <span className="font-bold block">{alert.title}</span>
+                              <p className="opacity-90">{alert.message}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Panel de Selección Dual y Captura de Producto */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-500/5 p-5 rounded-[24px] border border-slate-200/20">
                     <div className="lg:col-span-5 space-y-4 flex flex-col justify-between">
-                      <div className="flex flex-col gap-2 relative">
-                        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Buscar Producto de Apoyo</label>
-                        <input type="text" value={presSearchQuery} onChange={e => handlePresProductSearch(e.target.value)} placeholder="🔍 Escriba para buscar en catálogo..." className="smart-input w-full" />
+                      <div className="flex flex-col gap-1.5 relative">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Buscar en Catálogo Dermoestético</label>
+                        <input
+                          type="text"
+                          value={presSearchQuery}
+                          onChange={e => handlePresProductSearch(e.target.value)}
+                          placeholder="🔍 Buscar por marca, nombre o activo..."
+                          className="smart-input w-full"
+                        />
                         {presSuggestions.length > 0 && (
-                          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-xl max-h-52 overflow-y-auto">
+                          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-xl max-h-52 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5">
                             {presSuggestions.map(p => (
-                              <div key={p.id} onClick={() => selectPresSearchProduct(p)} className="p-2.5 hover:bg-slate-100 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5 last:border-0 cursor-pointer text-xs">
-                                <span className="font-bold text-slate-800 dark:text-white">{p.name} ({p.brandLine})</span>
+                              <div
+                                key={p.id}
+                                onClick={() => selectPresSearchProduct(p)}
+                                className="p-2.5 hover:bg-amber-500/10 cursor-pointer text-xs transition-colors flex items-center justify-between"
+                              >
+                                <div>
+                                  <span className="font-bold text-slate-800 dark:text-white block">{p.name}</span>
+                                  <span className="text-[10px] text-slate-400">{p.brandLine}</span>
+                                </div>
+                                <span className="text-[10px] font-semibold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md">Cargar</span>
                               </div>
                             ))}
                           </div>
                         )}
                       </div>
 
-                      <div className="flex flex-col gap-2">
-                        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Fase / Protocolo de Apoyo</label>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Fase Técnica / Capa Cosmetológica</label>
                         <select value={presInput.stepName} onChange={e => setPresInput(prev => ({ ...prev, stepName: e.target.value }))} className="smart-input w-full">
-                          <option value="Limpieza">Limpieza / Higiene</option>
-                          <option value="Tonificación">Tonificación / Loción</option>
-                          <option value="Suero / Activo">Suero / Activo Concentrado</option>
-                          <option value="Crema de Día">Crema de Día</option>
-                          <option value="Crema de Noche">Crema de Noche</option>
-                          <option value="Contorno de Ojos">Contorno de Ojos</option>
-                          <option value="Protección Solar">Protección Solar</option>
-                          <option value="Mascarilla">Mascarilla Semanal</option>
-                          <option value="Exfoliación">Exfoliación Semanal</option>
+                          <option value="Limpieza / Higiene">1. Limpieza / Higiene 🧼</option>
+                          <option value="Tonificación / Loción">2. Tonificación / Loción 💦</option>
+                          <option value="Contorno de Ojos">3. Contorno de Ojos 👁️</option>
+                          <option value="Suero / Activo Concentrado">4. Suero / Activo Concentrado 🧪</option>
+                          <option value="Crema / Emulsión / Hidratante">5. Crema / Emulsión / Hidratante 🧴</option>
+                          <option value="Protección Solar">6. Protección Solar ☀️</option>
+                          <option value="Mascarilla Semanal">7. Mascarilla Semanal 🎭</option>
+                          <option value="Exfoliación Semanal">8. Exfoliación Semanal ✨</option>
                           <option value="Otro">Otro</option>
                         </select>
                         {presInput.stepName === 'Otro' && (
@@ -3884,32 +4008,52 @@ export default function App() {
                         )}
                       </div>
 
-                      <div className="flex flex-col gap-2">
-                        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Horario de Uso</label>
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Horario de Aplicación</label>
                         <select value={presInput.timeOfDay} onChange={e => setPresInput(prev => ({ ...prev, timeOfDay: e.target.value as any }))} className="smart-input w-full">
-                          <option value="Dia">Día</option>
-                          <option value="Noche">Noche</option>
-                          <option value="Dia y Noche">Día y Noche</option>
+                          <option value="Dia">☀️ Día (AM)</option>
+                          <option value="Noche">🌙 Noche (PM)</option>
+                          <option value="Dia y Noche">🔄 Día y Noche (AM + PM)</option>
                         </select>
                       </div>
                     </div>
 
-                    <div className="lg:col-span-7 space-y-4">
+                    <div className="lg:col-span-7 space-y-3.5">
                       <div className="grid grid-cols-2 gap-3">
-                        <input type="text" value={presInput.customProductName} onChange={e => setPresInput(prev => ({ ...prev, customProductName: e.target.value }))} placeholder="Nombre del Producto..." className="smart-input w-full" />
-                        <input type="text" value={presInput.customBrand} onChange={e => setPresInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Marca/Línea..." className="smart-input w-full" />
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Nombre Comercial</label>
+                          <input type="text" value={presInput.customProductName} onChange={e => setPresInput(prev => ({ ...prev, customProductName: e.target.value }))} placeholder="Ej. Gel Limpiador Purificante..." className="smart-input w-full" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Laboratorio / Marca</label>
+                          <input type="text" value={presInput.customBrand} onChange={e => setPresInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Ej. Línea Clínica..." className="smart-input w-full" />
+                        </div>
                       </div>
+
                       <div className="grid grid-cols-2 gap-3">
-                        <input type="text" value={presInput.customActiveIngredients} onChange={e => setPresInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Activos Clave..." className="smart-input w-full" />
-                        <input type="text" value={presInput.customActions} onChange={e => setPresInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Acción / Efecto Clínico..." className="smart-input w-full" />
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Activos Principales</label>
+                          <input type="text" value={presInput.customActiveIngredients} onChange={e => setPresInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Ej. Ácido Salicílico 2%, Niacinamida..." className="smart-input w-full" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Efecto / Acción Cutánea</label>
+                          <input type="text" value={presInput.customActions} onChange={e => setPresInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Ej. Seborregulador, Calmante..." className="smart-input w-full" />
+                        </div>
                       </div>
+
                       <div className="grid grid-cols-2 gap-3">
-                        <input type="text" value={presInput.dosageInstructions} onChange={e => setPresInput(prev => ({ ...prev, dosageInstructions: e.target.value }))} placeholder="Instrucciones clínicas..." className="smart-input w-full" />
-                        <input type="text" value={presInput.applicationFrequency} onChange={e => setPresInput(prev => ({ ...prev, applicationFrequency: e.target.value }))} placeholder="Frecuencia de aplicación..." className="smart-input w-full" />
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Dosis / Modo de Aplicación</label>
+                          <input type="text" value={presInput.dosageInstructions} onChange={e => setPresInput(prev => ({ ...prev, dosageInstructions: e.target.value }))} placeholder="Ej. 3-4 gotas con masaje suave..." className="smart-input w-full" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Frecuencia</label>
+                          <input type="text" value={presInput.applicationFrequency} onChange={e => setPresInput(prev => ({ ...prev, applicationFrequency: e.target.value }))} placeholder="Ej. Diario / 2 veces por semana..." className="smart-input w-full" />
+                        </div>
                       </div>
 
                       {editingPrescriptionIndex !== null ? (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 pt-1">
                           <button type="button" onClick={handleAddPrescription} className="flex-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md">
                             Guardar Cambios
                           </button>
@@ -3918,63 +4062,136 @@ export default function App() {
                           </button>
                         </div>
                       ) : (
-                        <button type="button" onClick={handleAddPrescription} className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md">
+                        <button type="button" onClick={handleAddPrescription} className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md pt-1">
                           <Plus className="w-4 h-4" /> Agregar al Protocolo de Apoyo
                         </button>
                       )}
                     </div>
                   </div>
 
-                  {/* List of Added Prescriptions */}
-                  <div className="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/40 dark:bg-luxe-950/20">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
-                          <th className="py-3 px-4">Protocolo</th>
-                          <th className="py-3 px-4">Producto</th>
-                          <th className="py-3 px-4">Marca</th>
-                          <th className="py-3 px-4">Activos</th>
-                          <th className="py-3 px-4">Instrucciones / Horario</th>
-                          <th className="py-3 px-4 text-right">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
-                        {prescriptionsList.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="py-6 text-center text-slate-400 italic">No hay productos agregados al protocolo de apoyo.</td>
-                          </tr>
-                        ) : (
-                          prescriptionsList.map((pres, idx) => (
-                            <tr key={pres.id}>
-                              <td className="py-3 px-4 font-bold">{pres.stepName}</td>
-                              <td className="py-3 px-4 font-semibold">{pres.customProductName || pres.productDetails?.name}</td>
-                              <td className="py-3 px-4">{pres.customBrand || pres.productDetails?.brandLine}</td>
-                              <td className="py-3 px-4 truncate max-w-[150px]">{pres.customActiveIngredients || 'N/A'}</td>
-                              <td className="py-3 px-4">
-                                <span className="font-semibold text-amber-600 dark:text-amber-400">{pres.timeOfDay}</span> ({pres.applicationFrequency}) - {pres.dosageInstructions}
-                              </td>
-                              <td className="py-3 px-4 text-right space-x-2">
-                                <button type="button" onClick={() => movePrescriptionUp(idx)} disabled={idx === 0} className={`inline-flex items-center gap-1 text-[11px] ${idx === 0 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Subir">▲</button>
-                                <button type="button" onClick={() => movePrescriptionDown(idx)} disabled={idx === prescriptionsList.length - 1} className={`inline-flex items-center gap-1 text-[11px] ${idx === prescriptionsList.length - 1 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Bajar">▼</button>
-                                <button type="button" onClick={() => editPrescription(idx)} className="text-bronze-600 dark:text-bronze-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
-                                <button type="button" onClick={() => removePrescription(idx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                    {prescriptionsList.length > 0 && (
-                      <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex justify-end bg-slate-50/50 dark:bg-luxe-950/10">
+                  {/* Pestañas de Rutina por Bloques de Tiempo (☀️ Mañana, 🌙 Noche, 📅 Semanal) */}
+                  <div className="space-y-4 pt-2">
+                    <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/5 pb-2">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={handleSaveCurrentProtocolAsPreset}
-                          className="bg-gradient-to-r from-amber-500/10 to-amber-600/10 hover:from-amber-500/20 hover:to-amber-600/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                          onClick={() => setActiveProtocolTab('AM')}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                            activeProtocolTab === 'AM'
+                              ? 'bg-amber-500 text-white shadow-md'
+                              : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10'
+                          }`}
                         >
-                          <Save className="w-3.5 h-3.5" /> Guardar como Rutina Predeterminada
+                          <Sun className="w-4 h-4 text-amber-200" /> ☀️ Rutina de Día (AM)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveProtocolTab('PM')}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                            activeProtocolTab === 'PM'
+                              ? 'bg-indigo-600 text-white shadow-md'
+                              : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10'
+                          }`}
+                        >
+                          <Moon className="w-4 h-4 text-indigo-200" /> 🌙 Rutina de Noche (PM)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveProtocolTab('SEMANAL')}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                            activeProtocolTab === 'SEMANAL'
+                              ? 'bg-emerald-600 text-white shadow-md'
+                              : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10'
+                          }`}
+                        >
+                          <Calendar className="w-4 h-4 text-emerald-200" /> 📅 Cuidados Semanales
                         </button>
                       </div>
-                    )}
+
+                      <span className="text-[11px] font-semibold text-slate-400">
+                        {prescriptionsList.length} productos prescritos
+                      </span>
+                    </div>
+
+                    {/* Tabla de Productos Prescritos por Pestaña */}
+                    <div className="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/40 dark:bg-luxe-950/20 shadow-sm">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
+                            <th className="py-3 px-4 w-12 text-center">Capa</th>
+                            <th className="py-3 px-4">Fase / Capa</th>
+                            <th className="py-3 px-4">Producto & Marca</th>
+                            <th className="py-3 px-4">Activos Clave</th>
+                            <th className="py-3 px-4">Instrucciones & Dosis</th>
+                            <th className="py-3 px-4 text-right">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
+                          {(() => {
+                            const filteredList = prescriptionsList
+                              .filter(p => {
+                                if (activeProtocolTab === 'AM') return p.timeOfDay === 'Dia' || p.timeOfDay === 'Dia y Noche';
+                                if (activeProtocolTab === 'PM') return p.timeOfDay === 'Noche' || p.timeOfDay === 'Dia y Noche';
+                                const stepNorm = (p.stepName || '').toLowerCase();
+                                return stepNorm.includes('semanal') || stepNorm.includes('mascarilla') || stepNorm.includes('exfolia');
+                              })
+                              .sort((a, b) => getLayerOrder(a.stepName || a.customProductName || '') - getLayerOrder(b.stepName || b.customProductName || ''));
+
+                            if (filteredList.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={6} className="py-8 text-center text-slate-400 italic">
+                                    No hay productos asignados para el bloque de {activeProtocolTab === 'AM' ? 'Mañana ☀️' : activeProtocolTab === 'PM' ? 'Noche 🌙' : 'Cuidados Semanales 📅'}.
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return filteredList.map((pres, idx) => {
+                              const originalIdx = prescriptionsList.findIndex(p => p.id === pres.id);
+                              const layerNum = getLayerOrder(pres.stepName || pres.customProductName || '');
+                              return (
+                                <tr key={pres.id} className="hover:bg-slate-500/5 transition-colors">
+                                  <td className="py-3 px-4 text-center">
+                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[11px]">
+                                      {layerNum < 9 ? layerNum : idx + 1}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 font-bold text-slate-800 dark:text-white">{pres.stepName}</td>
+                                  <td className="py-3 px-4">
+                                    <span className="font-semibold text-slate-800 dark:text-white block">{pres.customProductName || pres.productDetails?.name}</span>
+                                    <span className="text-[10px] text-slate-400">{pres.customBrand || pres.productDetails?.brandLine}</span>
+                                  </td>
+                                  <td className="py-3 px-4 max-w-[180px]">
+                                    <span className="truncate block text-slate-600 dark:text-luxe-300">{pres.customActiveIngredients || 'N/A'}</span>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span className="font-medium text-slate-700 dark:text-luxe-200 block">{pres.dosageInstructions || 'Sin dosis específica'}</span>
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">{pres.applicationFrequency}</span>
+                                  </td>
+                                  <td className="py-3 px-4 text-right space-x-2">
+                                    <button type="button" onClick={() => editPrescription(originalIdx)} className="text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
+                                    <button type="button" onClick={() => removePrescription(originalIdx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+
+                      {prescriptionsList.length > 0 && (
+                        <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex justify-end bg-slate-50/50 dark:bg-luxe-950/10">
+                          <button
+                            type="button"
+                            onClick={handleSaveCurrentProtocolAsPreset}
+                            className="bg-gradient-to-r from-amber-500/10 to-amber-600/10 hover:from-amber-500/20 hover:to-amber-600/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                          >
+                            <Save className="w-3.5 h-3.5" /> Guardar como Rutina Predeterminada
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -4192,15 +4409,40 @@ export default function App() {
                         const selectionKey = selectedRoutineTx + "_" + selectedRoutineTime + "_" + String(idx);
                         const selectedVal = routineStepSelections[selectionKey] || 'default';
                         const matches = getMatchingProductsForStep(step);
+                        const autoProduct = selectedVal !== 'default' 
+                          ? products.find(p => p.id === selectedVal) 
+                          : (matches.length > 0 ? matches[0] : null);
+
+                        const prodName = autoProduct ? autoProduct.name : step.defaultProductName;
+                        const prodBrand = autoProduct ? autoProduct.brandLine : step.defaultBrand;
+                        let prodActives = step.defaultActiveIngredients;
+                        if (autoProduct) {
+                          try {
+                            const parsed = JSON.parse(autoProduct.activeIngredients || '[]');
+                            prodActives = Array.isArray(parsed) ? parsed.join(', ') : autoProduct.activeIngredients;
+                          } catch(e) {
+                            prodActives = autoProduct.activeIngredients;
+                          }
+                        }
+
+                        // Otros productos del catálogo para libre selección
+                        const otherProducts = products.filter(p => !matches.some(m => m.id === p.id));
 
                         return (
                           <div key={idx} className="pt-4 first:pt-0 grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="space-y-1">
-                              <span className="inline-block bg-amber-550/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                                {step.stepName}
-                              </span>
-                              <h4 className="text-xs font-bold text-slate-800 dark:text-white mt-1">{step.defaultProductName}</h4>
-                              <p className="text-[10px] text-slate-400 italic">{step.defaultBrand} - {step.defaultActiveIngredients}</p>
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block bg-amber-550/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                  {step.stepName}
+                                </span>
+                                {autoProduct && (
+                                  <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-md">
+                                    ✓ Catálogo
+                                  </span>
+                                )}
+                              </div>
+                              <h4 className="text-xs font-bold text-slate-800 dark:text-white mt-1">{prodName}</h4>
+                              <p className="text-[10px] text-slate-400 italic">{prodBrand} - {prodActives}</p>
                             </div>
                             
                             <div className="text-[11px] text-slate-650 dark:text-luxe-200 space-y-1 self-center">
@@ -4221,14 +4463,28 @@ export default function App() {
                                 }}
                                 className="smart-input w-full text-xs py-1.5"
                               >
-                                <option value="default">✨ Recomendación por defecto</option>
-                                {matches.map(p => (
-                                  <option key={p.id} value={p.id}>
-                                    📦 {p.name} ({p.brandLine})
-                                  </option>
-                                ))}
-                                {matches.length === 0 && (
-                                  <option disabled>⚠️ No hay productos con palabras clave similares</option>
+                                <option value="default">
+                                  {matches.length > 0 
+                                    ? `✨ Auto-asociado: ${matches[0].name} (${matches[0].brandLine})` 
+                                    : `✨ Recomendación base (${step.defaultProductName})`}
+                                </option>
+                                {matches.length > 0 && (
+                                  <optgroup label="Coincidencias del Catálogo">
+                                    {matches.map(p => (
+                                      <option key={p.id} value={p.id}>
+                                        📦 {p.name} ({p.brandLine})
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {otherProducts.length > 0 && (
+                                  <optgroup label="Todos los Productos del Catálogo">
+                                    {otherProducts.map(p => (
+                                      <option key={p.id} value={p.id}>
+                                        🛒 {p.name} ({p.brandLine})
+                                      </option>
+                                    ))}
+                                  </optgroup>
                                 )}
                               </select>
                             </div>
@@ -5044,6 +5300,87 @@ export default function App() {
                     <Send className="w-4 h-4" /> Enviar Reporte
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Digital Móvil interactivo para el Paciente */}
+      {showDigitalClientModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-[40px] shadow-2xl overflow-hidden text-white space-y-4 p-6 relative flex flex-col max-h-[90vh]">
+            <button
+              onClick={() => setShowDigitalClientModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-full bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Simulador de Celular Boutique */}
+            <div className="text-center space-y-1 pt-2">
+              <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-3" />
+              <span className="text-[10px] font-bold tracking-widest uppercase text-amber-400 block">Mi Rutina Dermoestética</span>
+              <h4 className="font-outfit text-base font-bold">Guía de Apoyo Domiciliario</h4>
+              <p className="text-[11px] text-slate-400">Diseñada por tu cosmetóloga profesional</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 scrollbar-thin">
+              {/* Sección Día (AM) */}
+              <div className="bg-slate-800/80 p-4 rounded-2xl border border-amber-500/20 space-y-3">
+                <h5 className="text-xs font-bold text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  ☀️ Rutina de Mañana (AM)
+                </h5>
+                {prescriptionsList.filter(p => p.timeOfDay === 'Dia' || p.timeOfDay === 'Dia y Noche').length === 0 ? (
+                  <p className="text-[11px] text-slate-400 italic">No hay pasos prescritos para la mañana.</p>
+                ) : (
+                  prescriptionsList
+                    .filter(p => p.timeOfDay === 'Dia' || p.timeOfDay === 'Dia y Noche')
+                    .sort((a, b) => getLayerOrder(a.stepName || '') - getLayerOrder(b.stepName || ''))
+                    .map((p, i) => (
+                      <div key={p.id} className="bg-slate-900/60 p-3 rounded-xl border border-slate-700/50 space-y-1 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-amber-300">Paso {i + 1}: {p.stepName}</span>
+                          <span className="text-[9px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold">Capas</span>
+                        </div>
+                        <span className="font-semibold block text-slate-100">{p.customProductName || p.productDetails?.name}</span>
+                        <p className="text-[10px] text-slate-300">{p.dosageInstructions}</p>
+                      </div>
+                    ))
+                )}
+              </div>
+
+              {/* Sección Noche (PM) */}
+              <div className="bg-slate-800/80 p-4 rounded-2xl border border-indigo-500/20 space-y-3">
+                <h5 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase tracking-wider">
+                  🌙 Rutina de Noche (PM)
+                </h5>
+                {prescriptionsList.filter(p => p.timeOfDay === 'Noche' || p.timeOfDay === 'Dia y Noche').length === 0 ? (
+                  <p className="text-[11px] text-slate-400 italic">No hay pasos prescritos para la noche.</p>
+                ) : (
+                  prescriptionsList
+                    .filter(p => p.timeOfDay === 'Noche' || p.timeOfDay === 'Dia y Noche')
+                    .sort((a, b) => getLayerOrder(a.stepName || '') - getLayerOrder(b.stepName || ''))
+                    .map((p, i) => (
+                      <div key={p.id} className="bg-slate-900/60 p-3 rounded-xl border border-slate-700/50 space-y-1 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-indigo-300">Paso {i + 1}: {p.stepName}</span>
+                          <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-bold">Capas</span>
+                        </div>
+                        <span className="font-semibold block text-slate-100">{p.customProductName || p.productDetails?.name}</span>
+                        <p className="text-[10px] text-slate-300">{p.dosageInstructions}</p>
+                      </div>
+                    ))
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 text-center">
+              <button
+                onClick={() => setShowDigitalClientModal(false)}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md"
+              >
+                Cerrar Previsualización
               </button>
             </div>
           </div>
