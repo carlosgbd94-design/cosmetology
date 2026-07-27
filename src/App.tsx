@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, seedTables, saveConsultationTransaction } from './db';
+import { db, executeQuery, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { encryptData, decryptData, sha256 } from './crypto';
@@ -501,14 +501,14 @@ export default function App() {
     setSyncStatus('syncing');
     try {
       await seedTables();
+      await restoreLegacyIndexedDBData();
 
-      // Sync remote products to local Dexie on start
+      // Sync remote products to local Dexie on start (without clearing local products)
       if (navigator.onLine) {
         try {
           // 1. Sync products
           const resProds = await executeQuery('SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes FROM products');
           if (resProds && resProds.rows) {
-            await db.products.clear();
             for (const r of resProds.rows) {
               await db.products.put({
                 id: r.id,
@@ -524,6 +524,16 @@ export default function App() {
             }
           }
 
+          // Push local Dexie products to Turso remote if missing
+          const localProds = await db.products.toArray();
+          for (const lp of localProds) {
+            await executeQuery(
+              `INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [lp.id, lp.sku, lp.name, lp.brandLine, lp.activeIngredients, lp.physiologicalActions, lp.retailPrice, typeof lp.isProfessionalUse === 'boolean' ? (lp.isProfessionalUse ? 1 : 0) : Number(lp.isProfessionalUse), lp.skinBiotypes || '[]']
+            );
+          }
+
           // 2. Sync patients
           const resPatients = await executeQuery('SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at FROM patients');
           if (resPatients && resPatients.rows) {
@@ -533,7 +543,7 @@ export default function App() {
               const decryptedPhone = await decryptData(r.phone_encrypted);
               await db.patients.put({
                 id: r.id,
-                firstNameEncrypted: decryptedFirstName, // Store decrypted locally for easy UI rendering
+                firstNameEncrypted: decryptedFirstName,
                 lastNameEncrypted: decryptedLastName,
                 dateOfBirth: r.date_of_birth,
                 emailHashed: r.email_hashed,
@@ -636,24 +646,34 @@ export default function App() {
   }
 
   async function loadMasterCatalogs() {
-
     // Load local products
     const pList = await db.products.toArray();
     setProducts(pList);
 
-    // Load ingredients
-    const iList = await db.products.toArray(); // map from physiological actions & ingredients
+    // Load ingredients robustly supporting both JSON and text formats
     const resolvedIngredients: { name: string; action: string }[] = [];
     pList.forEach(p => {
+      let actives: string[] = [];
+      let actions: string[] = [];
       try {
-        const actives = JSON.parse(p.activeIngredients) as string[];
-        const actions = JSON.parse(p.physiologicalActions) as string[];
-        actives.forEach((act, idx) => {
-          if (!resolvedIngredients.some(ri => ri.name.toLowerCase() === act.toLowerCase())) {
-            resolvedIngredients.push({ name: act, action: actions[idx] || '' });
-          }
-        });
-      } catch(e) {}
+        const parsed = JSON.parse(p.activeIngredients);
+        actives = Array.isArray(parsed) ? parsed : [p.activeIngredients];
+      } catch(e) {
+        actives = (p.activeIngredients || '').split(',').map(s => s.trim()).filter(Boolean);
+      }
+
+      try {
+        const parsed = JSON.parse(p.physiologicalActions);
+        actions = Array.isArray(parsed) ? parsed : [p.physiologicalActions];
+      } catch(e) {
+        actions = (p.physiologicalActions || '').split(',').map(s => s.trim()).filter(Boolean);
+      }
+
+      actives.forEach((act, idx) => {
+        if (act && !resolvedIngredients.some(ri => ri.name.toLowerCase() === act.toLowerCase())) {
+          resolvedIngredients.push({ name: act, action: actions[idx] || actions[0] || 'Acción dermatológica' });
+        }
+      });
     });
     setIngredients(resolvedIngredients);
 

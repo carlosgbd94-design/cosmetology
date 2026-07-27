@@ -557,3 +557,55 @@ export async function seedTables(): Promise<void> {
   }
 }
 
+// Automatic recovery of legacy user products and data from previous IndexedDB databases
+export async function restoreLegacyIndexedDBData(): Promise<void> {
+  const legacyDBNames = [
+    'DermatiqueClinicalDB_v6',
+    'DermatiqueClinicalDB_v5',
+    'DermatiqueClinicalDB_v4',
+    'DermatiqueClinicalDB_v3',
+    'DermatiqueClinicalDB_v2',
+    'DermatiqueClinicalDB',
+    'ClinicalDB',
+    'DermatiqueDB'
+  ];
+
+  for (const dbName of legacyDBNames) {
+    try {
+      const exists = await Dexie.exists(dbName);
+      if (exists) {
+        const oldDb = new Dexie(dbName);
+        await oldDb.open();
+        
+        // Recover products
+        if (oldDb.tables.some(t => t.name === 'products')) {
+          const oldProducts = await oldDb.table('products').toArray();
+          for (const prod of oldProducts) {
+            await db.products.put(prod);
+            if (navigator.onLine) {
+              try {
+                await executeQuery(
+                  `INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [prod.id, prod.sku, prod.name, prod.brandLine, prod.activeIngredients, prod.physiologicalActions, prod.retailPrice, typeof prod.isProfessionalUse === 'boolean' ? (prod.isProfessionalUse ? 1 : 0) : Number(prod.isProfessionalUse), prod.skinBiotypes || '[]']
+                );
+              } catch(e) {}
+            }
+          }
+        }
+        
+        // Recover patients
+        if (oldDb.tables.some(t => t.name === 'patients')) {
+          const oldPatients = await oldDb.table('patients').toArray();
+          for (const pat of oldPatients) {
+            await db.patients.put(pat);
+          }
+        }
+        oldDb.close();
+      }
+    } catch(e) {
+      console.warn(`Attempt to restore from legacy DB ${dbName} skipped:`, e);
+    }
+  }
+}
+
