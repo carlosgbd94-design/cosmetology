@@ -30,6 +30,144 @@ const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Apoyo en Casa": ["Alternative", "Rosa Mosq.", "Mulike", "Oro", "Clásica", "Diamante", "Biohelicina", "Biobotulina"]
 };
 
+interface SmartCatalogSelectorProps {
+  stepName: string;
+  defaultProductName: string;
+  selectedProductId: string;
+  products: Product[];
+  matches: Product[];
+  onSelect: (productId: string) => void;
+}
+
+function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId, products, matches, onSelect }: SmartCatalogSelectorProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const autoProduct = selectedProductId !== 'default' 
+    ? products.find(p => p.id === selectedProductId) 
+    : (matches.length > 0 ? matches[0] : null);
+
+  const selectedDisplay = autoProduct
+    ? `✨ ${autoProduct.name} (${autoProduct.brandLine})`
+    : `✨ Base: ${defaultProductName}`;
+
+  const q = search.trim().toLowerCase();
+  const filteredProducts = products.filter(p => {
+    if (!q) return true;
+    const activesStr = typeof p.activeIngredients === 'string' ? p.activeIngredients : JSON.stringify(p.activeIngredients);
+    return p.name.toLowerCase().includes(q) || p.brandLine.toLowerCase().includes(q) || activesStr.toLowerCase().includes(q);
+  });
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-luxe-900 border border-amber-500/40 dark:border-amber-500/30 text-slate-800 dark:text-white shadow-sm hover:border-amber-500 transition-all text-left"
+      >
+        <span className="truncate flex-1 font-bold">{selectedDisplay}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-amber-500 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 w-80 md:w-96 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-2xl p-2.5 space-y-2 animate-fade-in max-h-[360px] flex flex-col">
+          <div className="relative shrink-0">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="🔍 Escriba para buscar por marca, nombre o activo..."
+              className="w-full pl-8 pr-3 py-1.5 rounded-lg text-xs bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+              autoFocus
+            />
+          </div>
+
+          <div className="flex-1 overflow-y-auto max-h-[260px] pr-1 space-y-2 scrollbar-thin text-xs">
+            {!search && matches.length > 0 && (
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 px-2 block mb-1">
+                  ✨ Recomendación Auto-Asociada
+                </span>
+                <div
+                  onClick={() => {
+                    onSelect('default');
+                    setIsOpen(false);
+                  }}
+                  className={`p-2 rounded-xl cursor-pointer transition-colors flex items-center justify-between ${
+                    selectedProductId === 'default'
+                      ? 'bg-amber-500/15 font-bold text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                      : 'hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-luxe-200'
+                  }`}
+                >
+                  <div>
+                    <span className="block font-bold">{matches[0].name}</span>
+                    <span className="text-[10px] opacity-75">{matches[0].brandLine}</span>
+                  </div>
+                  {selectedProductId === 'default' && <Check className="w-3.5 h-3.5 text-amber-500" />}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 block mb-1">
+                🛒 Productos del Catálogo ({filteredProducts.length})
+              </span>
+              {filteredProducts.length === 0 ? (
+                <p className="text-[11px] text-slate-400 italic px-2 py-3">No se encontraron productos coincidentes.</p>
+              ) : (
+                filteredProducts.map(p => {
+                  const isSel = selectedProductId === p.id;
+                  let activesText = '';
+                  try {
+                    const parsed = JSON.parse(p.activeIngredients || '[]');
+                    activesText = Array.isArray(parsed) ? parsed.join(', ') : p.activeIngredients;
+                  } catch(e) {
+                    activesText = p.activeIngredients;
+                  }
+
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        onSelect(p.id);
+                        setIsOpen(false);
+                      }}
+                      className={`p-2 rounded-xl cursor-pointer transition-colors flex items-center justify-between border-b border-slate-100 dark:border-white/5 last:border-0 ${
+                        isSel
+                          ? 'bg-amber-500/15 font-bold text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                          : 'hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-luxe-200'
+                      }`}
+                    >
+                      <div className="space-y-0.5 max-w-[85%]">
+                        <span className="block font-bold text-slate-800 dark:text-white truncate">{p.name}</span>
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold block">{p.brandLine}</span>
+                        {activesText && <span className="text-[9.5px] text-slate-400 truncate block">{activesText}</span>}
+                      </div>
+                      {isSel && <Check className="w-4 h-4 text-amber-500 shrink-0" />}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   // Authentication & Layout States
   const [isLogged, setIsLogged] = useState(false);
@@ -223,6 +361,16 @@ export default function App() {
   const [showSaveRoutineModal, setShowSaveRoutineModal] = useState(false);
   const [newRoutineName, setNewRoutineName] = useState('');
   const [selectedCustomRoutine, setSelectedCustomRoutine] = useState<CustomRoutine | null>(null);
+  const [editableRoutineSteps, setEditableRoutineSteps] = useState<RoutineStepTemplate[]>([]);
+  const [editingRoutineStepIdx, setEditingRoutineStepIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (selectedRoutineTx && ESTABLISHED_ROUTINES[selectedRoutineTx]) {
+      const steps = selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche;
+      setEditableRoutineSteps(JSON.parse(JSON.stringify(steps)));
+      setEditingRoutineStepIdx(null);
+    }
+  }, [selectedRoutineTx, selectedRoutineTime]);
 
   // ----------------------------------------------------
   // INVENTORY TAB STATE
@@ -3097,14 +3245,45 @@ export default function App() {
     });
   };
 
+  const handleAddStepToCurrentRoutine = () => {
+    setEditableRoutineSteps(prev => [
+      ...prev,
+      {
+        stepName: 'Nueva Fase / Sección',
+        keywords: ['suero', 'limpiador', 'crema'],
+        defaultProductName: 'Producto del Catálogo',
+        defaultBrand: 'Línea Clínica',
+        defaultActiveIngredients: 'Por definir',
+        defaultActions: 'Acción cosmetológica',
+        dosageInstructions: 'Aplicar suavemente sobre el rostro.',
+        applicationFrequency: selectedRoutineTime === 'Dia' ? 'Diario por la mañana' : 'Diario por la noche'
+      }
+    ]);
+  };
+
+  const handleUpdateStepInRoutine = (index: number, field: keyof RoutineStepTemplate, value: string) => {
+    setEditableRoutineSteps(prev => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const handleRemoveStepFromCurrentRoutine = (index: number) => {
+    setEditableRoutineSteps(prev => prev.filter((_, i) => i !== index));
+  };
+
   const applySelectedRoutineToPatient = () => {
     if (!selectedPatientId) {
       showToastMsg('Por favor seleccione o cree un paciente primero.', 'error');
       return;
     }
-    const routine = ESTABLISHED_ROUTINES[selectedRoutineTx];
-    if (!routine) return;
-    const steps = selectedRoutineTime === 'Dia' ? routine.Dia : routine.Noche;
+    
+    const steps = editableRoutineSteps.length > 0 
+      ? editableRoutineSteps 
+      : (ESTABLISHED_ROUTINES[selectedRoutineTx] ? (selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche) : []);
+
+    if (steps.length === 0) return;
     
     const newPrescriptions: Prescription[] = steps.map((step, index) => {
       const selectionKey = `${selectedRoutineTx}_${selectedRoutineTime}_${index}`;
@@ -4395,15 +4574,32 @@ export default function App() {
                 </div>
               ) : (
                 <div className="bg-slate-500/5 p-6 rounded-[24px] border border-slate-200/20 space-y-4 animate-fade-in">
-                  <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
-                    Detalle de la Rutina: {selectedRoutineTx} ({selectedRoutineTime === 'Dia' ? 'Día' : 'Noche'})
-                  </h3>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-200/20 pb-3">
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
+                        Detalle de la Rutina: {selectedRoutineTx} ({selectedRoutineTime === 'Dia' ? 'Día' : 'Noche'})
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Edite el nombre de las fases, modifique dosis/indicaciones o asocie cualquier producto de su catálogo.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAddStepToCurrentRoutine}
+                      className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 self-start md:self-auto"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Agregar Fase a esta Rutina
+                    </button>
+                  </div>
 
                   <div className="space-y-4 divide-y divide-slate-200/10">
                     {(() => {
-                      const routine = ESTABLISHED_ROUTINES[selectedRoutineTx];
-                      if (!routine) return <p className="text-xs text-slate-400 italic">No se encontró la rutina.</p>;
-                      const steps = selectedRoutineTime === 'Dia' ? routine.Dia : routine.Noche;
+                      const steps = editableRoutineSteps.length > 0 
+                        ? editableRoutineSteps 
+                        : (ESTABLISHED_ROUTINES[selectedRoutineTx] ? (selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche) : []);
+
+                      if (steps.length === 0) return <p className="text-xs text-slate-400 italic py-4">No hay fases configuradas en esta rutina.</p>;
 
                       return steps.map((step, idx) => {
                         const selectionKey = selectedRoutineTx + "_" + selectedRoutineTime + "_" + String(idx);
@@ -4425,68 +4621,111 @@ export default function App() {
                           }
                         }
 
-                        // Otros productos del catálogo para libre selección
-                        const otherProducts = products.filter(p => !matches.some(m => m.id === p.id));
+                        const isEditingThisStep = editingRoutineStepIdx === idx;
 
                         return (
-                          <div key={idx} className="pt-4 first:pt-0 grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div className="space-y-1">
+                          <div key={idx} className="pt-4 first:pt-0 grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                            {/* Columna 1: Nombre de Fase / Sección (Editable) */}
+                            <div className="md:col-span-4 space-y-2">
                               <div className="flex items-center gap-2">
-                                <span className="inline-block bg-amber-550/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                                  {step.stepName}
-                                </span>
-                                {autoProduct && (
-                                  <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-md">
-                                    ✓ Catálogo
-                                  </span>
+                                {isEditingThisStep ? (
+                                  <div className="flex items-center gap-1.5 w-full">
+                                    <input
+                                      type="text"
+                                      value={step.stepName}
+                                      onChange={e => handleUpdateStepInRoutine(idx, 'stepName', e.target.value)}
+                                      placeholder="Nombre de Fase (ej. Exfoliación)..."
+                                      className="smart-input text-xs py-1 px-2.5 font-bold w-full"
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingRoutineStepIdx(null)}
+                                      className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold shrink-0"
+                                      title="Guardar nombre"
+                                    >
+                                      ✓
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span className="inline-block bg-amber-550/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                                      {step.stepName}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingRoutineStepIdx(idx)}
+                                      className="p-1 text-slate-400 hover:text-amber-500 transition-colors"
+                                      title="Editar nombre de la fase"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                    {autoProduct && (
+                                      <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-bold px-2 py-0.5 rounded-md">
+                                        ✓ Catálogo
+                                      </span>
+                                    )}
+                                  </>
                                 )}
                               </div>
-                              <h4 className="text-xs font-bold text-slate-800 dark:text-white mt-1">{prodName}</h4>
-                              <p className="text-[10px] text-slate-400 italic">{prodBrand} - {prodActives}</p>
+
+                              <div className="pl-0.5 space-y-0.5">
+                                <h4 className="text-xs font-bold text-slate-800 dark:text-white">{prodName}</h4>
+                                <p className="text-[10px] text-slate-400 italic">{prodBrand} - {prodActives}</p>
+                              </div>
                             </div>
                             
-                            <div className="text-[11px] text-slate-650 dark:text-luxe-200 space-y-1 self-center">
-                              <p><strong>Frecuencia:</strong> {step.applicationFrequency}</p>
-                              <p className="text-[10.5px]"><strong>Indicación:</strong> {step.dosageInstructions}</p>
+                            {/* Columna 2: Frecuencia e Indicaciones (Editables) */}
+                            <div className="md:col-span-4 text-[11px] space-y-1.5">
+                              <div>
+                                <label className="text-[9px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block">Frecuencia</label>
+                                <input
+                                  type="text"
+                                  value={step.applicationFrequency}
+                                  onChange={e => handleUpdateStepInRoutine(idx, 'applicationFrequency', e.target.value)}
+                                  className="smart-input w-full text-xs py-1 px-2 text-slate-700 dark:text-luxe-200"
+                                  placeholder="Frecuencia..."
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block">Indicación / Dosis</label>
+                                <input
+                                  type="text"
+                                  value={step.dosageInstructions}
+                                  onChange={e => handleUpdateStepInRoutine(idx, 'dosageInstructions', e.target.value)}
+                                  className="smart-input w-full text-xs py-1 px-2 text-slate-700 dark:text-luxe-200"
+                                  placeholder="Indicación..."
+                                />
+                              </div>
                             </div>
 
-                            <div className="flex flex-col justify-center gap-1.5">
-                              <label className="text-[9px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Asociar Producto del Catálogo</label>
-                              <select
-                                value={selectedVal}
-                                onChange={e => {
-                                  const val = e.target.value;
+                            {/* Columna 3: Combobox Inteligente con Buscador y Eliminación */}
+                            <div className="md:col-span-4 flex flex-col gap-1.5">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[9px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Asociar Producto del Catálogo</label>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveStepFromCurrentRoutine(idx)}
+                                  className="text-red-500 hover:text-red-650 p-1 rounded-md hover:bg-red-500/10 transition-colors"
+                                  title="Eliminar este paso de la rutina"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <SmartCatalogSelector
+                                stepName={step.stepName}
+                                defaultProductName={step.defaultProductName}
+                                selectedProductId={selectedVal}
+                                products={products}
+                                matches={matches}
+                                onSelect={(newProdId) => {
                                   setRoutineStepSelections(prev => ({
                                     ...prev,
-                                    [selectionKey]: val
+                                    [selectionKey]: newProdId
                                   }));
                                 }}
-                                className="smart-input w-full text-xs py-1.5"
-                              >
-                                <option value="default">
-                                  {matches.length > 0 
-                                    ? `✨ Auto-asociado: ${matches[0].name} (${matches[0].brandLine})` 
-                                    : `✨ Recomendación base (${step.defaultProductName})`}
-                                </option>
-                                {matches.length > 0 && (
-                                  <optgroup label="Coincidencias del Catálogo">
-                                    {matches.map(p => (
-                                      <option key={p.id} value={p.id}>
-                                        📦 {p.name} ({p.brandLine})
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                                {otherProducts.length > 0 && (
-                                  <optgroup label="Todos los Productos del Catálogo">
-                                    {otherProducts.map(p => (
-                                      <option key={p.id} value={p.id}>
-                                        🛒 {p.name} ({p.brandLine})
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                              </select>
+                              />
                             </div>
                           </div>
                         );
