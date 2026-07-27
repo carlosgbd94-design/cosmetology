@@ -161,7 +161,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
         <View style={styles.header} fixed>
           <Text style={styles.headerLogo}></Text>
           <Text style={styles.headerSub}>
-            Licencia Sanitaria No. 19-33-A | Servicio Profesional de Cosmetología y Cosmeatría
+            Servicio Profesional de Cosmetología y Cosmeatría Dermoestética
           </Text>
         </View>
 
