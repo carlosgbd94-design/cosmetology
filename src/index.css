@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom Scrollbar */
+/* Custom Lightweight Scrollbar for Low Memory Overhead */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -21,65 +21,67 @@
   background: rgba(212, 175, 55, 0.5);
 }
 
-/* Animations */
+/* Optimized Animations - Hardware Accelerated */
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
-  20%, 40%, 60%, 80% { transform: translateX(6px); }
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  10%, 30%, 50%, 70%, 90% { transform: translate3d(-6px, 0, 0); }
+  20%, 40%, 60%, 80% { transform: translate3d(6px, 0, 0); }
 }
 .shake-anim {
-  animation: shake 0.5s ease-in-out;
+  animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  will-change: transform;
 }
 
-/* Custom smooth transitions globally */
-body, .liquid-glass, .liquid-glass-light, .smart-input, button, input, textarea, tr, td, a {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+/* Scoped, performant transitions (Avoid transition: all on every tr, td, body) */
+button, input, select, textarea, .smart-input, .liquid-glass, .liquid-glass-light {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
 }
 
-/* Adaptable backgrounds with glows */
+/* Adaptable background gradients */
 body {
   background-color: #FAF9F6;
   background-image: 
-    radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.06) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(26, 26, 30, 0.03) 0px, transparent 50%);
+    radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(26, 26, 30, 0.02) 0px, transparent 50%);
   background-attachment: fixed;
 }
 
 .dark body {
   background-color: #0A0A0D;
   background-image: 
-    radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.08) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(181, 144, 43, 0.05) 0px, transparent 50%);
+    radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.06) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(181, 144, 43, 0.04) 0px, transparent 50%);
 }
 
-/* iOS Liquid Glass Effect (Dynamic) with dynamic gradient borders using masks */
+/* Optimized Liquid Glass Effects (Lightweight rendering for low spec GPU/iGPU) */
 .liquid-glass, .liquid-glass-light {
   position: relative;
+  contain: content; /* CSS Containment to isolate layout/paint cycles */
 }
 
 .liquid-glass {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.95);
   border: none;
   box-shadow: 
-    0 10px 40px -10px rgba(18, 18, 21, 0.06),
+    0 4px 20px -4px rgba(18, 18, 21, 0.05),
     inset 0 1px 1px rgba(255, 255, 255, 0.8);
 }
 
 .dark .liquid-glass {
-  background: rgba(18, 18, 21, 0.92);
+  background: rgba(18, 18, 21, 0.95);
   border: none;
   box-shadow: 
-    0 10px 40px -10px rgba(0, 0, 0, 0.6),
+    0 4px 20px -4px rgba(0, 0, 0, 0.5),
     inset 0 1px 1px rgba(255, 255, 255, 0.05);
 }
 
 .liquid-glass-light {
-  background: rgba(18, 18, 21, 0.04);
+  background: rgba(18, 18, 21, 0.03);
   border: none;
 }
 
 .dark .liquid-glass-light {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.03);
   border: none;
 }
 
@@ -89,7 +91,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1px; /* border thickness */
+  padding: 1px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.65), rgba(18, 18, 21, 0.08));
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -107,15 +109,14 @@ body {
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.01));
 }
 
-/* Smart Input Box Styling (Dynamic) */
+/* Smart Input Box Styling */
 .smart-input {
-  background: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
   border: 1px solid rgba(18, 18, 21, 0.08) !important;
   color: #121215 !important;
-  padding: 0.625rem 0.875rem; /* Standardized clinical padding */
-  border-radius: 12px;       /* Uniform border rounded corners */
-  font-size: 0.8125rem;      /* Clear visual readability */
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.8125rem;
 }
 
 .smart-input::placeholder {
@@ -123,7 +124,7 @@ body {
 }
 
 .dark .smart-input {
-  background: rgba(18, 18, 21, 0.7) !important;
+  background: rgba(18, 18, 21, 0.8) !important;
   border: 1px solid rgba(255, 255, 255, 0.06) !important;
   color: #FAF9F6 !important;
 }
@@ -149,26 +150,12 @@ body {
 #step-search-suggestions {
   background: rgba(255, 255, 255, 0.98);
   border: 1px solid rgba(212, 175, 55, 0.2);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
 }
 .dark #step-search-suggestions {
   background: rgba(18, 18, 21, 0.98);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-}
-
-/* Floating label positioning */
-.floating-group:focus-within label,
-.smart-input:not(:placeholder-shown) + label,
-select.smart-input + label {
-  transform: translateY(-26px) scale(0.8);
-  color: #B5902B;
-}
-
-.dark .floating-group:focus-within label,
-.dark .smart-input:not(:placeholder-shown) + label,
-.dark select.smart-input + label {
-  color: #D4AF37;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
 }
 
 /* Custom Dropdown Chevron Indicator */
@@ -183,7 +170,6 @@ select.smart-input {
   -moz-appearance: none !important;
   border-radius: 12px;
   cursor: pointer;
-  transition: border-color 0.3s, background-color 0.3s, box-shadow 0.3s, color 0.3s !important;
 }
 
 .dark select.smart-input {

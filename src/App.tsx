@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { db, executeQuery, seedTables, saveConsultationTransaction } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
@@ -62,12 +62,14 @@ function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId,
     ? `✨ ${autoProduct.name} (${autoProduct.brandLine})`
     : `✨ Base: ${defaultProductName}`;
 
-  const q = search.trim().toLowerCase();
-  const filteredProducts = products.filter(p => {
-    if (!q) return true;
-    const activesStr = typeof p.activeIngredients === 'string' ? p.activeIngredients : JSON.stringify(p.activeIngredients);
-    return p.name.toLowerCase().includes(q) || p.brandLine.toLowerCase().includes(q) || activesStr.toLowerCase().includes(q);
-  });
+  const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter(p => {
+      const activesStr = typeof p.activeIngredients === 'string' ? p.activeIngredients : JSON.stringify(p.activeIngredients);
+      return p.name.toLowerCase().includes(q) || p.brandLine.toLowerCase().includes(q) || activesStr.toLowerCase().includes(q);
+    });
+  }, [search, products]);
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -407,6 +409,59 @@ export default function App() {
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
   const [folderBiotypeFilter, setFolderBiotypeFilter] = useState('');
   const [expandedPatientFolders, setExpandedPatientFolders] = useState<Record<string, boolean>>({});
+
+  // ----------------------------------------------------
+  // MEMOIZED HIGH-PERFORMANCE DATA SELECTORS
+  // ----------------------------------------------------
+  const memoizedFilteredProducts = useMemo(() => {
+    const searchLower = catalogSearch.toLowerCase().trim();
+    if (!searchLower && !catalogBrandFilter && !catalogCategoryFilter) return products;
+
+    return products.filter(p => {
+      let actives = '';
+      try {
+        actives = JSON.parse(p.activeIngredients).join(', ').toLowerCase();
+      } catch(e) {
+        actives = (p.activeIngredients || '').toLowerCase();
+      }
+      const matchesSearch = !searchLower || (
+        p.name.toLowerCase().includes(searchLower) ||
+        p.brandLine.toLowerCase().includes(searchLower) ||
+        actives.includes(searchLower)
+      );
+      const matchesBrand = !catalogBrandFilter || p.brandLine === catalogBrandFilter;
+      const matchesCategory = !catalogCategoryFilter || (
+        p.isProfessionalUse === (catalogCategoryFilter === 'Cabina' ? 1 : catalogCategoryFilter === 'Apoyo Casa' ? 0 : 2)
+      );
+      return matchesSearch && matchesBrand && matchesCategory;
+    });
+  }, [products, catalogSearch, catalogBrandFilter, catalogCategoryFilter]);
+
+  const memoizedGroupedRecords = useMemo(() => {
+    return records.reduce((acc, curr) => {
+      if (!acc[curr.patientId]) {
+        acc[curr.patientId] = [];
+      }
+      acc[curr.patientId].push(curr);
+      return acc;
+    }, {} as Record<string, Consultation[]>);
+  }, [records]);
+
+  const memoizedFilteredPatients = useMemo(() => {
+    const query = folderSearchQuery.toLowerCase().trim();
+    return patients.filter(pat => {
+      const fullName = `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}`.toLowerCase();
+      const phone = (pat.phoneEncrypted || '').toLowerCase();
+      const matchesSearch = !query || fullName.includes(query) || phone.includes(query);
+
+      const patConsultations = memoizedGroupedRecords[pat.id] || [];
+      const latestConsultation = patConsultations.slice().sort((a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime())[0];
+      
+      const matchesBiotype = !folderBiotypeFilter || (latestConsultation && latestConsultation.skinBiotype === folderBiotypeFilter);
+
+      return matchesSearch && matchesBiotype;
+    });
+  }, [patients, folderSearchQuery, folderBiotypeFilter, memoizedGroupedRecords]);
 
   // ----------------------------------------------------
   // INITIALIZATIONS & BOOTSTRAPPING
@@ -3221,7 +3276,7 @@ export default function App() {
     }
   };
 
-  const getMatchingProductsForStep = (step: RoutineStepTemplate): Product[] => {
+  const getMatchingProductsForStep = useCallback((step: RoutineStepTemplate): Product[] => {
     return products.filter(p => {
       const nameLower = p.name.toLowerCase();
       const brandLower = p.brandLine.toLowerCase();
@@ -3243,7 +3298,7 @@ export default function App() {
         return false;
       });
     });
-  };
+  }, [products]);
 
   const handleAddStepToCurrentRoutine = () => {
     setEditableRoutineSteps(prev => [
@@ -4914,20 +4969,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
-                    {products
-                      .filter(p => {
-                        const searchLower = catalogSearch.toLowerCase();
-                        let actives = '';
-                        try {
-                          actives = JSON.parse(p.activeIngredients).join(', ').toLowerCase();
-                        } catch(e) {
-                          actives = p.activeIngredients.toLowerCase();
-                        }
-                        return p.name.toLowerCase().includes(searchLower) ||
-                               p.brandLine.toLowerCase().includes(searchLower) ||
-                               actives.includes(searchLower);
-                      })
-                      .map(p => {
+                    {memoizedFilteredProducts.map(p => {
                         let parsedActives = '';
                         try {
                           parsedActives = JSON.parse(p.activeIngredients).join(', ');
@@ -5126,28 +5168,8 @@ export default function App() {
             {/* Patients Folders Grid */}
             <div className="space-y-4">
               {(() => {
-                // Group records by patientId
-                const groupedRecords = records.reduce((acc, curr) => {
-                  if (!acc[curr.patientId]) {
-                    acc[curr.patientId] = [];
-                  }
-                  acc[curr.patientId].push(curr);
-                  return acc;
-                }, {} as Record<string, Consultation[]>);
-
-                // Filter patients
-                const filteredPatients = patients.filter(pat => {
-                  const fullName = `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}`.toLowerCase();
-                  const phone = (pat.phoneEncrypted || '').toLowerCase();
-                  const matchesSearch = fullName.includes(folderSearchQuery.toLowerCase()) || phone.includes(folderSearchQuery.toLowerCase());
-
-                  const patConsultations = groupedRecords[pat.id] || [];
-                  const latestConsultation = patConsultations.sort((a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime())[0];
-                  
-                  const matchesBiotype = !folderBiotypeFilter || (latestConsultation && latestConsultation.skinBiotype === folderBiotypeFilter);
-
-                  return matchesSearch && matchesBiotype;
-                });
+                const groupedRecords = memoizedGroupedRecords;
+                const filteredPatients = memoizedFilteredPatients;
 
                 if (filteredPatients.length === 0) {
                   return (
