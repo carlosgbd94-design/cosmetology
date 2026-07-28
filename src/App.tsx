@@ -237,6 +237,7 @@ export default function App() {
   const [editingStepIndex, setEditingStepIndex] = useState<number | null>(null);
   const [stepSuggestions, setStepSuggestions] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [homeProtocolName, setHomeProtocolName] = useState<string>('');
 
 
 
@@ -4183,6 +4184,20 @@ export default function App() {
                         <Eye className="w-3.5 h-3.5 text-blue-500" /> Vista Digital Paciente
                       </button>
                     </div>
+                  </div>
+
+                  {/* Rubro Opcional para Nombre Personalizado del Protocolo de Apoyo en Casa */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-amber-500/5 p-3 rounded-xl border border-amber-500/20">
+                    <label className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-widest shrink-0 flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-amber-500" /> Nombre del Protocolo (Opcional):
+                    </label>
+                    <input
+                      type="text"
+                      value={homeProtocolName}
+                      onChange={e => setHomeProtocolName(e.target.value)}
+                      placeholder="Ej. Rutina Antiedad Intensiva, Protocolo Despigmentante de Verano (no obligatorio)..."
+                      className="smart-input w-full text-xs py-1.5 px-3 font-semibold"
+                    />
                   </div>
 
                   {/* Banner de Alertas Clínicas de Seguridad e Incompatibilidad de Activos */}

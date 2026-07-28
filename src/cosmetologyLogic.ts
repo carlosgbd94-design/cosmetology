@@ -1,4 +1,20 @@
-import { Product, Prescription, Consultation } from './types';
+// Función unificada para interpretar arreglos JSON o texto separado por comas
+export function parseStringList(input: any): string[] {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return input.map(item => String(item).trim()).filter(Boolean);
+  }
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => String(item).trim()).filter(Boolean);
+      }
+    } catch (e) {}
+    return input.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
 
 // Definición de capas estándar de aplicación cosmetológica (Layering)
 export const LAYERING_CATEGORIES: { name: string; category: string; order: number; icon: string }[] = [

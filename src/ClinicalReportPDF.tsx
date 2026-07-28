@@ -1,7 +1,7 @@
 import React from 'react';
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import { Patient, Consultation } from './types';
-import { getLayerOrder } from './cosmetologyLogic';
+import { getLayerOrder, parseStringList } from './cosmetologyLogic';
 
 // Paleta corporativa de Medicina Estética (Azul Slate Corporate)
 const styles = StyleSheet.create({
@@ -261,48 +261,28 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                       const productName = step.productDetails?.name || step.customProductName || 'Insumo de Cabina';
                       const brand = step.productDetails?.brandLine || step.customBrand || 'N/A';
                       
-                      // Procesar ingredientes activos
-                      let activeList: string[] = [];
-                      if (step.productDetails) {
-                        try {
-                          activeList = JSON.parse(step.productDetails.activeIngredients);
-                        } catch (e) {
-                          activeList = step.productDetails.activeIngredients
-                            ? step.productDetails.activeIngredients.split(',').map((x: string) => x.trim())
-                            : [];
-                        }
-                      } else if (step.customActiveIngredients) {
-                        activeList = step.customActiveIngredients.split(',').map((x: string) => x.trim());
-                      }
-
-                      // Procesar acciones
-                      let actionList: string[] = [];
-                      if (step.productDetails) {
-                        try {
-                          actionList = JSON.parse(step.productDetails.physiologicalActions);
-                        } catch (e) {
-                          actionList = step.productDetails.physiologicalActions
-                            ? step.productDetails.physiologicalActions.split(',').map((x: string) => x.trim())
-                            : [];
-                        }
-                      } else if (step.customActions) {
-                        actionList = step.customActions.split(',').map((x: string) => x.trim());
-                      }
-
-                      // Asegurar que sean arrays
-                      if (!Array.isArray(activeList)) {
-                        activeList = activeList ? [String(activeList)] : [];
-                      }
-                      if (!Array.isArray(actionList)) {
-                        actionList = actionList ? [String(actionList)] : [];
-                      }
+                      // Procesar ingredientes activos y acciones con parser unificado
+                      const activeList = parseStringList(step.productDetails?.activeIngredients || step.customActiveIngredients);
+                      const actionList = parseStringList(step.productDetails?.physiologicalActions || step.customActions);
 
                       const pairs: { active: string; action: string }[] = [];
-                      const maxLen = Math.max(activeList.length, actionList.length);
-                      for (let i = 0; i < maxLen; i++) {
-                        pairs.push({
-                          active: activeList[i] || 'N/A',
-                          action: actionList[i] || 'N/A'
+                      if (activeList.length === 0 && actionList.length === 0) {
+                        pairs.push({ active: 'N/A', action: 'N/A' });
+                      } else if (activeList.length > 0) {
+                        activeList.forEach((act, i) => {
+                          let actAction = 'N/A';
+                          if (i < actionList.length) {
+                            actAction = actionList[i];
+                          } else if (actionList.length === 1) {
+                            actAction = actionList[0];
+                          } else if (actionList.length > 0) {
+                            actAction = actionList[i % actionList.length];
+                          }
+                          pairs.push({ active: act, action: actAction });
+                        });
+                      } else {
+                        actionList.forEach(act => {
+                          pairs.push({ active: 'N/A', action: act });
                         });
                       }
 
