@@ -12,7 +12,7 @@ import Papa from 'papaparse';
 import { 
   Activity, Award, Beaker, CheckCircle, ChevronDown, Clipboard, Clock, CloudDownload, 
   Database, FileText, FileUp, FolderHeart, Info, Layers, Lock, Moon, Plus, Printer, 
-  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, Calendar, Droplets
+  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, ShieldCheck, Calendar, Droplets
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
 import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine } from './cosmetologyLogic';
