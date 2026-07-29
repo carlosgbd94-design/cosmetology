@@ -32,6 +32,9 @@ export interface Product {
   retailPrice: number;
   isProfessionalUse: boolean | number;
   skinBiotypes?: string; // JSON string que almacena string[]
+  stockQuantity?: number; // Cantidad física en inventario
+  costPrice?: number;     // Costo de adquisición por unidad
+  reorderPoint?: number;  // Nivel de reorden / stock mínimo
 }
 
 export interface ConsultationStep {
@@ -80,5 +83,8 @@ export interface Consultation {
   allergies?: string;
   medicalConditions?: string;
   recommendations?: string;
+  signatureDataUrl?: string; // Firma digital táctil en Base64
+  beforeImageUrl?: string;   // Fotografía Antes
+  afterImageUrl?: string;    // Fotografía Después
+  consentAccepted?: boolean; // Aceptación de consentimiento informado
 }
-

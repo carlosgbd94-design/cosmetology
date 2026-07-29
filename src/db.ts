@@ -443,6 +443,24 @@ export async function seedTables(): Promise<void> {
     try {
       await executeQuery(`ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'`);
     } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 10`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE products ADD COLUMN reorder_point INTEGER DEFAULT 3`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultations ADD COLUMN signature_data_url TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultations ADD COLUMN before_image_url TEXT`);
+    } catch (e) {}
+    try {
+      await executeQuery(`ALTER TABLE consultations ADD COLUMN after_image_url TEXT`);
+    } catch (e) {}
 
     // Ensure all custom step columns exist
     try {

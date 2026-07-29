@@ -16,6 +16,9 @@ import {
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
 import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine } from './cosmetologyLogic';
+import { BeforeAfterSlider } from './BeforeAfterSlider';
+import { ConsentModal } from './ConsentModal';
+import { BackupModal } from './BackupModal';
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
@@ -238,6 +241,8 @@ export default function App() {
   const [stepSuggestions, setStepSuggestions] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [homeProtocolName, setHomeProtocolName] = useState<string>('');
+  const [isConsentModalOpen, setIsConsentModalOpen] = useState<boolean>(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
 
 
 
@@ -3726,7 +3731,16 @@ export default function App() {
             ))}
           </div>
 
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-2">
+            <button
+              onClick={() => setIsBackupModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-luxe-300 hover:text-amber-500 flex items-center gap-1.5 text-xs font-bold transition-all border border-slate-200/50 dark:border-white/5 shadow-sm"
+              title="Centro de Respaldo y Copias de Seguridad de la Base de Datos"
+            >
+              <Database className="w-4 h-4 text-amber-500" />
+              <span className="hidden lg:inline">Respaldo BD</span>
+            </button>
+
             <button onClick={toggleTheme} className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-luxe-300 flex items-center justify-center">{theme === 'light' ? <Moon className="w-4.5 h-4.5" /> : <Sun className="w-4.5 h-4.5" />}</button>
             <button onClick={handleLogout} className="w-10 h-10 rounded-xl bg-red-100/50 dark:bg-red-500/10 text-red-600 flex items-center justify-center"><Lock className="w-4.5 h-4.5" /></button>
           </div>
@@ -3908,6 +3922,28 @@ export default function App() {
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Protocolo</label>
                     <input type="text" value={patientForm.medicalDiagnosis} onChange={e => setPatientForm(prev => ({ ...prev, medicalDiagnosis: e.target.value }))} placeholder="P. ej., Limpieza profunda, Peeling..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
+                </div>
+
+                {/* Consentimiento Informado Digital */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20">
+                  <div className="flex items-center gap-2.5">
+                    <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 dark:text-white block">Consentimiento Informado Clínico</span>
+                      <span className="text-[10px] text-slate-400">
+                        {patientForm.consentAccepted ? '✅ Consentimiento aceptado y firmado digitalmente' : '⚠️ Pendiente de firma por el paciente'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsConsentModalOpen(true)}
+                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    {patientForm.consentAccepted ? 'Ver / Re-firmar' : 'Firmar Consentimiento'}
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -5682,6 +5718,26 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <ConsentModal
+        isOpen={isConsentModalOpen}
+        patientName={`${patientForm.firstNameEncrypted || ''} ${patientForm.lastNameEncrypted || ''}`}
+        onClose={() => setIsConsentModalOpen(false)}
+        onConfirm={(sigData) => {
+          setPatientForm(prev => ({ ...prev, signatureDataUrl: sigData, consentAccepted: true }));
+          setIsConsentModalOpen(false);
+          showToastMsg('Consentimiento informado firmado e integrado a la consulta.', 'success');
+        }}
+      />
+
+      <BackupModal
+        isOpen={isBackupModalOpen}
+        onClose={() => setIsBackupModalOpen(false)}
+        onRestoreComplete={() => {
+          bootstrapSystem();
+          showToastMsg('Base de datos y catálogo sincronizados.', 'success');
+        }}
+      />
     </div>
   );
 }
