@@ -53,8 +53,17 @@ function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId,
         setIsOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const autoProduct = selectedProductId !== 'default' 
@@ -405,6 +414,21 @@ export default function App() {
   const actionContainerRef = useRef<HTMLDivElement | null>(null);
   const ingredientContainerRef = useRef<HTMLDivElement | null>(null);
 
+  const [brandSuggestions, setBrandSuggestions] = useState<string[]>([]);
+  const [showBrandDropdown, setShowBrandDropdown] = useState<boolean>(false);
+  const brandContainerRef = useRef<HTMLDivElement | null>(null);
+  const presContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const allCapturedBrands = useMemo(() => {
+    const brandSet = new Set<string>();
+    products.forEach(p => {
+      if (p.brandLine && p.brandLine.trim()) {
+        brandSet.add(p.brandLine.trim());
+      }
+    });
+    return Array.from(brandSet).sort();
+  }, [products]);
+
   const allCapturedActions = useMemo(() => {
     const actionSet = new Set<string>();
     
@@ -538,14 +562,21 @@ export default function App() {
       if (actionContainerRef.current && !actionContainerRef.current.contains(event.target as Node)) {
         setShowActionDropdown(false);
       }
+      if (brandContainerRef.current && !brandContainerRef.current.contains(event.target as Node)) {
+        setShowBrandDropdown(false);
+      }
       if (ingredientContainerRef.current && !ingredientContainerRef.current.contains(event.target as Node)) {
         setIngredientSuggestions([]);
+      }
+      if (presContainerRef.current && !presContainerRef.current.contains(event.target as Node)) {
+        setPresSuggestions([]);
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setShowActionDropdown(false);
+        setShowBrandDropdown(false);
         setIngredientSuggestions([]);
         setPresSuggestions([]);
         setStepSuggestions([]);
@@ -2072,6 +2103,17 @@ export default function App() {
   const selectFormAction = (act: string) => {
     setFormIngredientAction(act);
     setShowActionDropdown(false);
+  };
+
+  const handleBrandSearch = (val: string) => {
+    setProductForm(prev => ({ ...prev, brandLine: val }));
+    if (!val.trim()) {
+      setBrandSuggestions(allCapturedBrands.slice(0, 8));
+    } else {
+      const q = val.toLowerCase().trim();
+      setBrandSuggestions(allCapturedBrands.filter(b => b.toLowerCase().includes(q)).slice(0, 8));
+    }
+    setShowBrandDropdown(true);
   };
 
   const handleAddIngredientToForm = () => {
@@ -4341,12 +4383,13 @@ export default function App() {
                   {/* Panel de Selección Dual y Captura de Producto */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-500/5 p-5 rounded-[24px] border border-slate-200/20">
                     <div className="lg:col-span-5 space-y-4 flex flex-col justify-between">
-                      <div className="flex flex-col gap-1.5 relative">
+                      <div ref={presContainerRef} className="flex flex-col gap-1.5 relative">
                         <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider">Buscar en Catálogo Dermoestético</label>
                         <input
                           type="text"
                           value={presSearchQuery}
                           onChange={e => handlePresProductSearch(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Escape') setPresSuggestions([]); }}
                           placeholder="🔍 Buscar por marca, nombre o activo..."
                           className="smart-input w-full"
                         />
@@ -4998,7 +5041,56 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                     <input type="text" value={productForm.name} onChange={e => setProductForm(prev => ({ ...prev, name: e.target.value }))} placeholder="Nombre comercial..." required className="smart-input w-full" />
                     <input type="text" value={productForm.sku} onChange={e => setProductForm(prev => ({ ...prev, sku: e.target.value }))} placeholder="SKU/Código..." required className="smart-input w-full" />
-                    <input type="text" value={productForm.brandLine} onChange={e => setProductForm(prev => ({ ...prev, brandLine: e.target.value }))} placeholder="Marca/Línea..." required className="smart-input w-full" />
+                    <div ref={brandContainerRef} className="relative">
+                      <input
+                        type="text"
+                        value={productForm.brandLine}
+                        onChange={e => handleBrandSearch(e.target.value)}
+                        onFocus={() => {
+                          const q = productForm.brandLine.toLowerCase().trim();
+                          const filtered = q
+                            ? allCapturedBrands.filter(b => b.toLowerCase().includes(q)).slice(0, 8)
+                            : allCapturedBrands.slice(0, 8);
+                          setBrandSuggestions(filtered);
+                          setShowBrandDropdown(true);
+                        }}
+                        onKeyDown={e => { if (e.key === 'Escape') setShowBrandDropdown(false); }}
+                        placeholder="Marca/Línea..."
+                        required
+                        className="smart-input w-full"
+                      />
+                      {showBrandDropdown && brandSuggestions.length > 0 && (
+                        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-2xl max-h-52 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 animate-fade-in">
+                          <div className="px-3 py-1.5 bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between sticky top-0 backdrop-blur-md z-10 border-b border-slate-100 dark:border-white/5">
+                            <span>Marcas en BD ({brandSuggestions.length})</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowBrandDropdown(false)}
+                              className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-xs"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {brandSuggestions.map(b => (
+                            <div
+                              key={b}
+                              onClick={() => {
+                                setProductForm(prev => ({ ...prev, brandLine: b }));
+                                setShowBrandDropdown(false);
+                              }}
+                              className="p-2.5 hover:bg-amber-500/10 dark:hover:bg-white/5 cursor-pointer text-xs transition-colors flex items-center justify-between group"
+                            >
+                              <span className="font-semibold text-slate-800 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                                {b}
+                              </span>
+                              <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
+                                Usar Marca
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <input type="number" step="0.01" value={productForm.retailPrice} onChange={e => setProductForm(prev => ({ ...prev, retailPrice: e.target.value }))} placeholder="Precio al público (MXN)..." required className="smart-input w-full" />
                   </div>
 
