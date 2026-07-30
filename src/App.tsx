@@ -402,6 +402,8 @@ export default function App() {
   const [ingredientSuggestions, setIngredientSuggestions] = useState<{ name: string; action: string }[]>([]);
   const [actionSuggestions, setActionSuggestions] = useState<string[]>([]);
   const [showActionDropdown, setShowActionDropdown] = useState<boolean>(false);
+  const actionContainerRef = useRef<HTMLDivElement | null>(null);
+  const ingredientContainerRef = useRef<HTMLDivElement | null>(null);
 
   const allCapturedActions = useMemo(() => {
     const actionSet = new Set<string>();
@@ -527,6 +529,34 @@ export default function App() {
     return () => {
       window.removeEventListener('online', handleStatus);
       window.removeEventListener('offline', handleStatus);
+    };
+  }, []);
+
+  // Listener para cerrar listas desplegables al presionar Escape o hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (actionContainerRef.current && !actionContainerRef.current.contains(event.target as Node)) {
+        setShowActionDropdown(false);
+      }
+      if (ingredientContainerRef.current && !ingredientContainerRef.current.contains(event.target as Node)) {
+        setIngredientSuggestions([]);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowActionDropdown(false);
+        setIngredientSuggestions([]);
+        setPresSuggestions([]);
+        setStepSuggestions([]);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
   async function bootstrapSystem() {
@@ -5017,9 +5047,16 @@ export default function App() {
                     </h4>
 
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                      <div className="md:col-span-4 flex flex-col gap-1.5 relative">
+                      <div ref={ingredientContainerRef} className="md:col-span-4 flex flex-col gap-1.5 relative">
                         <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Ingrediente Activo</label>
-                        <input type="text" value={formIngredientInput} onChange={e => handleProductIngredientSearch(e.target.value)} placeholder="Ej: Centella..." className="smart-input w-full" />
+                        <input
+                          type="text"
+                          value={formIngredientInput}
+                          onChange={e => handleProductIngredientSearch(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Escape') setIngredientSuggestions([]); }}
+                          placeholder="Ej: Centella..."
+                          className="smart-input w-full"
+                        />
                         {ingredientSuggestions.length > 0 && (
                           <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-xl max-h-40 overflow-y-auto">
                             {ingredientSuggestions.map(ing => (
@@ -5030,12 +5067,13 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <div className="md:col-span-6 flex flex-col gap-1.5 relative">
+                      <div ref={actionContainerRef} className="md:col-span-6 flex flex-col gap-1.5 relative">
                         <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Acción / Efecto Clínico de este Activo</label>
                         <input
                           type="text"
                           value={formIngredientAction}
                           onChange={e => handleProductActionSearch(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Escape') setShowActionDropdown(false); }}
                           onFocus={() => {
                             const queryLower = formIngredientAction.toLowerCase().trim();
                             const filtered = queryLower
