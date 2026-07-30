@@ -15,7 +15,7 @@ import {
   Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, ShieldCheck, Calendar, Droplets
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
-import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine } from './cosmetologyLogic';
+import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList } from './cosmetologyLogic';
 import { BeforeAfterSlider } from './BeforeAfterSlider';
 import { ConsentModal } from './ConsentModal';
 import { BackupModal } from './BackupModal';
@@ -400,6 +400,32 @@ export default function App() {
   const [formIngredientAction, setFormIngredientAction] = useState('');
   const [formIngredientsList, setFormIngredientsList] = useState<{ name: string; action: string }[]>([]);
   const [ingredientSuggestions, setIngredientSuggestions] = useState<{ name: string; action: string }[]>([]);
+  const [actionSuggestions, setActionSuggestions] = useState<string[]>([]);
+  const [showActionDropdown, setShowActionDropdown] = useState<boolean>(false);
+
+  const allCapturedActions = useMemo(() => {
+    const actionSet = new Set<string>();
+    
+    // 1. Recopilar de la lista maestra de activos
+    ingredients.forEach(ing => {
+      if (ing.action && ing.action.trim()) {
+        actionSet.add(ing.action.trim());
+      }
+    });
+
+    // 2. Recopilar de todos los productos capturados en la base de datos
+    products.forEach(p => {
+      const actions = parseStringList(p.physiologicalActions);
+      actions.forEach(act => {
+        if (act && act.trim()) {
+          actionSet.add(act.trim());
+        }
+      });
+    });
+
+    return Array.from(actionSet).sort();
+  }, [products, ingredients]);
+
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogBrandFilter, setCatalogBrandFilter] = useState('');
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState('');
@@ -1998,6 +2024,24 @@ export default function App() {
     setFormIngredientInput(name);
     setFormIngredientAction(action);
     setIngredientSuggestions([]);
+    setShowActionDropdown(false);
+  };
+
+  const handleProductActionSearch = (val: string) => {
+    setFormIngredientAction(val);
+    if (!val.trim()) {
+      setActionSuggestions(allCapturedActions.slice(0, 8));
+    } else {
+      const queryLower = val.toLowerCase().trim();
+      const filtered = allCapturedActions.filter(act => act.toLowerCase().includes(queryLower)).slice(0, 8);
+      setActionSuggestions(filtered);
+    }
+    setShowActionDropdown(true);
+  };
+
+  const selectFormAction = (act: string) => {
+    setFormIngredientAction(act);
+    setShowActionDropdown(false);
   };
 
   const handleAddIngredientToForm = () => {
@@ -4986,9 +5030,52 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <div className="md:col-span-6 flex flex-col gap-1.5">
+                      <div className="md:col-span-6 flex flex-col gap-1.5 relative">
                         <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Acción / Efecto Clínico de este Activo</label>
-                        <input type="text" value={formIngredientAction} onChange={e => setFormIngredientAction(e.target.value)} placeholder="Ej: Estimula colágeno..." className="smart-input w-full" />
+                        <input
+                          type="text"
+                          value={formIngredientAction}
+                          onChange={e => handleProductActionSearch(e.target.value)}
+                          onFocus={() => {
+                            const queryLower = formIngredientAction.toLowerCase().trim();
+                            const filtered = queryLower
+                              ? allCapturedActions.filter(act => act.toLowerCase().includes(queryLower)).slice(0, 8)
+                              : allCapturedActions.slice(0, 8);
+                            setActionSuggestions(filtered);
+                            setShowActionDropdown(true);
+                          }}
+                          placeholder="Ej: Estimula colágeno, Hidratante, Calmante..."
+                          className="smart-input w-full"
+                        />
+
+                        {showActionDropdown && actionSuggestions.length > 0 && (
+                          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-2xl max-h-52 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 animate-fade-in">
+                            <div className="px-3 py-1.5 bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between sticky top-0 backdrop-blur-md z-10 border-b border-slate-100 dark:border-white/5">
+                              <span>Efectos Clínicos Capturados en la BD ({actionSuggestions.length})</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowActionDropdown(false)}
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-xs"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            {actionSuggestions.map(actionText => (
+                              <div
+                                key={actionText}
+                                onClick={() => selectFormAction(actionText)}
+                                className="p-2.5 hover:bg-amber-500/10 dark:hover:bg-white/5 cursor-pointer text-xs transition-colors flex items-center justify-between group"
+                              >
+                                <span className="font-semibold text-slate-800 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                                  {actionText}
+                                </span>
+                                <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
+                                  Usar Efecto
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="md:col-span-2">
                         <button type="button" onClick={handleAddIngredientToForm} className="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white w-full py-2.5 rounded-xl text-xs font-bold shadow transition-all hover:brightness-110">
