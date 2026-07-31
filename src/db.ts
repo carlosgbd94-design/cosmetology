@@ -444,6 +444,9 @@ export async function seedTables(): Promise<void> {
       await executeQuery(`ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'`);
     } catch (e) {}
     try {
+      await executeQuery(`ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'General'`);
+    } catch (e) {}
+    try {
       await executeQuery(`ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 10`);
     } catch (e) {}
     try {

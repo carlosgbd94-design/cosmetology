@@ -27,6 +27,7 @@ export interface Product {
   sku: string;
   name: string;
   brandLine: string;
+  productType?: string; // Tipo/Formato (p. ej., "Limpiador / Gel", "Suero", "Fotoprotector")
   activeIngredients: string; // JSON string que almacena string[]
   physiologicalActions: string; // JSON string que almacena string[]
   retailPrice: number;

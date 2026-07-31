@@ -33,6 +33,143 @@ const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Apoyo en Casa": ["Alternative", "Rosa Mosq.", "Mulike", "Oro", "Clásica", "Diamante", "Biohelicina", "Biobotulina"]
 };
 
+export const DEFAULT_PRODUCT_TYPES = [
+  'Limpiador / Gel / Leche',
+  'Tónico / Loción / Armonizador',
+  'Exfoliante / Peeling / Scrub',
+  'Suero / Sérum / Ampolleta',
+  'Mascarilla / Plastificante',
+  'Crema / Emulsión / Bálsamo',
+  'Contorno de Ojos / Labios',
+  'Fotoprotector / Bloqueador Solar',
+  'Aceite / Insumo de Masaje'
+];
+
+export function inferProductType(name: string, brandLine?: string): string {
+  const norm = ((name || '') + ' ' + (brandLine || '')).toLowerCase();
+  if (norm.includes('shampoo') || norm.includes('limpia') || norm.includes('gel limpiador') || norm.includes('leche') || norm.includes('espuma')) return 'Limpiador / Gel / Leche';
+  if (norm.includes('tónic') || norm.includes('tonic') || norm.includes('loción') || norm.includes('locion') || norm.includes('armonizador')) return 'Tónico / Loción / Armonizador';
+  if (norm.includes('exfolia') || norm.includes('peeling') || norm.includes('scrub') || norm.includes('ácido') || norm.includes('glicólico')) return 'Exfoliante / Peeling / Scrub';
+  if (norm.includes('suero') || norm.includes('serum') || norm.includes('ampolleta') || norm.includes('concentrado') || norm.includes('elixir')) return 'Suero / Sérum / Ampolleta';
+  if (norm.includes('mascarilla') || norm.includes('mask') || norm.includes('plástic') || norm.includes('alginato')) return 'Mascarilla / Plastificante';
+  if (norm.includes('crema') || norm.includes('emulsión') || norm.includes('emulsion') || norm.includes('bálsamo') || norm.includes('hidratante') || norm.includes('noche')) return 'Crema / Emulsión / Bálsamo';
+  if (norm.includes('ojos') || norm.includes('ocular') || norm.includes('contorno') || norm.includes('labios')) return 'Contorno de Ojos / Labios';
+  if (norm.includes('solar') || norm.includes('pantalla') || norm.includes('bloqueador') || norm.includes('spf') || norm.includes('fotoprotec')) return 'Fotoprotector / Bloqueador Solar';
+  if (norm.includes('aceite') || norm.includes('masaje') || norm.includes('vehicular')) return 'Aceite / Insumo de Masaje';
+  return 'General';
+}
+
+interface SmartProductTypeSelectorProps {
+  value: string;
+  onChange: (type: string) => void;
+  availableTypes: string[];
+}
+
+function SmartProductTypeSelector({ value, onChange, availableTypes }: SmartProductTypeSelectorProps) {
+  const [search, setSearch] = useState(value || '');
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setSearch(value || '');
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return availableTypes;
+    return availableTypes.filter(t => t.toLowerCase().includes(q));
+  }, [search, availableTypes]);
+
+  const exactMatch = availableTypes.some(t => t.toLowerCase() === search.trim().toLowerCase());
+
+  return (
+    <div ref={containerRef} className="flex flex-col gap-1.5 relative w-full">
+      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1 flex items-center justify-between">
+        <span>Tipo de Producto / Formato *</span>
+        <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold">Desplegable & Autocompletado</span>
+      </label>
+      
+      <input
+        type="text"
+        value={search}
+        onChange={e => {
+          setSearch(e.target.value);
+          onChange(e.target.value);
+          setIsOpen(true);
+        }}
+        onFocus={() => setIsOpen(true)}
+        placeholder="Ej: Gel limpiador, Suero, Fotoprotector..."
+        required
+        className="smart-input w-full font-semibold text-slate-800 dark:text-white"
+      />
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 animate-fade-in">
+          <div className="px-3 py-1.5 bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between sticky top-0 backdrop-blur-md z-10 border-b border-slate-100 dark:border-white/5">
+            <span>Tipos / Formatos Registrados ({filtered.length})</span>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-xs"
+            >
+              ✕
+            </button>
+          </div>
+
+          {filtered.map(t => (
+            <div
+              key={t}
+              onClick={() => {
+                onChange(t);
+                setSearch(t);
+                setIsOpen(false);
+              }}
+              className="p-2.5 hover:bg-amber-500/10 dark:hover:bg-white/5 cursor-pointer text-xs transition-colors flex items-center justify-between group"
+            >
+              <span className="font-semibold text-slate-800 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                {t}
+              </span>
+              {value === t && <Check className="w-3.5 h-3.5 text-amber-500" />}
+            </div>
+          ))}
+
+          {!exactMatch && search.trim().length > 0 && (
+            <div
+              onClick={() => {
+                const newType = search.trim();
+                onChange(newType);
+                setSearch(newType);
+                setIsOpen(false);
+              }}
+              className="p-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold text-xs cursor-pointer flex items-center gap-2 transition-colors border-t border-amber-500/30"
+            >
+              <Plus className="w-4 h-4 text-amber-500" />
+              <span>Agregar "{search.trim()}" como nuevo tipo</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface SmartCatalogSelectorProps {
   stepName: string;
   defaultProductName: string;
@@ -399,6 +536,7 @@ export default function App() {
     sku: '',
     name: '',
     brandLine: '',
+    productType: 'Limpiador / Gel / Leche',
     retailPrice: '',
     isProfessionalUse: 1,
     activeIngredients: '[]',
@@ -418,6 +556,17 @@ export default function App() {
   const [showBrandDropdown, setShowBrandDropdown] = useState<boolean>(false);
   const brandContainerRef = useRef<HTMLDivElement | null>(null);
   const presContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const allCapturedProductTypes = useMemo(() => {
+    const typeSet = new Set<string>(DEFAULT_PRODUCT_TYPES);
+    products.forEach(p => {
+      const t = p.productType || inferProductType(p.name, p.brandLine);
+      if (t && t.trim()) {
+        typeSet.add(t.trim());
+      }
+    });
+    return Array.from(typeSet).sort();
+  }, [products]);
 
   const allCapturedBrands = useMemo(() => {
     const brandSet = new Set<string>();
@@ -2153,6 +2302,7 @@ export default function App() {
       sku: p.sku,
       name: p.name,
       brandLine: p.brandLine,
+      productType: p.productType || inferProductType(p.name, p.brandLine),
       retailPrice: String(p.retailPrice),
       isProfessionalUse: p.isProfessionalUse,
       activeIngredients: p.activeIngredients,
@@ -2186,12 +2336,14 @@ export default function App() {
 
     const actives = formIngredientsList.map(i => i.name);
     const actions = formIngredientsList.map(i => i.action);
+    const pType = productForm.productType || inferProductType(productForm.name, productForm.brandLine);
 
     const newProd: Product = {
       id: productForm.id || `PROD-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
       sku: productForm.sku,
       name: productForm.name,
       brandLine: productForm.brandLine,
+      productType: pType,
       retailPrice: parseFloat(productForm.retailPrice) || 0,
       isProfessionalUse: productForm.isProfessionalUse,
       activeIngredients: JSON.stringify(actives),
@@ -2201,9 +2353,9 @@ export default function App() {
 
     if (navigator.onLine) {
       await executeQuery(
-        `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
+        `INSERT OR REPLACE INTO products (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.productType, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
       );
     }
 
@@ -5040,60 +5192,86 @@ export default function App() {
                 </h3>
                 
                 <form onSubmit={handleSaveProduct} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <input type="text" value={productForm.name} onChange={e => setProductForm(prev => ({ ...prev, name: e.target.value }))} placeholder="Nombre comercial..." required className="smart-input w-full" />
-                    <input type="text" value={productForm.sku} onChange={e => setProductForm(prev => ({ ...prev, sku: e.target.value }))} placeholder="SKU/Código..." required className="smart-input w-full" />
-                    <div ref={brandContainerRef} className="relative">
-                      <input
-                        type="text"
-                        value={productForm.brandLine}
-                        onChange={e => handleBrandSearch(e.target.value)}
-                        onFocus={() => {
-                          const q = productForm.brandLine.toLowerCase().trim();
-                          const filtered = q
-                            ? allCapturedBrands.filter(b => b.toLowerCase().includes(q)).slice(0, 8)
-                            : allCapturedBrands.slice(0, 8);
-                          setBrandSuggestions(filtered);
-                          setShowBrandDropdown(true);
-                        }}
-                        onKeyDown={e => { if (e.key === 'Escape') setShowBrandDropdown(false); }}
-                        placeholder="Marca/Línea..."
-                        required
-                        className="smart-input w-full"
-                      />
-                      {showBrandDropdown && brandSuggestions.length > 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-2xl max-h-52 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 animate-fade-in">
-                          <div className="px-3 py-1.5 bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between sticky top-0 backdrop-blur-md z-10 border-b border-slate-100 dark:border-white/5">
-                            <span>Marcas en BD ({brandSuggestions.length})</span>
-                            <button
-                              type="button"
-                              onClick={() => setShowBrandDropdown(false)}
-                              className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-xs"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          {brandSuggestions.map(b => (
-                            <div
-                              key={b}
-                              onClick={() => {
-                                setProductForm(prev => ({ ...prev, brandLine: b }));
-                                setShowBrandDropdown(false);
-                              }}
-                              className="p-2.5 hover:bg-amber-500/10 dark:hover:bg-white/5 cursor-pointer text-xs transition-colors flex items-center justify-between group"
-                            >
-                              <span className="font-semibold text-slate-800 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400">
-                                {b}
-                              </span>
-                              <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
-                                Usar Marca
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-5 items-start">
+                    {/* Position 1: Tipo / Formato */}
+                    <SmartProductTypeSelector
+                      value={productForm.productType}
+                      onChange={type => setProductForm(prev => ({ ...prev, productType: type }))}
+                      availableTypes={allCapturedProductTypes}
+                    />
+
+                    {/* Position 2: Nombre Comercial */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Nombre Comercial *</label>
+                      <input type="text" value={productForm.name} onChange={e => setProductForm(prev => ({ ...prev, name: e.target.value }))} placeholder="Ej: Shampoo de Manzanilla..." required className="smart-input w-full font-semibold text-slate-800 dark:text-white" />
                     </div>
-                    <input type="number" step="0.01" value={productForm.retailPrice} onChange={e => setProductForm(prev => ({ ...prev, retailPrice: e.target.value }))} placeholder="Precio al público (MXN)..." required className="smart-input w-full" />
+
+                    {/* Position 3: SKU/Código */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">SKU / Código *</label>
+                      <input type="text" value={productForm.sku} onChange={e => setProductForm(prev => ({ ...prev, sku: e.target.value }))} placeholder="SKU..." required className="smart-input w-full font-mono" />
+                    </div>
+
+                    {/* Position 4: Marca/Línea */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Marca / Línea *</label>
+                      <div ref={brandContainerRef} className="relative">
+                        <input
+                          type="text"
+                          value={productForm.brandLine}
+                          onChange={e => handleBrandSearch(e.target.value)}
+                          onFocus={() => {
+                            const q = productForm.brandLine.toLowerCase().trim();
+                            const filtered = q
+                              ? allCapturedBrands.filter(b => b.toLowerCase().includes(q)).slice(0, 8)
+                              : allCapturedBrands.slice(0, 8);
+                            setBrandSuggestions(filtered);
+                            setShowBrandDropdown(true);
+                          }}
+                          onKeyDown={e => { if (e.key === 'Escape') setShowBrandDropdown(false); }}
+                          placeholder="Marca/Línea..."
+                          required
+                          className="smart-input w-full"
+                        />
+                        {showBrandDropdown && brandSuggestions.length > 0 && (
+                          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-2xl max-h-52 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 animate-fade-in">
+                            <div className="px-3 py-1.5 bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between sticky top-0 backdrop-blur-md z-10 border-b border-slate-100 dark:border-white/5">
+                              <span>Marcas en BD ({brandSuggestions.length})</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowBrandDropdown(false)}
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-xs"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            {brandSuggestions.map(b => (
+                              <div
+                                key={b}
+                                onClick={() => {
+                                  setProductForm(prev => ({ ...prev, brandLine: b }));
+                                  setShowBrandDropdown(false);
+                                }}
+                                className="p-2.5 hover:bg-amber-500/10 dark:hover:bg-white/5 cursor-pointer text-xs transition-colors flex items-center justify-between group"
+                              >
+                                <span className="font-semibold text-slate-800 dark:text-white group-hover:text-amber-600 dark:group-hover:text-amber-400">
+                                  {b}
+                                </span>
+                                <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-bold">
+                                  Usar Marca
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Position 5: Precio Público */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Precio Público (MXN) *</label>
+                      <input type="number" step="0.01" value={productForm.retailPrice} onChange={e => setProductForm(prev => ({ ...prev, retailPrice: e.target.value }))} placeholder="$0.00" required className="smart-input w-full font-semibold" />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
