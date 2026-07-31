@@ -2329,20 +2329,33 @@ export default function App() {
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!productForm.name || !productForm.sku || !productForm.brandLine) {
-      showToastMsg('Nombre, SKU y marca son obligatorios.', 'error');
+    if (!productForm.name || !productForm.brandLine) {
+      showToastMsg('El nombre comercial y la marca son obligatorios.', 'error');
       return;
     }
 
-    const actives = formIngredientsList.map(i => i.name);
-    const actions = formIngredientsList.map(i => i.action);
+    // Auto-incluir ingrediente activo pendiente si el usuario escribió pero no hizo clic en "Ligar Activo"
+    let currentIngredients = [...formIngredientsList];
+    if (formIngredientInput.trim()) {
+      const pendingName = formIngredientInput.trim();
+      const pendingAction = formIngredientAction.trim() || 'Acción general';
+      if (!currentIngredients.some(i => i.name.toLowerCase() === pendingName.toLowerCase())) {
+        currentIngredients.push({ name: pendingName, action: pendingAction });
+      }
+    }
+
+    const actives = currentIngredients.map(i => i.name);
+    const actions = currentIngredients.map(i => i.action);
     const pType = productForm.productType || inferProductType(productForm.name, productForm.brandLine);
 
+    const generatedSku = productForm.sku.trim() || `SKU-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
+    const generatedId = productForm.id || `PROD-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+
     const newProd: Product = {
-      id: productForm.id || `PROD-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`,
-      sku: productForm.sku,
-      name: productForm.name,
-      brandLine: productForm.brandLine,
+      id: generatedId,
+      sku: generatedSku,
+      name: productForm.name.trim(),
+      brandLine: productForm.brandLine.trim(),
       productType: pType,
       retailPrice: parseFloat(productForm.retailPrice) || 0,
       isProfessionalUse: productForm.isProfessionalUse,
@@ -2351,18 +2364,34 @@ export default function App() {
       skinBiotypes: productForm.skinBiotypes || '[]'
     };
 
-    if (navigator.onLine) {
-      await executeQuery(
-        `INSERT OR REPLACE INTO products (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.productType, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
-      );
+    // 1. Guardar SIEMPRE localmente primero en IndexedDB para asegurar persistencia offline e inmediata
+    try {
+      await db.products.put(newProd);
+    } catch (localErr) {
+      console.error("Error al guardar producto localmente:", localErr);
+      showToastMsg('Error al guardar el producto localmente.', 'error');
+      return;
     }
 
-    await db.products.put(newProd);
-    showToastMsg('Producto guardado en catálogo.', 'success');
+    // 2. Intentar guardar remotamente en Turso en segundo plano (si falla la red, no rompe el guardado local)
+    if (navigator.onLine) {
+      try {
+        await executeQuery(
+          `INSERT OR REPLACE INTO products (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.productType, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
+        );
+      } catch (remoteErr) {
+        console.warn("Fallo temporal al guardar en Turso, producto reservado en la BD local:", remoteErr);
+      }
+    }
+
+    showToastMsg('Producto guardado exitosamente en catálogo.', 'success');
     setIsProductFormOpen(false);
-    loadMasterCatalogs();
+    setFormIngredientInput('');
+    setFormIngredientAction('');
+    setFormIngredientsList([]);
+    await loadMasterCatalogs();
   };
 
   // ----------------------------------------------------
