@@ -745,26 +745,28 @@ export default function App() {
 
     // Load ingredients robustly supporting both JSON and text formats
     const resolvedIngredients: { name: string; action: string }[] = [];
-    pList.forEach(p => {
-      let actives: string[] = [];
-      let actions: string[] = [];
-      try {
-        const parsed = JSON.parse(p.activeIngredients);
-        actives = Array.isArray(parsed) ? parsed : [p.activeIngredients];
-      } catch(e) {
-        actives = (p.activeIngredients || '').split(',').map(s => s.trim()).filter(Boolean);
-      }
+    const isBiotypeWord = (str: string) => {
+      const s = (str || '').toLowerCase();
+      return s.includes('mixta') || s.includes('seborreica') || s.includes('acneica') || s.includes('alípica') || s.includes('eudermica') || s.includes('piel grasa');
+    };
 
-      try {
-        const parsed = JSON.parse(p.physiologicalActions);
-        actions = Array.isArray(parsed) ? parsed : [p.physiologicalActions];
-      } catch(e) {
-        actions = (p.physiologicalActions || '').split(',').map(s => s.trim()).filter(Boolean);
-      }
+    pList.forEach(p => {
+      const actives = parseStringList(p.activeIngredients);
+      const actions = parseStringList(p.physiologicalActions);
 
       actives.forEach((act, idx) => {
-        if (act && !resolvedIngredients.some(ri => ri.name.toLowerCase() === act.toLowerCase())) {
-          resolvedIngredients.push({ name: act, action: actions[idx] || actions[0] || 'Acción dermatológica' });
+        const actName = act.trim();
+        const actAction = (actions[idx] || actions[0] || '').trim();
+        if (!actName) return;
+
+        const existingIdx = resolvedIngredients.findIndex(ri => ri.name.toLowerCase() === actName.toLowerCase());
+        if (existingIdx === -1) {
+          resolvedIngredients.push({ name: actName, action: actAction || 'Acción dermatológica' });
+        } else {
+          const existingAction = resolvedIngredients[existingIdx].action;
+          if (actAction && (!existingAction || isBiotypeWord(existingAction) || existingAction === 'Acción dermatológica') && !isBiotypeWord(actAction)) {
+            resolvedIngredients[existingIdx].action = actAction;
+          }
         }
       });
     });
