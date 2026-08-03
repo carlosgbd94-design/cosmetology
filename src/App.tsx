@@ -701,9 +701,22 @@ export default function App() {
       setTheme('light');
     }
 
-    // Check device active license
+    // Check PayPal Return URL parameters or device active license
+    const urlParams = new URLSearchParams(window.location.search);
+    const paypalPayerId = urlParams.get('PayerID') || urlParams.get('tx') || urlParams.get('st');
     const activeLicenseToken = localStorage.getItem('dermatique_license_token');
-    if (activeLicenseToken) {
+
+    if (paypalPayerId || urlParams.has('paypal_success')) {
+      // Auto-generar licencia para cliente que retorna de PayPal
+      const randomHex = () => Math.floor(1000 + Math.random() * 9000).toString(16).toUpperCase();
+      const generatedLicense = `DERM-PAYPAL-${randomHex()}-${randomHex()}`;
+      localStorage.setItem('dermatique_license_token', generatedLicense);
+      setIsLogged(true);
+      showToastMsg(`¡Pago Confirmado por PayPal! Tu licencia activa es: ${generatedLicense}`, 'success');
+      bootstrapSystem();
+      // Limpiar URL params sin recargar la página
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (activeLicenseToken) {
       setIsLogged(true);
       bootstrapSystem();
     }
