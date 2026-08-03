@@ -24,9 +24,12 @@ const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
   "Shampoo": ["Limpiador"],
   "Exfoliación": ["Exfoliante"],
+  "Peeling": ["Exfoliante", "Peeling"],
   "Tonificación": ["Regulador pH", "Loción"],
   "Armonizador": ["Armonizador", "Regulador pH", "Loción", "Crema/Gel"],
   "Principio Activo": ["Serum/Vial", "Específico"],
+  "Sérum": ["Serum/Vial", "Suero", "Sérum"],
+  "Activo": ["Serum/Vial", "Específico", "Concentrado"],
   "Mascarilla": ["Mascarilla"],
   "Crema de Sellado": ["Crema/Gel"],
   "Protección Solar": ["Crema/Gel", "Específico", "Biobotulina"],
@@ -4375,10 +4378,12 @@ export default function App() {
                         <select value={stepInput.stepName} onChange={e => setStepInput(prev => ({ ...prev, stepName: e.target.value }))} className="smart-input w-full">
                           <option value="Limpieza">Limpieza / Higiene</option>
                           <option value="Shampoo">Shampoo Facial</option>
-                          <option value="Exfoliación">Exfoliación / Peeling</option>
+                          <option value="Exfoliación">Exfoliación</option>
+                          <option value="Peeling">Peeling</option>
                           <option value="Tonificación">Tonificación / Loción</option>
                           <option value="Armonizador">Armonizador</option>
-                          <option value="Principio Activo">Sérum / Activo</option>
+                          <option value="Sérum">Sérum</option>
+                          <option value="Activo">Activo Concentrado</option>
                           <option value="Mascarilla">Mascarilla</option>
                           <option value="Crema de Sellado">Crema de Sellado</option>
                           <option value="Protección Solar">Protección Solar</option>
@@ -5504,6 +5509,7 @@ export default function App() {
                     <tr>
                       <th className="py-3.5 px-4 font-bold">SKU</th>
                       <th className="py-3.5 px-4 font-bold">Producto</th>
+                      <th className="py-3.5 px-4 font-bold">Tipo / Formato</th>
                       <th className="py-3.5 px-4 font-bold">Marca</th>
                       <th className="py-3.5 px-4 font-bold">Precio</th>
                       <th className="py-3.5 px-4 font-bold">Activos</th>
@@ -5524,10 +5530,16 @@ export default function App() {
                         try {
                           bios = JSON.parse(p.skinBiotypes || '[]');
                         } catch(e) {}
+                        const displayType = p.productType || inferProductType(p.name, p.brandLine);
                         return (
                           <tr key={p.id}>
-                            <td className="py-3.5 px-4">{p.sku}</td>
+                            <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500 dark:text-luxe-400">{p.sku}</td>
                             <td className="py-3.5 px-4 font-bold">{p.name}</td>
+                            <td className="py-3.5 px-4">
+                              <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] font-semibold">
+                                {displayType}
+                              </span>
+                            </td>
                             <td className="py-3.5 px-4">{p.brandLine}</td>
                             <td className="py-3.5 px-4">${p.retailPrice.toFixed(2)} MXN</td>
                             <td className="py-3.5 px-4 truncate max-w-[150px]">{parsedActives}</td>
