@@ -4049,9 +4049,9 @@ export default function App() {
             </button>
           </form>
 
-          <div className="border-t border-white/10 pt-4 text-center space-y-3">
+          <div className="border-t border-white/10 pt-4 text-center space-y-3 w-full" style={{ writingMode: 'horizontal-tb' }}>
             <p className="text-xs font-bold text-slate-200">Adquirir Licencia Profesional vía PayPal:</p>
-            <div id="paypal-container-E8TGNWX7MLLJE" className="w-full min-h-[150px] flex justify-center items-center"></div>
+            <div id="paypal-container-E8TGNWX7MLLJE" className="w-full min-h-[60px] flex justify-center items-center overflow-visible" style={{ minWidth: '280px', writingMode: 'horizontal-tb' }}></div>
           </div>
         </div>
       </div>

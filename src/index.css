@@ -176,3 +176,19 @@ select.smart-input option {
   background-color: #121215 !important;
   color: #FAF9F6 !important;
 }
+
+/* Fix PayPal Hosted Button iframe vertical collapse */
+#paypal-container-E8TGNWX7MLLJE {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 280px !important;
+}
+#paypal-container-E8TGNWX7MLLJE iframe,
+#paypal-container-E8TGNWX7MLLJE div {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 280px !important;
+  word-break: normal !important;
+  writing-mode: horizontal-tb !important;
+  white-space: normal !important;
+}
