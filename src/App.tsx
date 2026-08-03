@@ -34,15 +34,33 @@ const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
 };
 
 export const DEFAULT_PRODUCT_TYPES = [
-  'Limpiador / Gel / Leche',
-  'Tónico / Loción / Armonizador',
-  'Exfoliante / Peeling / Scrub',
-  'Suero / Sérum / Ampolleta',
-  'Mascarilla / Plastificante',
-  'Crema / Emulsión / Bálsamo',
-  'Contorno de Ojos / Labios',
-  'Fotoprotector / Bloqueador Solar',
-  'Aceite / Insumo de Masaje'
+  'Aceite',
+  'Ampolleta',
+  'Armonizador',
+  'Bálsamo',
+  'Bloqueador Solar',
+  'Contorno de Ojos',
+  'Contorno de Labios',
+  'Crema',
+  'Elixir',
+  'Emulsión',
+  'Escultor',
+  'Espuma',
+  'Exfoliante',
+  'Fotoprotector',
+  'Gel',
+  'Gel Limpiador',
+  'Insumo de Masaje',
+  'Leche Limpiadora',
+  'Limpiador',
+  'Loción',
+  'Mascarilla',
+  'Peeling',
+  'Plastificante',
+  'Scrub',
+  'Sérum',
+  'Suero',
+  'Tónico'
 ];
 
 export function inferProductType(name: string, brandLine?: string): string {
@@ -5316,7 +5334,7 @@ export default function App() {
                     <div className="flex flex-col gap-2">
                       <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo de Piel Recomendado</label>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-500/5 p-3 rounded-xl border border-slate-200/20">
-                        {['Piel Mixta', 'Piel Alípica', 'Piel Grasa', 'Piel Eudermica', 'Sensible', 'Rosácea', 'Todo tipo de piel', 'Protocolos específicos', 'Madura', 'Hipercromias', 'Deshidratada', 'Acneica', 'Delicada', 'Antiagning', 'Desvitalizada', 'Sensibilizada'].map(bio => {
+                        {['Piel Mixta', 'Piel Alípica', 'Piel Grasa', 'Piel Eudermica', 'Sensible', 'Rosácea', 'Todo tipo de piel', 'Protocolos específicos', 'Madura', 'Hipercromias', 'Deshidratada', 'Acneica', 'Delicada', 'Antiagning', 'Desvitalizada', 'Sensibilizada', 'Asfixiada'].map(bio => {
                           let currentBios: string[] = [];
                           try {
                             currentBios = JSON.parse(productForm.skinBiotypes || '[]');
@@ -5338,6 +5356,35 @@ export default function App() {
                           );
                         })}
                       </div>
+
+                      {/* Rubro libre para biotipo de piel personalizado */}
+                      {(() => {
+                        let currentBios: string[] = [];
+                        try {
+                          currentBios = JSON.parse(productForm.skinBiotypes || '[]');
+                        } catch(e) {}
+                        const presets = ['Piel Mixta', 'Piel Alípica', 'Piel Grasa', 'Piel Eudermica', 'Sensible', 'Rosácea', 'Todo tipo de piel', 'Protocolos específicos', 'Madura', 'Hipercromias', 'Deshidratada', 'Acneica', 'Delicada', 'Antiagning', 'Desvitalizada', 'Sensibilizada', 'Asfixiada'];
+                        const customBios = currentBios.filter(b => !presets.includes(b)).join(', ');
+
+                        return (
+                          <div className="flex flex-col gap-1 mt-1">
+                            <label className="text-[9px] font-semibold text-slate-400 dark:text-luxe-400">Biotipo / Indicación Adicional Personalizada (Manual):</label>
+                            <input
+                              type="text"
+                              value={customBios}
+                              onChange={e => {
+                                const val = e.target.value;
+                                const customArray = val.split(',').map(s => s.trim()).filter(Boolean);
+                                const selectedPresets = currentBios.filter(b => presets.includes(b));
+                                const nextBios = Array.from(new Set([...selectedPresets, ...customArray]));
+                                setProductForm(prev => ({ ...prev, skinBiotypes: JSON.stringify(nextBios) }));
+                              }}
+                              placeholder="Ej: Rosácea Grasa, Sensible reactiva..."
+                              className="smart-input w-full text-xs"
+                            />
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 
