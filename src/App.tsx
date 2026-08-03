@@ -12,7 +12,7 @@ import Papa from 'papaparse';
 import { 
   Activity, Award, Beaker, CheckCircle, ChevronDown, Clipboard, Clock, CloudDownload, 
   Database, FileText, FileUp, FolderHeart, Info, Layers, Lock, Moon, Plus, Printer, 
-  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, ShieldCheck, Calendar, Droplets
+  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, ShieldCheck, Calendar, Droplets, Key, CreditCard
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
 import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList } from './cosmetologyLogic';
@@ -708,6 +708,26 @@ export default function App() {
       bootstrapSystem();
     }
   }, []);
+
+  // PayPal Hosted Buttons Renderer Effect
+  useEffect(() => {
+    if (!isLogged) {
+      const renderTimer = setTimeout(() => {
+        const container = document.getElementById('paypal-container-E8TGNWX7MLLJE');
+        if (container && (window as any).paypal?.HostedButtons) {
+          container.innerHTML = '';
+          try {
+            (window as any).paypal.HostedButtons({
+              hostedButtonId: "E8TGNWX7MLLJE",
+            }).render("#paypal-container-E8TGNWX7MLLJE");
+          } catch(e) {
+            console.warn('PayPal hosted button initialization:', e);
+          }
+        }
+      }, 300);
+      return () => clearTimeout(renderTimer);
+    }
+  }, [isLogged]);
 
   // Sync state between network status
   useEffect(() => {
@@ -4030,16 +4050,8 @@ export default function App() {
           </form>
 
           <div className="border-t border-slate-200/50 dark:border-white/10 pt-4 text-center space-y-3">
-            <p className="text-xs text-slate-500 dark:text-luxe-300">¿No tienes una clave de licencia activa?</p>
-            <a
-              href="https://paypal.me/carlosgbd94"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full inline-flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 dark:bg-white/10 dark:hover:bg-white/20 text-white dark:text-luxe-100 py-3 rounded-xl text-xs font-bold transition-all border border-slate-700/50 dark:border-white/10"
-            >
-              <CreditCard className="w-4 h-4 text-amber-400" />
-              <span>Adquirir Licencia vía PayPal</span>
-            </a>
+            <p className="text-xs font-bold text-slate-700 dark:text-luxe-200">Adquirir Licencia Profesional vía PayPal:</p>
+            <div id="paypal-container-E8TGNWX7MLLJE" className="min-h-[45px] flex justify-center items-center"></div>
           </div>
         </div>
       </div>
