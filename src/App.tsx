@@ -4016,8 +4016,8 @@ export default function App() {
   // ----------------------------------------------------
   if (!isLogged) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 dark:bg-black/90 p-4 animate-fade-in backdrop-blur-md">
-        <div className="liquid-glass w-full max-w-md p-8 rounded-[32px] border border-amber-500/30 dark:border-amber-500/20 shadow-2xl flex flex-col justify-center gap-6 relative overflow-hidden">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 dark:bg-black/90 p-4 animate-fade-in backdrop-blur-md overflow-y-auto">
+        <div className="liquid-glass w-full max-w-md p-8 rounded-[32px] border border-amber-500/30 dark:border-amber-500/20 shadow-2xl flex flex-col justify-center gap-6 relative my-auto">
           <div className="text-center flex flex-col items-center gap-2">
             <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" alt="Xarixuri Cosmetología" className="h-16 w-auto object-contain dark:brightness-110 mb-1" />
             <h2 className="font-outfit text-xl font-bold text-slate-800 dark:text-white">Estación Médica Estética</h2>
@@ -4051,7 +4051,7 @@ export default function App() {
 
           <div className="border-t border-slate-200/50 dark:border-white/10 pt-4 text-center space-y-3">
             <p className="text-xs font-bold text-slate-700 dark:text-luxe-200">Adquirir Licencia Profesional vía PayPal:</p>
-            <div id="paypal-container-E8TGNWX7MLLJE" className="min-h-[45px] flex justify-center items-center"></div>
+            <div id="paypal-container-E8TGNWX7MLLJE" className="w-full min-h-[50px] flex justify-center items-center overflow-hidden"></div>
           </div>
         </div>
       </div>
