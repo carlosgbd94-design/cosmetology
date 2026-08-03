@@ -4016,19 +4016,19 @@ export default function App() {
   // ----------------------------------------------------
   if (!isLogged) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 dark:bg-black/90 p-4 animate-fade-in backdrop-blur-md overflow-y-auto">
-        <div className="liquid-glass w-full max-w-md p-8 rounded-[32px] border border-amber-500/30 dark:border-amber-500/20 shadow-2xl flex flex-col justify-center gap-6 relative my-auto">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 p-4 animate-fade-in backdrop-blur-md overflow-y-auto">
+        <div className="w-full max-w-md p-8 rounded-[32px] bg-slate-900 border border-amber-500/30 shadow-2xl flex flex-col justify-center gap-6 relative my-auto">
           <div className="text-center flex flex-col items-center gap-2">
             <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" alt="Xarixuri Cosmetología" className="h-16 w-auto object-contain dark:brightness-110 mb-1" />
-            <h2 className="font-outfit text-xl font-bold text-slate-800 dark:text-white">Estación Médica Estética</h2>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase tracking-wider">
+            <h2 className="font-outfit text-xl font-bold text-white">Estación Médica Estética</h2>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
               <Lock className="w-3 h-3" /> Control de Licencia de Dispositivo
             </div>
           </div>
 
           <form onSubmit={handleLicenseSubmit} className="space-y-4">
             <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Clave de Licencia Profesional</label>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Clave de Licencia Profesional</label>
               <input
                 type="text"
                 value={licenseKeyInput}
@@ -4040,7 +4040,7 @@ export default function App() {
             </div>
 
             {loginError && (
-              <div className="text-xs text-red-500 dark:text-red-400 font-semibold text-center bg-red-500/10 p-2.5 rounded-xl border border-red-500/20">{loginError}</div>
+              <div className="text-xs text-red-400 font-semibold text-center bg-red-500/10 p-2.5 rounded-xl border border-red-500/20">{loginError}</div>
             )}
 
             <button type="submit" disabled={loginLoading} className="w-full bg-gradient-to-r from-amber-500 to-bronze-600 hover:brightness-110 text-white py-3.5 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center justify-center gap-2">
@@ -4049,9 +4049,9 @@ export default function App() {
             </button>
           </form>
 
-          <div className="border-t border-slate-200/50 dark:border-white/10 pt-4 text-center space-y-3">
-            <p className="text-xs font-bold text-slate-700 dark:text-luxe-200">Adquirir Licencia Profesional vía PayPal:</p>
-            <div id="paypal-container-E8TGNWX7MLLJE" className="w-full min-h-[50px] flex justify-center items-center overflow-hidden"></div>
+          <div className="border-t border-white/10 pt-4 text-center space-y-3">
+            <p className="text-xs font-bold text-slate-200">Adquirir Licencia Profesional vía PayPal:</p>
+            <div id="paypal-container-E8TGNWX7MLLJE" className="w-full min-h-[150px] flex justify-center items-center"></div>
           </div>
         </div>
       </div>
