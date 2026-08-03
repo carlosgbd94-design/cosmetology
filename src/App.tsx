@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData } from './db';
+import { db, executeQuery, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData, getTableName } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { encryptData, decryptData, sha256 } from './crypto';
@@ -798,8 +798,15 @@ export default function App() {
       // Sync remote products to local Dexie on start (without clearing local products)
       if (navigator.onLine) {
         try {
+          const tblProducts = getTableName('products');
+          const tblPatients = getTableName('patients');
+          const tblAnamnesis = getTableName('anamnesis');
+          const tblConsultations = getTableName('consultations');
+          const tblSteps = getTableName('consultation_steps');
+          const tblPrescriptions = getTableName('prescriptions');
+
           // 1. Sync products
-          const resProds = await executeQuery('SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes FROM products');
+          const resProds = await executeQuery(`SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes FROM ${tblProducts}`);
           if (resProds && resProds.rows) {
             for (const r of resProds.rows) {
               await db.products.put({
@@ -820,14 +827,14 @@ export default function App() {
           const localProds = await db.products.toArray();
           for (const lp of localProds) {
             await executeQuery(
-              `INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+              `INSERT OR IGNORE INTO ${tblProducts} (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [lp.id, lp.sku, lp.name, lp.brandLine, lp.activeIngredients, lp.physiologicalActions, lp.retailPrice, typeof lp.isProfessionalUse === 'boolean' ? (lp.isProfessionalUse ? 1 : 0) : Number(lp.isProfessionalUse), lp.skinBiotypes || '[]']
             );
           }
 
           // 2. Sync patients
-          const resPatients = await executeQuery('SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at FROM patients');
+          const resPatients = await executeQuery(`SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at FROM ${tblPatients}`);
           if (resPatients && resPatients.rows) {
             for (const r of resPatients.rows) {
               const decryptedFirstName = await decryptData(r.first_name_encrypted);
@@ -847,7 +854,7 @@ export default function App() {
           }
 
           // 3. Sync anamnesis
-          const resAnamnesis = await executeQuery('SELECT id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at FROM anamnesis');
+          const resAnamnesis = await executeQuery(`SELECT id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at FROM ${tblAnamnesis}`);
           if (resAnamnesis && resAnamnesis.rows) {
             for (const r of resAnamnesis.rows) {
               await db.anamnesis.put({
@@ -864,7 +871,7 @@ export default function App() {
           }
 
           // 4. Sync consultations
-          const resConsults = await executeQuery('SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions FROM consultations');
+          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions FROM ${tblConsultations}`);
           if (resConsults && resConsults.rows) {
             for (const r of resConsults.rows) {
               await db.consultations.put({
@@ -886,7 +893,7 @@ export default function App() {
           }
 
           // 5. Sync consultation steps
-          const resSteps = await executeQuery('SELECT id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings FROM consultation_steps');
+          const resSteps = await executeQuery(`SELECT id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings FROM ${tblSteps}`);
           if (resSteps && resSteps.rows) {
             for (const r of resSteps.rows) {
               await db.consultation_steps.put({
@@ -906,7 +913,7 @@ export default function App() {
           }
 
           // 6. Sync prescriptions
-          const resPrescriptions = await executeQuery('SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions FROM prescriptions');
+          const resPrescriptions = await executeQuery(`SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions FROM ${tblPrescriptions}`);
           if (resPrescriptions && resPrescriptions.rows) {
             for (const r of resPrescriptions.rows) {
               await db.prescriptions.put({
@@ -1836,14 +1843,16 @@ export default function App() {
       // Register patient on remote if online
       if (navigator.onLine) {
         try {
+          const tblPatients = getTableName('patients');
+          const tblAnamnesis = getTableName('anamnesis');
           await executeQuery(
-            `INSERT OR REPLACE INTO patients (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted)
+            `INSERT OR REPLACE INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted)
              VALUES (?, ?, ?, ?, ?, ?)`,
             [patientId, firstNameEnc, lastNameEnc, patientForm.dateOfBirth || '2000-01-01', emailH, phoneEnc]
           );
 
           await executeQuery(
-            `INSERT OR REPLACE INTO anamnesis (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics)
+            `INSERT OR REPLACE INTO ${tblAnamnesis} (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [`A-${patientId}`, patientId, patientForm.medicalDiagnosis || null, patientForm.surgicalHistory || null, patientForm.allergiesCosmetics, patientForm.currentMedications, patientForm.lifestyleMetrics]
           );
@@ -2076,9 +2085,12 @@ export default function App() {
 
       // 2. Delete from Turso if online
       try {
-        await executeQuery('DELETE FROM prescriptions WHERE consultation_id = ?', [consultationId]);
-        await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [consultationId]);
-        await executeQuery('DELETE FROM consultations WHERE id = ?', [consultationId]);
+        const tblConsultations = getTableName('consultations');
+        const tblSteps = getTableName('consultation_steps');
+        const tblPrescriptions = getTableName('prescriptions');
+        await executeQuery(`DELETE FROM ${tblPrescriptions} WHERE consultation_id = ?`, [consultationId]);
+        await executeQuery(`DELETE FROM ${tblSteps} WHERE consultation_id = ?`, [consultationId]);
+        await executeQuery(`DELETE FROM ${tblConsultations} WHERE id = ?`, [consultationId]);
       } catch (err) {
         console.warn('Fallo al eliminar de Turso, se reintentará en la sincronización:', err);
       }
@@ -2117,13 +2129,19 @@ export default function App() {
 
       // 2. Delete from Turso if online
       try {
+        const tblConsultations = getTableName('consultations');
+        const tblSteps = getTableName('consultation_steps');
+        const tblPrescriptions = getTableName('prescriptions');
+        const tblAnamnesis = getTableName('anamnesis');
+        const tblPatients = getTableName('patients');
+
         for (const c of consultationsToDelete) {
-          await executeQuery('DELETE FROM prescriptions WHERE consultation_id = ?', [c.id]);
-          await executeQuery('DELETE FROM consultation_steps WHERE consultation_id = ?', [c.id]);
-          await executeQuery('DELETE FROM consultations WHERE id = ?', [c.id]);
+          await executeQuery(`DELETE FROM ${tblPrescriptions} WHERE consultation_id = ?`, [c.id]);
+          await executeQuery(`DELETE FROM ${tblSteps} WHERE consultation_id = ?`, [c.id]);
+          await executeQuery(`DELETE FROM ${tblConsultations} WHERE id = ?`, [c.id]);
         }
-        await executeQuery('DELETE FROM anamnesis WHERE patient_id = ?', [patientId]);
-        await executeQuery('DELETE FROM patients WHERE id = ?', [patientId]);
+        await executeQuery(`DELETE FROM ${tblAnamnesis} WHERE patient_id = ?`, [patientId]);
+        await executeQuery(`DELETE FROM ${tblPatients} WHERE id = ?`, [patientId]);
       } catch (err) {
         console.warn('Fallo al eliminar del servidor Turso:', err);
       }
@@ -2381,7 +2399,8 @@ export default function App() {
     if (!window.confirm('¿Está seguro de eliminar este producto del catálogo?')) return;
     try {
       if (navigator.onLine) {
-        await executeQuery('DELETE FROM products WHERE id = ?', [id]);
+        const tblProducts = getTableName('products');
+        await executeQuery(`DELETE FROM ${tblProducts} WHERE id = ?`, [id]);
       }
       await db.products.delete(id);
       showToastMsg('Producto eliminado del catálogo.', 'success');
@@ -2441,8 +2460,9 @@ export default function App() {
     // 2. Intentar guardar remotamente en Turso en segundo plano (si falla la red, no rompe el guardado local)
     if (navigator.onLine) {
       try {
+        const tblProducts = getTableName('products');
         await executeQuery(
-          `INSERT OR REPLACE INTO products (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+          `INSERT OR REPLACE INTO ${tblProducts} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.productType, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
         );

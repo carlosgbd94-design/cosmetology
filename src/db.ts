@@ -59,6 +59,23 @@ function decodeResultSet(result: any): any[] {
   });
 }
 
+// Multi-Tenant Dynamic Table Helper
+export function getActiveLicensePrefix(): string {
+  const token = (localStorage.getItem('dermatique_license_token') || '').trim().toUpperCase();
+  const masterKeys = ['DERM-PRO-2026-ACTIVE', 'DERM-CLINIC-MASTER-99'];
+  if (!token || masterKeys.includes(token)) {
+    return ''; // Master tables without prefix (products, patients, consultations, etc.)
+  }
+  // Sanitize license token into a valid SQLite table prefix
+  const cleanId = token.replace(/[^A-Z0-9]/g, '_').toLowerCase();
+  return `usr_${cleanId}_`;
+}
+
+export function getTableName(baseName: string): string {
+  const prefix = getActiveLicensePrefix();
+  return prefix ? `${prefix}${baseName}` : baseName;
+}
+
 export async function executeQuery(sql: string, args: any[] = []): Promise<{ rows: any[]; lastInsertRowid: any }> {
   const hranaArgs = args.map(encodeValue);
   
@@ -158,11 +175,15 @@ export async function saveConsultationTransaction(
   if (navigator.onLine) {
     const stmts: { sql: string; args: any[] }[] = [];
     
+    const tblConsultations = getTableName('consultations');
+    const tblSteps = getTableName('consultation_steps');
+    const tblPrescriptions = getTableName('prescriptions');
+
     // Explicit SQLite transaction block
     stmts.push({ sql: "BEGIN TRANSACTION", args: [] });
 
     stmts.push({
-      sql: `INSERT OR REPLACE INTO consultations (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations)
+      sql: `INSERT OR REPLACE INTO ${tblConsultations} (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         consultation.id,
@@ -182,13 +203,13 @@ export async function saveConsultationTransaction(
     });
 
     stmts.push({
-      sql: `DELETE FROM consultation_steps WHERE consultation_id = ?`,
+      sql: `DELETE FROM ${tblSteps} WHERE consultation_id = ?`,
       args: [consultation.id]
     });
 
     for (const step of steps) {
       stmts.push({
-        sql: `INSERT INTO consultation_steps (id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings)
+        sql: `INSERT INTO ${tblSteps} (id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           step.id,
@@ -207,13 +228,13 @@ export async function saveConsultationTransaction(
     }
 
     stmts.push({
-      sql: `DELETE FROM prescriptions WHERE consultation_id = ?`,
+      sql: `DELETE FROM ${tblPrescriptions} WHERE consultation_id = ?`,
       args: [consultation.id]
     });
 
     for (const pres of prescriptions) {
       stmts.push({
-        sql: `INSERT INTO prescriptions (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
+        sql: `INSERT INTO ${tblPrescriptions} (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           pres.id,
@@ -247,13 +268,19 @@ export async function saveConsultationTransaction(
   }
 }
 
-// Database initial seeding (SQLite/libSQL)
 export async function seedTables(): Promise<void> {
   if (!navigator.onLine) return;
   try {
-    // 1. Setup tables
+    const tblPatients = getTableName('patients');
+    const tblAnamnesis = getTableName('anamnesis');
+    const tblProducts = getTableName('products');
+    const tblConsultations = getTableName('consultations');
+    const tblSteps = getTableName('consultation_steps');
+    const tblPrescriptions = getTableName('prescriptions');
+
+    // 1. Setup tables (Isolated per License Key or Master)
     await executeQuery(`
-      CREATE TABLE IF NOT EXISTS patients (
+      CREATE TABLE IF NOT EXISTS ${tblPatients} (
         id TEXT PRIMARY KEY,
         first_name_encrypted TEXT NOT NULL,
         last_name_encrypted TEXT NOT NULL,
@@ -266,7 +293,7 @@ export async function seedTables(): Promise<void> {
     `);
 
     await executeQuery(`
-      CREATE TABLE IF NOT EXISTS anamnesis (
+      CREATE TABLE IF NOT EXISTS ${tblAnamnesis} (
         id TEXT PRIMARY KEY,
         patient_id TEXT NOT NULL UNIQUE,
         medical_diagnosis TEXT,
@@ -274,13 +301,12 @@ export async function seedTables(): Promise<void> {
         allergies_cosmetics TEXT NOT NULL DEFAULT '',
         current_medications TEXT NOT NULL DEFAULT '',
         lifestyle_metrics TEXT NOT NULL DEFAULT '{}',
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     await executeQuery(`
-      CREATE TABLE IF NOT EXISTS products (
+      CREATE TABLE IF NOT EXISTS ${tblProducts} (
         id TEXT PRIMARY KEY,
         sku TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
@@ -294,7 +320,7 @@ export async function seedTables(): Promise<void> {
     `);
 
     await executeQuery(`
-      CREATE TABLE IF NOT EXISTS consultations (
+      CREATE TABLE IF NOT EXISTS ${tblConsultations} (
         id TEXT PRIMARY KEY,
         patient_id TEXT NOT NULL,
         provider_id TEXT NOT NULL,
@@ -307,13 +333,12 @@ export async function seedTables(): Promise<void> {
         state TEXT NOT NULL DEFAULT 'Borrador' CHECK (state IN ('Borrador', 'Admision', 'Consentimiento', 'Tratamiento', 'Evaluacion')),
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        recommendations TEXT,
-        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE RESTRICT
+        recommendations TEXT
       )
     `);
 
     await executeQuery(`
-      CREATE TABLE IF NOT EXISTS consultation_steps (
+      CREATE TABLE IF NOT EXISTS ${tblSteps} (
         id TEXT PRIMARY KEY,
         consultation_id TEXT NOT NULL,
         step_order INTEGER NOT NULL,
@@ -326,14 +351,12 @@ export async function seedTables(): Promise<void> {
         application_description TEXT,
         aparatology_settings TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
         UNIQUE (consultation_id, step_order)
       )
     `);
 
     await executeQuery(`
-      CREATE TABLE IF NOT EXISTS prescriptions (
+      CREATE TABLE IF NOT EXISTS ${tblPrescriptions} (
         id TEXT PRIMARY KEY,
         consultation_id TEXT NOT NULL,
         product_id TEXT,
@@ -345,9 +368,7 @@ export async function seedTables(): Promise<void> {
         custom_brand TEXT,
         custom_active_ingredients TEXT,
         custom_actions TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
-        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
     // Hot migration to reconstruct products table check constraint if legacy exists
