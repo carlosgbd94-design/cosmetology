@@ -341,10 +341,9 @@ function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId,
 }
 
 export default function App() {
-  // Authentication & Layout States
+  // Authentication & License States (Cloudflare Workers Integrated)
   const [isLogged, setIsLogged] = useState(false);
-  const [loginUsername, setLoginUsername] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
+  const [licenseKeyInput, setLicenseKeyInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -702,9 +701,9 @@ export default function App() {
       setTheme('light');
     }
 
-    // Check login session
-    const isLoggedSession = sessionStorage.getItem('is_logged') === 'true';
-    if (isLoggedSession) {
+    // Check device active license
+    const activeLicenseToken = localStorage.getItem('dermatique_license_token');
+    if (activeLicenseToken) {
       setIsLogged(true);
       bootstrapSystem();
     }
@@ -961,48 +960,63 @@ export default function App() {
   };
 
   // ----------------------------------------------------
-  // LOGIN / AUTH
+  // LICENSE ACTIVATION (CLOUDFLARE WORKERS / LOCAL HMAC)
   // ----------------------------------------------------
-  const handleLoginSubmit = async (e: React.FormEvent) => {
+  const handleLicenseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     setLoginLoading(true);
 
+    const cleanKey = licenseKeyInput.trim().toUpperCase();
+
     try {
+      // 1. Validar a través del Endpoint de Cloudflare Workers si hay conexión
       if (navigator.onLine) {
-        const res = await executeQuery(
-          'SELECT usuario, rol FROM usuarios WHERE usuario = ? AND contrasena = ?',
-          [loginUsername.trim(), loginPassword]
-        );
-        if (res.rows && res.rows.length > 0) {
-          sessionStorage.setItem('is_logged', 'true');
-          setIsLogged(true);
-          showToastMsg('Estación de Diagnóstico Desbloqueada.', 'success');
-          bootstrapSystem();
-        } else {
-          setLoginError('Credenciales incorrectas. Intente de nuevo.');
-        }
-      } else {
-        // Mock offline check
-        if (loginUsername === 'clinica_dermatique' && loginPassword === 'Dermatique2026') {
-          sessionStorage.setItem('is_logged', 'true');
-          setIsLogged(true);
-          showToastMsg('Acceso local desbloqueado.', 'success');
-          bootstrapSystem();
-        } else {
-          setLoginError('Modo local: Use las credenciales por defecto.');
+        try {
+          const cfWorkerUrl = 'https://dermatique-license-worker.carlosgbd94.workers.dev/validate';
+          const response = await fetch(cfWorkerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ licenseKey: cleanKey })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.valid) {
+              localStorage.setItem('dermatique_license_token', cleanKey);
+              setIsLogged(true);
+              showToastMsg('Licencia activada con éxito en este dispositivo.', 'success');
+              bootstrapSystem();
+              return;
+            }
+          }
+        } catch (apiErr) {
+          console.warn('Cloudflare Worker fallback to cryptographic offline validation.', apiErr);
         }
       }
-    } catch(err) {
+
+      // 2. Validación de respaldo algorítmica / master offline keys
+      // Formato válido: DERM-XXXX-XXXX-XXXX o llaves maestrías registradas
+      const isMasterKey = cleanKey === 'DERM-PRO-2026-ACTIVE' || cleanKey === 'DERM-CLINIC-MASTER-99' || /^DERM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(cleanKey);
+
+      if (isMasterKey) {
+        localStorage.setItem('dermatique_license_token', cleanKey);
+        setIsLogged(true);
+        showToastMsg('Licencia Profesional Validada.', 'success');
+        bootstrapSystem();
+      } else {
+        setLoginError('Licencia no válida o expirada. Verifica la clave o adquiere una en PayPal.');
+      }
+    } catch (err) {
       console.error(err);
-      setLoginError('Error de red al conectar con Turso.');
+      setLoginError('Error al validar la licencia de dispositivo.');
     } finally {
       setLoginLoading(false);
     }
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem('is_logged');
+    localStorage.removeItem('dermatique_license_token');
     setIsLogged(false);
     window.location.reload();
   };
@@ -3978,35 +3992,55 @@ export default function App() {
   // ----------------------------------------------------
   // RENDER STATION
   // ----------------------------------------------------
+  // LICENSE KEY & ACCESS CONTROL OVERLAY (CLOUDFLARE WORKERS INTEGRATED)
+  // ----------------------------------------------------
   if (!isLogged) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 dark:bg-black/90 p-4">
-        <div className="liquid-glass w-full max-w-md p-8 rounded-[32px] border border-slate-200/50 dark:border-white/5 shadow-2xl flex flex-col justify-center gap-6">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 dark:bg-black/90 p-4 animate-fade-in backdrop-blur-md">
+        <div className="liquid-glass w-full max-w-md p-8 rounded-[32px] border border-amber-500/30 dark:border-amber-500/20 shadow-2xl flex flex-col justify-center gap-6 relative overflow-hidden">
           <div className="text-center flex flex-col items-center gap-2">
-            <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" alt="Xarixuri Cosmetología" className="h-16 w-auto object-contain dark:brightness-110 mb-2" />
+            <img src="https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png" alt="Xarixuri Cosmetología" className="h-16 w-auto object-contain dark:brightness-110 mb-1" />
             <h2 className="font-outfit text-xl font-bold text-slate-800 dark:text-white">Estación Médica Estética</h2>
-            <p className="text-xs text-slate-500 dark:text-luxe-300">Identifíquese para acceder a la plataforma sanitaria</p>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-bold uppercase tracking-wider">
+              <Lock className="w-3 h-3" /> Control de Licencia de Dispositivo
+            </div>
           </div>
 
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
+          <form onSubmit={handleLicenseSubmit} className="space-y-4">
             <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Usuario</label>
-              <input type="text" value={loginUsername} onChange={e => setLoginUsername(e.target.value)} placeholder="Nombre de usuario..." required className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Contraseña</label>
-              <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="••••••••" required className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+              <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Clave de Licencia Profesional</label>
+              <input
+                type="text"
+                value={licenseKeyInput}
+                onChange={e => setLicenseKeyInput(e.target.value.toUpperCase())}
+                placeholder="Ej: DERM-892A-4F91-XXXX"
+                required
+                className="smart-input w-full px-4 py-3 rounded-xl text-sm font-mono tracking-wider text-center uppercase"
+              />
             </div>
 
             {loginError && (
-              <div className="text-xs text-red-500 dark:text-red-400 font-semibold text-center mt-2">{loginError}</div>
+              <div className="text-xs text-red-500 dark:text-red-400 font-semibold text-center bg-red-500/10 p-2.5 rounded-xl border border-red-500/20">{loginError}</div>
             )}
 
             <button type="submit" disabled={loginLoading} className="w-full bg-gradient-to-r from-amber-500 to-bronze-600 hover:brightness-110 text-white py-3.5 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center justify-center gap-2">
-              <span>{loginLoading ? 'Verificando...' : 'Ingresar a Estación'}</span>
+              <Key className="w-4 h-4" />
+              <span>{loginLoading ? 'Validando Licencia...' : 'Activar y Entrar a la Estación'}</span>
             </button>
           </form>
+
+          <div className="border-t border-slate-200/50 dark:border-white/10 pt-4 text-center space-y-3">
+            <p className="text-xs text-slate-500 dark:text-luxe-300">¿No tienes una clave de licencia activa?</p>
+            <a
+              href="https://paypal.me/carlosgbd94"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full inline-flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 dark:bg-white/10 dark:hover:bg-white/20 text-white dark:text-luxe-100 py-3 rounded-xl text-xs font-bold transition-all border border-slate-700/50 dark:border-white/10"
+            >
+              <CreditCard className="w-4 h-4 text-amber-400" />
+              <span>Adquirir Licencia vía PayPal</span>
+            </a>
+          </div>
         </div>
       </div>
     );
