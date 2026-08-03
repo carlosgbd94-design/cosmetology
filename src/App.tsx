@@ -646,22 +646,19 @@ export default function App() {
     if (!searchLower && !catalogBrandFilter && !catalogCategoryFilter) return products;
 
     return products.filter(p => {
-      let actives = '';
-      try {
-        actives = JSON.parse(p.activeIngredients).join(', ').toLowerCase();
-      } catch(e) {
-        actives = (p.activeIngredients || '').toLowerCase();
-      }
-      const matchesSearch = !searchLower || (
-        p.name.toLowerCase().includes(searchLower) ||
-        p.brandLine.toLowerCase().includes(searchLower) ||
-        actives.includes(searchLower)
-      );
       const matchesBrand = !catalogBrandFilter || p.brandLine === catalogBrandFilter;
       const matchesCategory = !catalogCategoryFilter || (
         p.isProfessionalUse === (catalogCategoryFilter === 'Cabina' ? 1 : catalogCategoryFilter === 'Apoyo Casa' ? 0 : 2)
       );
-      return matchesSearch && matchesBrand && matchesCategory;
+      if (!matchesBrand || !matchesCategory) return false;
+      if (!searchLower) return true;
+
+      return (
+        p.name.toLowerCase().includes(searchLower) ||
+        p.brandLine.toLowerCase().includes(searchLower) ||
+        p.activeIngredients.toLowerCase().includes(searchLower) ||
+        (p.sku && p.sku.toLowerCase().includes(searchLower))
+      );
     });
   }, [products, catalogSearch, catalogBrandFilter, catalogCategoryFilter]);
 
