@@ -621,6 +621,12 @@ export default function App() {
     return Array.from(actionSet).sort();
   }, [products, ingredients]);
 
+  // Catálogo alfabético de activos únicos (ingrediente + acción/efecto clínico), se recalcula
+  // automáticamente cada vez que se agregan/editan activos en cualquier producto del catálogo.
+  const alphabeticalIngredientsCatalog = useMemo(() => {
+    return [...ingredients].sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  }, [ingredients]);
+
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogBrandFilter, setCatalogBrandFilter] = useState('');
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState('');
@@ -968,11 +974,9 @@ export default function App() {
         const existingIdx = resolvedIngredients.findIndex(ri => ri.name.toLowerCase() === actName.toLowerCase());
         if (existingIdx === -1) {
           resolvedIngredients.push({ name: actName, action: actAction || 'Acción dermatológica' });
-        } else {
-          const existingAction = resolvedIngredients[existingIdx].action;
-          if (actAction && (!existingAction || isBiotypeWord(existingAction) || existingAction === 'Acción dermatológica') && !isBiotypeWord(actAction)) {
-            resolvedIngredients[existingIdx].action = actAction;
-          }
+        } else if (actAction && !isBiotypeWord(actAction)) {
+          // Siempre conservar la modificación más reciente del ingrediente/acción clínica
+          resolvedIngredients[existingIdx].action = actAction;
         }
       });
     });
@@ -2365,6 +2369,14 @@ export default function App() {
     const next = [...formIngredientsList];
     next.splice(idx, 1);
     setFormIngredientsList(next);
+  };
+
+  const editIngredientInForm = (idx: number) => {
+    const ing = formIngredientsList[idx];
+    if (!ing) return;
+    setFormIngredientInput(ing.name);
+    setFormIngredientAction(ing.action);
+    removeIngredientFromForm(idx);
   };
 
   const handleEditProductClick = (p: Product) => {
@@ -5557,7 +5569,9 @@ export default function App() {
                       ) : (
                         formIngredientsList.map((ing, idx) => (
                           <div key={idx} className="flex items-center gap-1.5 px-3 py-1 rounded-xl border border-bronze-500/20 bg-bronze-500/5 text-bronze-600 dark:text-bronze-400 text-xs font-medium">
-                            <span>{ing.name}{ing.action ? ` (${ing.action})` : ''}</span>
+                            <button type="button" onClick={() => editIngredientInForm(idx)} title="Editar ingrediente y acción/efecto" className="hover:underline text-left">
+                              {ing.name}{ing.action ? ` (${ing.action})` : ''}
+                            </button>
                             <button type="button" onClick={() => removeIngredientFromForm(idx)} className="p-0.5 hover:text-red-500 transition-colors ml-1 font-bold">✕</button>
                           </div>
                         ))
@@ -5652,6 +5666,41 @@ export default function App() {
                       })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            {/* Catálogo Alfabético de Activos */}
+            <div className="liquid-glass rounded-3xl p-8">
+              <div className="flex items-center justify-between gap-4 mb-6">
+                <h2 className="font-outfit text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                  <Beaker className="w-5 h-5 text-bronze-500" /> Catálogo de Activos (A-Z)
+                </h2>
+                <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">
+                  {alphabeticalIngredientsCatalog.length} activos únicos
+                </span>
+              </div>
+
+              <div className="border border-slate-200/50 dark:border-white/5 rounded-2xl bg-white/20 dark:bg-luxe-950/20 max-h-[400px] overflow-y-auto">
+                {alphabeticalIngredientsCatalog.length === 0 ? (
+                  <div className="p-6 text-xs text-slate-400 italic text-center">No hay activos capturados todavía.</div>
+                ) : (
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-luxe-900 border-b border-slate-200/50 dark:border-white/5 shadow-sm">
+                      <tr>
+                        <th className="py-3 px-4 font-bold">Activo</th>
+                        <th className="py-3 px-4 font-bold">Acción / Efecto Clínico</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
+                      {alphabeticalIngredientsCatalog.map(ing => (
+                        <tr key={ing.name}>
+                          <td className="py-2.5 px-4 font-bold text-slate-800 dark:text-white">{ing.name}</td>
+                          <td className="py-2.5 px-4 text-slate-500 dark:text-luxe-300">{ing.action}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
 
