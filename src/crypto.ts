@@ -1,5 +1,7 @@
-const PASSWORD = 'DermatiqueMasterPassword2026SecretKey';
-const SALT = new Uint8Array([83, 97, 108, 116, 83, 97, 108, 116]); // "SaltSalt"
+// Clave de cifrado de datos de pacientes: viene de variables de entorno (nunca hardcodeada en el
+// código fuente público). En local, defínelas en .env; en el despliegue, como secretos de GitHub Actions.
+const PASSWORD = import.meta.env.VITE_ENCRYPTION_PASSWORD || '';
+const SALT = new TextEncoder().encode(import.meta.env.VITE_ENCRYPTION_SALT || '');
 
 // Helper to derive AES-GCM key from password
 async function getEncryptionKey(): Promise<CryptoKey> {

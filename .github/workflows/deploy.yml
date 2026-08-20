@@ -35,6 +35,8 @@ jobs:
           VITE_LIBSQL_DB_URL: ${{ secrets.VITE_LIBSQL_DB_URL }}
           VITE_LIBSQL_DB_TOKEN: ${{ secrets.VITE_LIBSQL_DB_TOKEN }}
           VITE_MASTER_LICENSE_KEY: ${{ secrets.VITE_MASTER_LICENSE_KEY }}
+          VITE_ENCRYPTION_PASSWORD: ${{ secrets.VITE_ENCRYPTION_PASSWORD }}
+          VITE_ENCRYPTION_SALT: ${{ secrets.VITE_ENCRYPTION_SALT }}
         run: npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v4
