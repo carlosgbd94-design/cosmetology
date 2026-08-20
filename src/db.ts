@@ -64,11 +64,15 @@ function decodeResultSet(result: any): any[] {
   });
 }
 
+// Clave maestra de respaldo offline: viene de una variable de entorno (nunca hardcodeada en el
+// código fuente público). En local, defínela en .env; en el despliegue, como secreto de GitHub Actions.
+// Fuente única: App.tsx importa esta misma constante para la pantalla de inicio de sesión.
+export const MASTER_LICENSE_KEY = (import.meta.env.VITE_MASTER_LICENSE_KEY || '').trim().toUpperCase();
+
 // Multi-Tenant Dynamic Table Helper
 export function getActiveLicensePrefix(): string {
   const token = (localStorage.getItem('dermatique_license_token') || '').trim().toUpperCase();
-  const masterKeys = ['DERM-PRO-2026-ACTIVE', 'DERM-CLINIC-MASTER-99'];
-  if (!token || masterKeys.includes(token)) {
+  if (!token || (!!MASTER_LICENSE_KEY && token === MASTER_LICENSE_KEY)) {
     return ''; // Master tables without prefix (products, patients, consultations, etc.)
   }
   // Sanitize license token into a valid SQLite table prefix

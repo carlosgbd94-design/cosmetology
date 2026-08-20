@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData, getTableName } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { encryptData, decryptData, sha256 } from './crypto';
@@ -1066,9 +1066,10 @@ export default function App() {
         }
       }
 
-      // 2. Validación de respaldo algorítmica / master offline keys
-      // Formato válido: DERM-XXXX-XXXX-XXXX o llaves maestrías registradas
-      const isMasterKey = cleanKey === 'DERM-PRO-2026-ACTIVE' || cleanKey === 'DERM-CLINIC-MASTER-99' || /^DERM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(cleanKey);
+      // 2. Respaldo offline: solo la clave maestra exacta, sin aceptar cualquier texto con forma
+      // "DERM-XXXX-XXXX-XXXX" (ese patrón abierto no validaba nada realmente, aceptaba cualquier
+      // clave inventada con ese formato).
+      const isMasterKey = !!MASTER_LICENSE_KEY && cleanKey === MASTER_LICENSE_KEY;
 
       if (isMasterKey) {
         localStorage.setItem('dermatique_license_token', cleanKey);
