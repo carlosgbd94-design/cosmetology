@@ -268,8 +268,32 @@ export async function saveConsultationTransaction(
   }
 }
 
+async function tableHasColumn(tableName: string, columnName: string): Promise<boolean> {
+  try {
+    const res = await executeQuery(`PRAGMA table_info(${tableName})`);
+    return res.rows.some((r: any) => String(r.name).toLowerCase() === columnName.toLowerCase());
+  } catch (e) {
+    // Si no se puede inspeccionar el esquema, asumir que ya está migrado para evitar reconstrucciones destructivas.
+    return true;
+  }
+}
+
+// Evita que llamadas concurrentes (p. ej. React StrictMode invocando el mismo efecto dos veces)
+// disparen dos migraciones destructivas en paralelo contra la misma tabla remota.
+let seedTablesInFlight: Promise<void> | null = null;
+
 export async function seedTables(): Promise<void> {
   if (!navigator.onLine) return;
+  if (seedTablesInFlight) return seedTablesInFlight;
+  seedTablesInFlight = seedTablesImpl();
+  try {
+    await seedTablesInFlight;
+  } finally {
+    seedTablesInFlight = null;
+  }
+}
+
+async function seedTablesImpl(): Promise<void> {
   try {
     const tblPatients = getTableName('patients');
     const tblAnamnesis = getTableName('anamnesis');
@@ -371,84 +395,92 @@ export async function seedTables(): Promise<void> {
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    // Hot migration to reconstruct products table check constraint if legacy exists
-    try {
-      await executeQuery(`PRAGMA foreign_keys = OFF`);
-      await executeQuery(`
-        CREATE TABLE IF NOT EXISTS products_new (
-          id TEXT PRIMARY KEY,
-          sku TEXT UNIQUE NOT NULL,
-          name TEXT NOT NULL,
-          brand_line TEXT NOT NULL,
-          active_ingredients TEXT NOT NULL DEFAULT '',
-          physiological_actions TEXT NOT NULL DEFAULT '',
-          retail_price REAL NOT NULL,
-          is_professional_use INTEGER DEFAULT 1 CHECK (is_professional_use IN (0, 1, 2)),
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          skin_biotypes TEXT DEFAULT '[]'
-        )
-      `);
-      await executeQuery(`
-        INSERT OR IGNORE INTO products_new (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, skin_biotypes)
-        SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, COALESCE(skin_biotypes, '[]') FROM products
-      `);
-      await executeQuery(`DROP TABLE IF EXISTS products`);
-      await executeQuery(`ALTER TABLE products_new RENAME TO products`);
-      await executeQuery(`PRAGMA foreign_keys = ON`);
-      console.log("Hot migration of products table completed successfully with foreign keys bypassed.");
-    } catch(err) {
-      console.warn("Hot migration of products table warning/skipped:", err);
+    // Hot migration (una sola vez): agrega skin_biotypes reconstruyendo la tabla solo si aún no existe la columna.
+    // IMPORTANTE: esta reconstrucción es destructiva (DROP + RENAME), por eso se protege con la
+    // verificación de esquema de abajo para que nunca vuelva a ejecutarse una vez migrada la tabla.
+    if (!(await tableHasColumn('products', 'skin_biotypes'))) {
       try {
+        await executeQuery(`PRAGMA foreign_keys = OFF`);
+        await executeQuery(`
+          CREATE TABLE IF NOT EXISTS products_new (
+            id TEXT PRIMARY KEY,
+            sku TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            brand_line TEXT NOT NULL,
+            active_ingredients TEXT NOT NULL DEFAULT '',
+            physiological_actions TEXT NOT NULL DEFAULT '',
+            retail_price REAL NOT NULL,
+            is_professional_use INTEGER DEFAULT 1 CHECK (is_professional_use IN (0, 1, 2)),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            skin_biotypes TEXT DEFAULT '[]'
+          )
+        `);
+        await executeQuery(`
+          INSERT OR IGNORE INTO products_new (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, skin_biotypes)
+          SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, COALESCE(skin_biotypes, '[]') FROM products
+        `);
+        await executeQuery(`DROP TABLE IF EXISTS products`);
+        await executeQuery(`ALTER TABLE products_new RENAME TO products`);
         await executeQuery(`PRAGMA foreign_keys = ON`);
-      } catch(e) {}
+        console.log("Hot migration of products table completed successfully with foreign keys bypassed.");
+      } catch(err) {
+        console.warn("Hot migration of products table warning/skipped:", err);
+        try {
+          await executeQuery(`PRAGMA foreign_keys = ON`);
+        } catch(e) {}
+      }
     }
 
-    // Hot migration for prescriptions table to make product_id nullable and add new columns
-    try {
-      await executeQuery(`PRAGMA foreign_keys = OFF`);
-      await executeQuery(`
-        CREATE TABLE IF NOT EXISTS prescriptions_new (
-          id TEXT PRIMARY KEY,
-          consultation_id TEXT NOT NULL,
-          product_id TEXT,
-          time_of_day TEXT NOT NULL CHECK (time_of_day IN ('Dia', 'Noche', 'Dia y Noche')),
-          dosage_instructions TEXT NOT NULL,
-          application_frequency TEXT NOT NULL,
-          step_name TEXT,
-          custom_product_name TEXT,
-          custom_brand TEXT,
-          custom_active_ingredients TEXT,
-          custom_actions TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
-          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
-        )
-      `);
-      // We will perform table schema check/migration by selecting whatever exists and mapping it
-      // Let's check which columns are in the old table and insert them or fallback to NULL
+    // Hot migration (una sola vez): relaja product_id a NULL y agrega columnas nuevas, reconstruyendo
+    // la tabla solo si el esquema todavía no está migrado. Misma protección que arriba: sin esta
+    // verificación, esta reconstrucción destructiva se repetiría en cada carga de la app.
+    if (!(await tableHasColumn('prescriptions', 'custom_active_ingredients'))) {
       try {
+        await executeQuery(`PRAGMA foreign_keys = OFF`);
         await executeQuery(`
-          INSERT OR IGNORE INTO prescriptions_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency)
-          SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency FROM prescriptions
+          CREATE TABLE IF NOT EXISTS prescriptions_new (
+            id TEXT PRIMARY KEY,
+            consultation_id TEXT NOT NULL,
+            product_id TEXT,
+            time_of_day TEXT NOT NULL CHECK (time_of_day IN ('Dia', 'Noche', 'Dia y Noche')),
+            dosage_instructions TEXT NOT NULL,
+            application_frequency TEXT NOT NULL,
+            step_name TEXT,
+            custom_product_name TEXT,
+            custom_brand TEXT,
+            custom_active_ingredients TEXT,
+            custom_actions TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+          )
         `);
-      } catch(insErr) {
-        // Old columns might differ or we already have the new columns. Let's do a complete copy of existing fields
+        // We will perform table schema check/migration by selecting whatever exists and mapping it
+        // Let's check which columns are in the old table and insert them or fallback to NULL
         try {
           await executeQuery(`
-            INSERT OR IGNORE INTO prescriptions_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
-            SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions FROM prescriptions
+            INSERT OR IGNORE INTO prescriptions_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency)
+            SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency FROM prescriptions
           `);
-        } catch(insErr2) {}
-      }
-      await executeQuery(`DROP TABLE IF EXISTS prescriptions`);
-      await executeQuery(`ALTER TABLE prescriptions_new RENAME TO prescriptions`);
-      await executeQuery(`PRAGMA foreign_keys = ON`);
-      console.log("Hot migration of prescriptions table completed successfully.");
-    } catch(err) {
-      console.warn("Hot migration of prescriptions table warning/skipped:", err);
-      try {
+        } catch(insErr) {
+          // Old columns might differ or we already have the new columns. Let's do a complete copy of existing fields
+          try {
+            await executeQuery(`
+              INSERT OR IGNORE INTO prescriptions_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
+              SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions FROM prescriptions
+            `);
+          } catch(insErr2) {}
+        }
+        await executeQuery(`DROP TABLE IF EXISTS prescriptions`);
+        await executeQuery(`ALTER TABLE prescriptions_new RENAME TO prescriptions`);
         await executeQuery(`PRAGMA foreign_keys = ON`);
-      } catch(e) {}
+        console.log("Hot migration of prescriptions table completed successfully.");
+      } catch(err) {
+        console.warn("Hot migration of prescriptions table warning/skipped:", err);
+        try {
+          await executeQuery(`PRAGMA foreign_keys = ON`);
+        } catch(e) {}
+      }
     }
 
     // Add new columns to existing tables if missing
