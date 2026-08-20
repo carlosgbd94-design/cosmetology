@@ -31,6 +31,9 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
       - name: Build
+        env:
+          VITE_LIBSQL_DB_URL: ${{ secrets.VITE_LIBSQL_DB_URL }}
+          VITE_LIBSQL_DB_TOKEN: ${{ secrets.VITE_LIBSQL_DB_TOKEN }}
         run: npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v4

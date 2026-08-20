@@ -1,9 +1,14 @@
 import Dexie, { type Table } from 'dexie';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription } from './types';
 
-// Web configuration for Turso (matching existing credentials)
-const TURSO_URL = import.meta.env.VITE_LIBSQL_DB_URL || 'https://cosmetics-prodcts-carlos-becerra.aws-us-west-2.turso.io';
-const TURSO_TOKEN = import.meta.env.VITE_LIBSQL_DB_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODAyNTc5MzEsImlkIjoiMDE5ZTdmOWUtMmEwMS03OWMxLTg3N2YtN2RkY2FkZjg1ZDk5IiwicmlkIjoiM2VhNTAwMzUtMjIwZS00MWM2LWI3NjItNTM2NjQ1NzJhM2EzIn0.7-B8dPeRempyRbJBif_dZYDmoKizAwHz9F9RTv-WGNmpniIRicU3GkcENXOi2k0n1_rKfDuL69f1cLAOyeFnBg';
+// Configuración de Turso: se toma exclusivamente de variables de entorno (nunca hardcodeada en el
+// código fuente). En local, defínelas en .env; en el despliegue, como secretos de GitHub Actions.
+const TURSO_URL = import.meta.env.VITE_LIBSQL_DB_URL || '';
+const TURSO_TOKEN = import.meta.env.VITE_LIBSQL_DB_TOKEN || '';
+
+if (!TURSO_URL || !TURSO_TOKEN) {
+  console.warn('VITE_LIBSQL_DB_URL / VITE_LIBSQL_DB_TOKEN no están configuradas. La app funcionará solo con datos locales hasta que se configuren.');
+}
 
 // Local Dexie Database v6 setup
 class LocalClinicalDB extends Dexie {
