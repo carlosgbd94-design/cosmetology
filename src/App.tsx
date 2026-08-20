@@ -555,7 +555,10 @@ export default function App() {
     isProfessionalUse: 1,
     activeIngredients: '[]',
     physiologicalActions: '[]',
-    skinBiotypes: '[]'
+    skinBiotypes: '[]',
+    stockQuantity: '',
+    costPrice: '',
+    reorderPoint: ''
   });
   const [formIngredientInput, setFormIngredientInput] = useState('');
   const [formIngredientAction, setFormIngredientAction] = useState('');
@@ -708,6 +711,14 @@ export default function App() {
       return { ...c, patientName: pat ? `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}` : 'Paciente desconocido' };
     });
   }, [records, patients]);
+
+  const lowStockProducts = useMemo(() => {
+    return products.filter(p =>
+      p.stockQuantity !== undefined && p.stockQuantity !== null &&
+      p.reorderPoint !== undefined && p.reorderPoint !== null &&
+      p.stockQuantity <= p.reorderPoint
+    );
+  }, [products]);
 
   // ----------------------------------------------------
   // INITIALIZATIONS & BOOTSTRAPPING
@@ -2490,7 +2501,10 @@ export default function App() {
       isProfessionalUse: p.isProfessionalUse,
       activeIngredients: p.activeIngredients,
       physiologicalActions: p.physiologicalActions,
-      skinBiotypes: p.skinBiotypes || '[]'
+      skinBiotypes: p.skinBiotypes || '[]',
+      stockQuantity: p.stockQuantity !== undefined && p.stockQuantity !== null ? String(p.stockQuantity) : '',
+      costPrice: p.costPrice !== undefined && p.costPrice !== null ? String(p.costPrice) : '',
+      reorderPoint: p.reorderPoint !== undefined && p.reorderPoint !== null ? String(p.reorderPoint) : ''
     });
     setFormIngredientsList(parsedActives);
   };
@@ -2610,7 +2624,10 @@ export default function App() {
       isProfessionalUse: productForm.isProfessionalUse,
       activeIngredients: JSON.stringify(actives),
       physiologicalActions: JSON.stringify(actions),
-      skinBiotypes: productForm.skinBiotypes || '[]'
+      skinBiotypes: productForm.skinBiotypes || '[]',
+      stockQuantity: productForm.stockQuantity.trim() ? parseInt(productForm.stockQuantity, 10) : undefined,
+      costPrice: productForm.costPrice.trim() ? parseFloat(productForm.costPrice) : undefined,
+      reorderPoint: productForm.reorderPoint.trim() ? parseInt(productForm.reorderPoint, 10) : undefined
     };
 
     try {
@@ -5433,7 +5450,7 @@ export default function App() {
               <button onClick={() => {
                 setIsProductFormOpen(true);
                 setIsEditProduct(false);
-                setProductForm({ id: '', sku: '', name: '', brandLine: '', retailPrice: '', isProfessionalUse: 1, activeIngredients: '[]', physiologicalActions: '[]' });
+                setProductForm({ id: '', sku: '', name: '', brandLine: '', productType: '', retailPrice: '', isProfessionalUse: 1, activeIngredients: '[]', physiologicalActions: '[]', skinBiotypes: '[]', stockQuantity: '', costPrice: '', reorderPoint: '' });
                 setFormIngredientsList([]);
               }} className="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5">
                 <Plus className="w-4 h-4" /> Añadir Producto al Catálogo
@@ -5527,6 +5544,21 @@ export default function App() {
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Precio Público (MXN) *</label>
                       <input type="number" step="0.01" value={productForm.retailPrice} onChange={e => setProductForm(prev => ({ ...prev, retailPrice: e.target.value }))} placeholder="$0.00" required className="smart-input w-full font-semibold" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Stock Actual</label>
+                      <input type="number" step="1" min="0" value={productForm.stockQuantity} onChange={e => setProductForm(prev => ({ ...prev, stockQuantity: e.target.value }))} placeholder="Ej: 10" className="smart-input w-full" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Costo de Adquisición (MXN)</label>
+                      <input type="number" step="0.01" min="0" value={productForm.costPrice} onChange={e => setProductForm(prev => ({ ...prev, costPrice: e.target.value }))} placeholder="$0.00" className="smart-input w-full" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Punto de Reorden</label>
+                      <input type="number" step="1" min="0" value={productForm.reorderPoint} onChange={e => setProductForm(prev => ({ ...prev, reorderPoint: e.target.value }))} placeholder="Ej: 3" className="smart-input w-full" />
                     </div>
                   </div>
 
@@ -5703,6 +5735,25 @@ export default function App() {
               </div>
             )}
 
+            {/* Alerta de Stock Bajo */}
+            {lowStockProducts.length > 0 && (
+              <div className="liquid-glass rounded-3xl p-6 border border-red-500/20 bg-red-500/5">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle className="w-5 h-5 text-red-500" />
+                  <h3 className="font-outfit text-sm font-bold text-slate-800 dark:text-white">
+                    {lowStockProducts.length} producto{lowStockProducts.length !== 1 ? 's' : ''} con stock bajo
+                  </h3>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {lowStockProducts.map(p => (
+                    <span key={p.id} className="px-3 py-1.5 rounded-xl bg-white dark:bg-luxe-900 border border-red-500/20 text-xs font-medium text-slate-700 dark:text-luxe-200">
+                      {p.name} <span className="text-red-600 dark:text-red-400 font-bold">({p.stockQuantity} / mín. {p.reorderPoint})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Catalog Items Table */}
             <div className="liquid-glass rounded-3xl p-8">
               <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
@@ -5718,6 +5769,7 @@ export default function App() {
                       <th className="py-3.5 px-4 font-bold">Tipo / Formato</th>
                       <th className="py-3.5 px-4 font-bold">Marca</th>
                       <th className="py-3.5 px-4 font-bold">Precio</th>
+                      <th className="py-3.5 px-4 font-bold">Stock</th>
                       <th className="py-3.5 px-4 font-bold">Activos</th>
                       <th className="py-3.5 px-4 font-bold">Uso</th>
                       <th className="py-3.5 px-4 font-bold">Biotipos</th>
@@ -5748,6 +5800,19 @@ export default function App() {
                             </td>
                             <td className="py-3.5 px-4">{p.brandLine}</td>
                             <td className="py-3.5 px-4">${p.retailPrice.toFixed(2)} MXN</td>
+                            <td className="py-3.5 px-4">
+                              {p.stockQuantity === undefined || p.stockQuantity === null ? (
+                                <span className="text-[10px] text-slate-400 italic">—</span>
+                              ) : (
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                  p.reorderPoint !== undefined && p.reorderPoint !== null && p.stockQuantity <= p.reorderPoint
+                                    ? 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400'
+                                    : 'bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-luxe-300'
+                                }`} title={p.reorderPoint !== undefined && p.reorderPoint !== null ? `Punto de reorden: ${p.reorderPoint}` : undefined}>
+                                  {p.reorderPoint !== undefined && p.reorderPoint !== null && p.stockQuantity <= p.reorderPoint ? '⚠️ ' : ''}{p.stockQuantity}
+                                </span>
+                              )}
+                            </td>
                             <td className="py-3.5 px-4 truncate max-w-[150px]">{parsedActives}</td>
                             <td className="py-3.5 px-4">
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
