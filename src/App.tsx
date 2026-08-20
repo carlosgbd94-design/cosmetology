@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData, getTableName } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData, getTableName } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { encryptData, decryptData, sha256 } from './crypto';
@@ -842,14 +842,22 @@ export default function App() {
             }
           }
 
-          // Push local Dexie products to Turso remote if missing
+          // Push local Dexie products to Turso remote if missing (en lotes para evitar cientos de
+          // idas y vueltas de red secuenciales, una por producto, que dejaban la sincronización colgada)
           const localProds = await db.products.toArray();
-          for (const lp of localProds) {
-            await executeQuery(
-              `INSERT OR IGNORE INTO ${tblProducts} (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [lp.id, lp.sku, lp.name, lp.brandLine, lp.activeIngredients, lp.physiologicalActions, lp.retailPrice, typeof lp.isProfessionalUse === 'boolean' ? (lp.isProfessionalUse ? 1 : 0) : Number(lp.isProfessionalUse), lp.skinBiotypes || '[]']
-            );
+          const pushChunkSize = 50;
+          for (let i = 0; i < localProds.length; i += pushChunkSize) {
+            const chunk = localProds.slice(i, i + pushChunkSize);
+            const stmts = chunk.map(lp => ({
+              sql: `INSERT OR IGNORE INTO ${tblProducts} (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              args: [lp.id, lp.sku, lp.name, lp.brandLine, lp.activeIngredients, lp.physiologicalActions, lp.retailPrice, typeof lp.isProfessionalUse === 'boolean' ? (lp.isProfessionalUse ? 1 : 0) : Number(lp.isProfessionalUse), lp.skinBiotypes || '[]']
+            }));
+            try {
+              await executeBatch(stmts);
+            } catch (batchErr) {
+              console.warn('Fallo al sincronizar lote de productos locales hacia remoto:', batchErr);
+            }
           }
 
           // 2. Sync patients

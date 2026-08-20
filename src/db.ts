@@ -302,99 +302,97 @@ async function seedTablesImpl(): Promise<void> {
     const tblSteps = getTableName('consultation_steps');
     const tblPrescriptions = getTableName('prescriptions');
 
-    // 1. Setup tables (Isolated per License Key or Master)
-    await executeQuery(`
-      CREATE TABLE IF NOT EXISTS ${tblPatients} (
-        id TEXT PRIMARY KEY,
-        first_name_encrypted TEXT NOT NULL,
-        last_name_encrypted TEXT NOT NULL,
-        date_of_birth TEXT NOT NULL,
-        email_hashed TEXT UNIQUE NOT NULL,
-        phone_encrypted TEXT NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await executeQuery(`
-      CREATE TABLE IF NOT EXISTS ${tblAnamnesis} (
-        id TEXT PRIMARY KEY,
-        patient_id TEXT NOT NULL UNIQUE,
-        medical_diagnosis TEXT,
-        surgical_history TEXT,
-        allergies_cosmetics TEXT NOT NULL DEFAULT '',
-        current_medications TEXT NOT NULL DEFAULT '',
-        lifestyle_metrics TEXT NOT NULL DEFAULT '{}',
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await executeQuery(`
-      CREATE TABLE IF NOT EXISTS ${tblProducts} (
-        id TEXT PRIMARY KEY,
-        sku TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        brand_line TEXT NOT NULL,
-        active_ingredients TEXT NOT NULL DEFAULT '',
-        physiological_actions TEXT NOT NULL DEFAULT '',
-        retail_price REAL NOT NULL,
-        is_professional_use INTEGER DEFAULT 1 CHECK (is_professional_use IN (0, 1, 2)),
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await executeQuery(`
-      CREATE TABLE IF NOT EXISTS ${tblConsultations} (
-        id TEXT PRIMARY KEY,
-        patient_id TEXT NOT NULL,
-        provider_id TEXT NOT NULL,
-        visit_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        skin_biotype TEXT NOT NULL,
-        fitzpatrick_scale INTEGER CHECK (fitzpatrick_scale BETWEEN 1 AND 6),
-        skin_conditions TEXT NOT NULL DEFAULT '',
-        medical_diagnosis TEXT,
-        clinical_notes TEXT NOT NULL,
-        state TEXT NOT NULL DEFAULT 'Borrador' CHECK (state IN ('Borrador', 'Admision', 'Consentimiento', 'Tratamiento', 'Evaluacion')),
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        recommendations TEXT
-      )
-    `);
-
-    await executeQuery(`
-      CREATE TABLE IF NOT EXISTS ${tblSteps} (
-        id TEXT PRIMARY KEY,
-        consultation_id TEXT NOT NULL,
-        step_order INTEGER NOT NULL,
-        step_name TEXT NOT NULL,
-        product_id TEXT,
-        custom_product_name TEXT,
-        custom_brand TEXT,
-        custom_active_ingredients TEXT,
-        custom_actions TEXT,
-        application_description TEXT,
-        aparatology_settings TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE (consultation_id, step_order)
-      )
-    `);
-
-    await executeQuery(`
-      CREATE TABLE IF NOT EXISTS ${tblPrescriptions} (
-        id TEXT PRIMARY KEY,
-        consultation_id TEXT NOT NULL,
-        product_id TEXT,
-        time_of_day TEXT NOT NULL CHECK (time_of_day IN ('Dia', 'Noche', 'Dia y Noche')),
-        dosage_instructions TEXT NOT NULL,
-        application_frequency TEXT NOT NULL,
-        step_name TEXT,
-        custom_product_name TEXT,
-        custom_brand TEXT,
-        custom_active_ingredients TEXT,
-        custom_actions TEXT,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    // 1. Setup tables (Isolated per License Key or Master) — un solo request en lote en vez de
+    // 6 idas y vueltas de red secuenciales, para que la app no se quede colgada en "Sincronizando...".
+    await executeBatch([
+      { sql: `
+        CREATE TABLE IF NOT EXISTS ${tblPatients} (
+          id TEXT PRIMARY KEY,
+          first_name_encrypted TEXT NOT NULL,
+          last_name_encrypted TEXT NOT NULL,
+          date_of_birth TEXT NOT NULL,
+          email_hashed TEXT UNIQUE NOT NULL,
+          phone_encrypted TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      ` },
+      { sql: `
+        CREATE TABLE IF NOT EXISTS ${tblAnamnesis} (
+          id TEXT PRIMARY KEY,
+          patient_id TEXT NOT NULL UNIQUE,
+          medical_diagnosis TEXT,
+          surgical_history TEXT,
+          allergies_cosmetics TEXT NOT NULL DEFAULT '',
+          current_medications TEXT NOT NULL DEFAULT '',
+          lifestyle_metrics TEXT NOT NULL DEFAULT '{}',
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      ` },
+      { sql: `
+        CREATE TABLE IF NOT EXISTS ${tblProducts} (
+          id TEXT PRIMARY KEY,
+          sku TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          brand_line TEXT NOT NULL,
+          active_ingredients TEXT NOT NULL DEFAULT '',
+          physiological_actions TEXT NOT NULL DEFAULT '',
+          retail_price REAL NOT NULL,
+          is_professional_use INTEGER DEFAULT 1 CHECK (is_professional_use IN (0, 1, 2)),
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      ` },
+      { sql: `
+        CREATE TABLE IF NOT EXISTS ${tblConsultations} (
+          id TEXT PRIMARY KEY,
+          patient_id TEXT NOT NULL,
+          provider_id TEXT NOT NULL,
+          visit_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          skin_biotype TEXT NOT NULL,
+          fitzpatrick_scale INTEGER CHECK (fitzpatrick_scale BETWEEN 1 AND 6),
+          skin_conditions TEXT NOT NULL DEFAULT '',
+          medical_diagnosis TEXT,
+          clinical_notes TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'Borrador' CHECK (state IN ('Borrador', 'Admision', 'Consentimiento', 'Tratamiento', 'Evaluacion')),
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          recommendations TEXT
+        )
+      ` },
+      { sql: `
+        CREATE TABLE IF NOT EXISTS ${tblSteps} (
+          id TEXT PRIMARY KEY,
+          consultation_id TEXT NOT NULL,
+          step_order INTEGER NOT NULL,
+          step_name TEXT NOT NULL,
+          product_id TEXT,
+          custom_product_name TEXT,
+          custom_brand TEXT,
+          custom_active_ingredients TEXT,
+          custom_actions TEXT,
+          application_description TEXT,
+          aparatology_settings TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (consultation_id, step_order)
+        )
+      ` },
+      { sql: `
+        CREATE TABLE IF NOT EXISTS ${tblPrescriptions} (
+          id TEXT PRIMARY KEY,
+          consultation_id TEXT NOT NULL,
+          product_id TEXT,
+          time_of_day TEXT NOT NULL CHECK (time_of_day IN ('Dia', 'Noche', 'Dia y Noche')),
+          dosage_instructions TEXT NOT NULL,
+          application_frequency TEXT NOT NULL,
+          step_name TEXT,
+          custom_product_name TEXT,
+          custom_brand TEXT,
+          custom_active_ingredients TEXT,
+          custom_actions TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      ` }
+    ]);
     // Hot migration (una sola vez): agrega skin_biotypes reconstruyendo la tabla solo si aún no existe la columna.
     // IMPORTANTE: esta reconstrucción es destructiva (DROP + RENAME), por eso se protege con la
     // verificación de esquema de abajo para que nunca vuelva a ejecutarse una vez migrada la tabla.
@@ -483,59 +481,30 @@ async function seedTablesImpl(): Promise<void> {
       }
     }
 
-    // Add new columns to existing tables if missing
+    // Add new columns to existing tables if missing. En un solo lote: cada ALTER que falle porque
+    // la columna ya existe no interrumpe a los demás (Turso ejecuta cada statement del pipeline de
+    // forma independiente), así que es seguro ignorar el error del lote completo.
     try {
-      await executeQuery(`ALTER TABLE consultations ADD COLUMN allergies TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultations ADD COLUMN medical_conditions TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultations ADD COLUMN recommendations TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'General'`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 10`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE products ADD COLUMN reorder_point INTEGER DEFAULT 3`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultations ADD COLUMN signature_data_url TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultations ADD COLUMN before_image_url TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultations ADD COLUMN after_image_url TEXT`);
-    } catch (e) {}
-
-    // Ensure all custom step columns exist
-    try {
-      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_product_name TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_brand TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_active_ingredients TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN custom_actions TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN application_description TEXT`);
-    } catch (e) {}
-    try {
-      await executeQuery(`ALTER TABLE consultation_steps ADD COLUMN aparatology_settings TEXT`);
+      await executeBatch([
+        { sql: `ALTER TABLE consultations ADD COLUMN allergies TEXT` },
+        { sql: `ALTER TABLE consultations ADD COLUMN medical_conditions TEXT` },
+        { sql: `ALTER TABLE consultations ADD COLUMN recommendations TEXT` },
+        { sql: `ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'` },
+        { sql: `ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'General'` },
+        { sql: `ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 10` },
+        { sql: `ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0` },
+        { sql: `ALTER TABLE products ADD COLUMN reorder_point INTEGER DEFAULT 3` },
+        { sql: `ALTER TABLE consultations ADD COLUMN signature_data_url TEXT` },
+        { sql: `ALTER TABLE consultations ADD COLUMN before_image_url TEXT` },
+        { sql: `ALTER TABLE consultations ADD COLUMN after_image_url TEXT` },
+        // Ensure all custom step columns exist
+        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_product_name TEXT` },
+        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_brand TEXT` },
+        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_active_ingredients TEXT` },
+        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_actions TEXT` },
+        { sql: `ALTER TABLE consultation_steps ADD COLUMN application_description TEXT` },
+        { sql: `ALTER TABLE consultation_steps ADD COLUMN aparatology_settings TEXT` }
+      ]);
     } catch (e) {}
 
     // Create default users table if missing
@@ -562,12 +531,11 @@ async function seedTablesImpl(): Promise<void> {
       ['LID-ARM05', 'SKU-LID-ARM05', 'Sense Control Harmonizing Treatment', 'Lidherma', '["Péptidos desensibilizantes", "Aloe Vera", "Extracto de Avena"]', '["Disminuye la rojez", "descongestiona"]', 620.00, 0]
     ];
 
-    for (const prod of defaultProducts) {
-      await executeQuery(`
-        INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `, prod);
-    }
+    await executeBatch(defaultProducts.map(prod => ({
+      sql: `INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: prod
+    })));
 
     // Migrate legacy productos_activos to products if the table exists and contains records
     try {
@@ -600,12 +568,19 @@ async function seedTablesImpl(): Promise<void> {
           }
         }
 
+        // Traer de una sola vez todos los pares nombre+marca ya existentes, en vez de hacer un SELECT
+        // por cada grupo (podían ser decenas de idas y vueltas de red en cada carga de la app).
+        const existingNames = await executeQuery("SELECT name, brand_line FROM products");
+        const existingKeys = new Set(
+          (existingNames.rows || []).map((r: any) => `${String(r.name).toLowerCase()}_${String(r.brand_line).toLowerCase()}`)
+        );
+
         let idx = 10; // offset so default ids don't collide
+        const insertStmts: { sql: string; args: any[] }[] = [];
         for (const key of Object.keys(grouped)) {
           const item = grouped[key];
-          // Check if this product name is already seeded
-          const nameCheck = await executeQuery("SELECT id FROM products WHERE name = ? AND brand_line = ?", [item.name, item.brand]);
-          if (nameCheck.rows && nameCheck.rows.length > 0) {
+          const lookupKey = `${item.name.toLowerCase()}_${(item.brand || 'General').toLowerCase()}`;
+          if (existingKeys.has(lookupKey)) {
             continue;
           }
 
@@ -616,11 +591,15 @@ async function seedTablesImpl(): Promise<void> {
           const actionJSON = JSON.stringify(item.actions);
           const isProfessional = item.protocol === 'Apoyo en Casa' ? 0 : 1;
 
-          await executeQuery(`
-            INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `, [id, sku, item.name, item.brand || 'General', activeJSON, actionJSON, 500.00, isProfessional]);
+          insertStmts.push({
+            sql: `INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [id, sku, item.name, item.brand || 'General', activeJSON, actionJSON, 500.00, isProfessional]
+          });
           idx++;
+        }
+        if (insertStmts.length > 0) {
+          await executeBatch(insertStmts);
         }
       }
     } catch (migErr) {
