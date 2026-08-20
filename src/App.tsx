@@ -5,7 +5,6 @@ import { validateStateTransition } from './stateMachine';
 import { encryptData, decryptData, sha256 } from './crypto';
 import { ClinicalReportPDF } from './ClinicalReportPDF';
 import { pdf } from '@react-pdf/renderer';
-import SignaturePad from 'signature_pad';
 import Fuse from 'fuse.js';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
@@ -17,7 +16,6 @@ import {
 import { sendManualReport } from './errorHandler';
 import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList } from './cosmetologyLogic';
 import { BeforeAfterSlider } from './BeforeAfterSlider';
-import { ConsentModal } from './ConsentModal';
 import { BackupModal } from './BackupModal';
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
@@ -384,7 +382,8 @@ export default function App() {
     state: 'Borrador' as ConsultationState,
     allergies: '',
     medicalConditions: '',
-    recommendations: ''
+    recommendations: '',
+    consentAccepted: false
   });
 
   const [customConditionInput, setCustomConditionInput] = useState('');
@@ -407,7 +406,6 @@ export default function App() {
   const [stepSuggestions, setStepSuggestions] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [homeProtocolName, setHomeProtocolName] = useState<string>('');
-  const [isConsentModalOpen, setIsConsentModalOpen] = useState<boolean>(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
 
 
@@ -443,12 +441,6 @@ export default function App() {
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // Signature Pad state refs
-  const specSigCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const patSigCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const specSigPadRef = useRef<SignaturePad | null>(null);
-  const patSigPadRef = useRef<SignaturePad | null>(null);
 
   // State PDF choice modal
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
@@ -898,7 +890,7 @@ export default function App() {
           }
 
           // 4. Sync consultations
-          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions FROM ${tblConsultations}`);
+          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted FROM ${tblConsultations}`);
           if (resConsults && resConsults.rows) {
             for (const r of resConsults.rows) {
               await db.consultations.put({
@@ -914,7 +906,8 @@ export default function App() {
                 state: r.state as any,
                 recommendations: r.recommendations || undefined,
                 allergies: r.allergies || '',
-                medicalConditions: r.medical_conditions || ''
+                medicalConditions: r.medical_conditions || '',
+                consentAccepted: Number(r.consent_accepted) === 1
               });
             }
           }
@@ -1397,32 +1390,6 @@ export default function App() {
     }
   };
 
-
-  // ----------------------------------------------------
-  // SIGNATURES CAPTURE
-  // ----------------------------------------------------
-  useEffect(() => {
-    if (activeTab !== 'generator' || !isLogged) return;
-    
-    setTimeout(() => {
-      if (specSigCanvasRef.current && patSigCanvasRef.current) {
-        specSigPadRef.current = new SignaturePad(specSigCanvasRef.current, {
-          backgroundColor: 'rgb(255, 255, 255)'
-        });
-        patSigPadRef.current = new SignaturePad(patSigCanvasRef.current, {
-          backgroundColor: 'rgb(255, 255, 255)'
-        });
-      }
-    }, 200);
-  }, [activeTab, isLogged]);
-
-  const clearSignature = (type: 'especialista' | 'paciente') => {
-    if (type === 'especialista' && specSigPadRef.current) {
-      specSigPadRef.current.clear();
-    } else if (type === 'paciente' && patSigPadRef.current) {
-      patSigPadRef.current.clear();
-    }
-  };
 
   // ----------------------------------------------------
   // PROCEDURAL STEPS BUILDER & COMPATIBILITY
@@ -1925,7 +1892,8 @@ export default function App() {
         state: patientForm.state,
         allergies: patientForm.allergies || '',
         medicalConditions: patientForm.medicalConditions || '',
-        recommendations: patientForm.recommendations || ''
+        recommendations: patientForm.recommendations || '',
+        consentAccepted: patientForm.consentAccepted || false
       };
 
       const finalSteps = currentSteps.map(s => ({ ...s, consultationId }));
@@ -2210,7 +2178,8 @@ export default function App() {
       state: 'Borrador',
       allergies: '',
       medicalConditions: '',
-      recommendations: ''
+      recommendations: '',
+      consentAccepted: false
     });
     setCurrentSteps([]);
     setPrescriptionsList([]);
@@ -2218,8 +2187,6 @@ export default function App() {
       forehead: false, nose: false, leftCheek: false, rightCheek: false, chin: false,
       leftEye: false, rightEye: false, lips: false, neck: false
     });
-    clearSignature('especialista');
-    clearSignature('paciente');
   };
 
   // ----------------------------------------------------
@@ -2255,7 +2222,8 @@ export default function App() {
         steps: currentSteps,
         prescriptions: prescriptionsList,
         allergies: patientForm.allergies || '',
-        medicalConditions: patientForm.medicalConditions || ''
+        medicalConditions: patientForm.medicalConditions || '',
+        consentAccepted: patientForm.consentAccepted || false
       };
 
       const doc = <ClinicalReportPDF patient={activePatient} consultation={activeConsultation} type={type} />;
@@ -4418,27 +4386,22 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Consentimiento Informado Digital */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20">
-                  <div className="flex items-center gap-2.5">
-                    <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
-                    <div>
-                      <span className="font-bold text-xs text-slate-800 dark:text-white block">Consentimiento Informado Clínico</span>
-                      <span className="text-[10px] text-slate-400">
-                        {patientForm.consentAccepted ? '✅ Consentimiento aceptado y firmado digitalmente' : '⚠️ Pendiente de firma por el paciente'}
-                      </span>
-                    </div>
+                {/* Consentimiento Informado */}
+                <label className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={patientForm.consentAccepted}
+                    onChange={e => setPatientForm(prev => ({ ...prev, consentAccepted: e.target.checked }))}
+                    className="w-5 h-5 rounded accent-amber-500 shrink-0"
+                  />
+                  <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
+                  <div>
+                    <span className="font-bold text-xs text-slate-800 dark:text-white block">Consentimiento Informado Clínico</span>
+                    <span className="text-[10px] text-slate-400">
+                      Confirmo que el paciente otorgó su consentimiento (verbal o en papel) para el tratamiento
+                    </span>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsConsentModalOpen(true)}
-                    className="bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 shrink-0"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    {patientForm.consentAccepted ? 'Ver / Re-firmar' : 'Firmar Consentimiento'}
-                  </button>
-                </div>
+                </label>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-2">
@@ -4997,28 +4960,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Captured Signatures */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-slate-200/50 dark:border-white/5 pt-8">
-                  <div className="flex flex-col">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">Firma del Especialista</span>
-                      <button type="button" onClick={() => clearSignature('especialista')} className="text-[9px] font-semibold text-red-500 hover:underline">Limpiar</button>
-                    </div>
-                    <div className="relative bg-white border border-slate-200/50 dark:border-white/10 rounded-2xl overflow-hidden h-36 flex items-center justify-center shadow-inner">
-                      <canvas ref={specSigCanvasRef} className="w-full h-full cursor-crosshair" />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">Firma del Paciente</span>
-                      <button type="button" onClick={() => clearSignature('paciente')} className="text-[9px] font-semibold text-red-500 hover:underline">Limpiar</button>
-                    </div>
-                    <div className="relative bg-white border border-slate-200/50 dark:border-white/10 rounded-2xl overflow-hidden h-36 flex items-center justify-center shadow-inner">
-                      <canvas ref={patSigCanvasRef} className="w-full h-full cursor-crosshair" />
-                    </div>
-                  </div>
-                </div>
 
                 {/* Final Form Operations */}
                 <div className="flex justify-end gap-4 pt-6 border-t border-slate-200/50 dark:border-white/5">
@@ -6466,16 +6407,6 @@ export default function App() {
         </div>
       )}
 
-      <ConsentModal
-        isOpen={isConsentModalOpen}
-        patientName={`${patientForm.firstNameEncrypted || ''} ${patientForm.lastNameEncrypted || ''}`}
-        onClose={() => setIsConsentModalOpen(false)}
-        onConfirm={(sigData) => {
-          setPatientForm(prev => ({ ...prev, signatureDataUrl: sigData, consentAccepted: true }));
-          setIsConsentModalOpen(false);
-          showToastMsg('Consentimiento informado firmado e integrado a la consulta.', 'success');
-        }}
-      />
 
       <BackupModal
         isOpen={isBackupModalOpen}

@@ -188,8 +188,8 @@ export async function saveConsultationTransaction(
     stmts.push({ sql: "BEGIN TRANSACTION", args: [] });
 
     stmts.push({
-      sql: `INSERT OR REPLACE INTO ${tblConsultations} (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT OR REPLACE INTO ${tblConsultations} (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations, consent_accepted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         consultation.id,
         consultation.patientId,
@@ -203,7 +203,8 @@ export async function saveConsultationTransaction(
         consultation.state,
         consultation.allergies || null,
         consultation.medicalConditions || null,
-        consultation.recommendations || null
+        consultation.recommendations || null,
+        consultation.consentAccepted ? 1 : 0
       ]
     });
 
@@ -499,9 +500,9 @@ async function seedTablesImpl(): Promise<void> {
         { sql: `ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 10` },
         { sql: `ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0` },
         { sql: `ALTER TABLE products ADD COLUMN reorder_point INTEGER DEFAULT 3` },
-        { sql: `ALTER TABLE consultations ADD COLUMN signature_data_url TEXT` },
         { sql: `ALTER TABLE consultations ADD COLUMN before_image_url TEXT` },
         { sql: `ALTER TABLE consultations ADD COLUMN after_image_url TEXT` },
+        { sql: `ALTER TABLE consultations ADD COLUMN consent_accepted INTEGER DEFAULT 0` },
         // Ensure all custom step columns exist
         { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_product_name TEXT` },
         { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_brand TEXT` },

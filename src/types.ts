@@ -84,8 +84,7 @@ export interface Consultation {
   allergies?: string;
   medicalConditions?: string;
   recommendations?: string;
-  signatureDataUrl?: string; // Firma digital táctil en Base64
   beforeImageUrl?: string;   // Fotografía Antes
   afterImageUrl?: string;    // Fotografía Después
-  consentAccepted?: boolean; // Aceptación de consentimiento informado
+  consentAccepted?: boolean; // Consentimiento otorgado (verbal o en papel), confirmado por el especialista
 }
