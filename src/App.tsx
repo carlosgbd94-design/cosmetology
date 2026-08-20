@@ -631,6 +631,19 @@ export default function App() {
   const [catalogBrandFilter, setCatalogBrandFilter] = useState('');
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState('');
 
+  const [activosCatalogSearch, setActivosCatalogSearch] = useState('');
+  const [editingCatalogIngredient, setEditingCatalogIngredient] = useState<string | null>(null);
+  const [editCatalogNameDraft, setEditCatalogNameDraft] = useState('');
+  const [editCatalogActionDraft, setEditCatalogActionDraft] = useState('');
+
+  const filteredIngredientsCatalog = useMemo(() => {
+    const q = activosCatalogSearch.toLowerCase().trim();
+    if (!q) return alphabeticalIngredientsCatalog;
+    return alphabeticalIngredientsCatalog.filter(ing =>
+      ing.name.toLowerCase().includes(q) || ing.action.toLowerCase().includes(q)
+    );
+  }, [alphabeticalIngredientsCatalog, activosCatalogSearch]);
+
   // Bulk Excel import preview state
   const [uploadPreview, setUploadPreview] = useState<Product[]>([]);
   const [apiBrandSelect, setApiBrandSelect] = useState('');
@@ -2421,6 +2434,71 @@ export default function App() {
       console.error(e);
       showToastMsg('Error al eliminar producto.', 'error');
     }
+  };
+
+  // Aplica un cambio (renombrar/actualizar acción, o eliminar) de un activo a todos los
+  // productos del catálogo que lo contienen. `transform` devuelve null para eliminar el activo.
+  const applyIngredientChangeToAllProducts = async (
+    matchName: string,
+    transform: (name: string, action: string) => { name: string; action: string } | null
+  ) => {
+    const tblProducts = getTableName('products');
+    const matchLower = matchName.toLowerCase();
+    const affected = products.filter(p => parseStringList(p.activeIngredients).some(n => n.toLowerCase() === matchLower));
+
+    for (const p of affected) {
+      const actives = parseStringList(p.activeIngredients);
+      const actions = parseStringList(p.physiologicalActions);
+      const nextActives: string[] = [];
+      const nextActions: string[] = [];
+      actives.forEach((act, idx) => {
+        const currentAction = actions[idx] || '';
+        if (act.toLowerCase() === matchLower) {
+          const result = transform(act, currentAction);
+          if (result) {
+            nextActives.push(result.name);
+            nextActions.push(result.action);
+          }
+        } else {
+          nextActives.push(act);
+          nextActions.push(currentAction);
+        }
+      });
+
+      const updated: Product = { ...p, activeIngredients: JSON.stringify(nextActives), physiologicalActions: JSON.stringify(nextActions) };
+      await db.products.put(updated);
+      if (navigator.onLine) {
+        try {
+          await executeQuery(
+            `UPDATE ${tblProducts} SET active_ingredients = ?, physiological_actions = ? WHERE id = ?`,
+            [updated.activeIngredients, updated.physiologicalActions, updated.id]
+          );
+        } catch (e) {
+          console.warn('Fallo temporal al sincronizar activo actualizado en Turso para el producto', p.id, e);
+        }
+      }
+    }
+
+    await loadMasterCatalogs();
+    return affected.length;
+  };
+
+  const handleEditCatalogIngredient = async (originalName: string, newName: string, newAction: string) => {
+    const trimmedName = newName.trim();
+    const trimmedAction = newAction.trim();
+    if (!trimmedName) {
+      showToastMsg('El nombre del activo no puede estar vacío.', 'error');
+      return;
+    }
+    const count = await applyIngredientChangeToAllProducts(originalName, () => ({ name: trimmedName, action: trimmedAction || 'Acción general' }));
+    setEditingCatalogIngredient(null);
+    showToastMsg(`Activo actualizado en ${count} producto(s) del catálogo.`, 'success');
+  };
+
+  const handleDeleteCatalogIngredient = async (name: string) => {
+    if (!window.confirm(`¿Eliminar "${name}" de TODOS los productos del catálogo que lo contienen? Esta acción no se puede deshacer.`)) return;
+    const count = await applyIngredientChangeToAllProducts(name, () => null);
+    showToastMsg(`Activo eliminado de ${count} producto(s) del catálogo.`, 'success');
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -5671,33 +5749,84 @@ export default function App() {
 
             {/* Catálogo Alfabético de Activos */}
             <div className="liquid-glass rounded-3xl p-8">
-              <div className="flex items-center justify-between gap-4 mb-6">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
                 <h2 className="font-outfit text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
                   <Beaker className="w-5 h-5 text-bronze-500" /> Catálogo de Activos (A-Z)
                 </h2>
-                <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">
-                  {alphabeticalIngredientsCatalog.length} activos únicos
+                <span className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest whitespace-nowrap">
+                  {filteredIngredientsCatalog.length} de {alphabeticalIngredientsCatalog.length} activos únicos
                 </span>
               </div>
 
+              <input
+                type="text"
+                value={activosCatalogSearch}
+                onChange={e => setActivosCatalogSearch(e.target.value)}
+                placeholder="🔍 Buscar por nombre o acción/efecto..."
+                className="smart-input w-full md:max-w-md pl-4 pr-4 py-3 rounded-xl text-xs mb-4"
+              />
+
               <div className="border border-slate-200/50 dark:border-white/5 rounded-2xl bg-white/20 dark:bg-luxe-950/20 max-h-[400px] overflow-y-auto">
-                {alphabeticalIngredientsCatalog.length === 0 ? (
-                  <div className="p-6 text-xs text-slate-400 italic text-center">No hay activos capturados todavía.</div>
+                {filteredIngredientsCatalog.length === 0 ? (
+                  <div className="p-6 text-xs text-slate-400 italic text-center">
+                    {alphabeticalIngredientsCatalog.length === 0 ? 'No hay activos capturados todavía.' : 'Ningún activo coincide con la búsqueda.'}
+                  </div>
                 ) : (
                   <table className="w-full text-left border-collapse text-xs">
                     <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-luxe-900 border-b border-slate-200/50 dark:border-white/5 shadow-sm">
                       <tr>
                         <th className="py-3 px-4 font-bold">Activo</th>
                         <th className="py-3 px-4 font-bold">Acción / Efecto Clínico</th>
+                        <th className="py-3 px-4 text-right font-bold">Acciones</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
-                      {alphabeticalIngredientsCatalog.map(ing => (
-                        <tr key={ing.name}>
-                          <td className="py-2.5 px-4 font-bold text-slate-800 dark:text-white">{ing.name}</td>
-                          <td className="py-2.5 px-4 text-slate-500 dark:text-luxe-300">{ing.action}</td>
-                        </tr>
-                      ))}
+                      {filteredIngredientsCatalog.map(ing => {
+                        const isEditing = editingCatalogIngredient === ing.name;
+                        return (
+                          <tr key={ing.name}>
+                            {isEditing ? (
+                              <>
+                                <td className="py-2 px-4">
+                                  <input type="text" value={editCatalogNameDraft} onChange={e => setEditCatalogNameDraft(e.target.value)} className="smart-input w-full text-xs" autoFocus />
+                                </td>
+                                <td className="py-2 px-4">
+                                  <input type="text" value={editCatalogActionDraft} onChange={e => setEditCatalogActionDraft(e.target.value)} className="smart-input w-full text-xs" />
+                                </td>
+                                <td className="py-2 px-4 text-right space-x-2 whitespace-nowrap">
+                                  <button onClick={() => handleEditCatalogIngredient(ing.name, editCatalogNameDraft, editCatalogActionDraft)} className="text-green-600 dark:text-green-400 hover:underline font-bold" title="Guardar cambios">
+                                    Guardar
+                                  </button>
+                                  <button onClick={() => setEditingCatalogIngredient(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white" title="Cancelar">
+                                    Cancelar
+                                  </button>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="py-2.5 px-4 font-bold text-slate-800 dark:text-white">{ing.name}</td>
+                                <td className="py-2.5 px-4 text-slate-500 dark:text-luxe-300">{ing.action}</td>
+                                <td className="py-2.5 px-4 text-right space-x-2">
+                                  <button
+                                    onClick={() => {
+                                      setEditingCatalogIngredient(ing.name);
+                                      setEditCatalogNameDraft(ing.name);
+                                      setEditCatalogActionDraft(ing.action);
+                                    }}
+                                    className="text-blue-600 dark:text-blue-400 hover:underline"
+                                    title="Editar activo en todos los productos"
+                                  >
+                                    <Edit className="w-4 h-4 inline" />
+                                  </button>
+                                  <button onClick={() => handleDeleteCatalogIngredient(ing.name)} className="text-red-600 dark:text-red-400 hover:underline" title="Eliminar activo de todos los productos">
+                                    <Trash2 className="w-4 h-4 inline" />
+                                  </button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
