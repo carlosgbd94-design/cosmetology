@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
-import { encryptData, decryptData, sha256 } from './crypto';
+import { decryptData, sha256 } from './crypto';
 import { ClinicalReportPDF } from './ClinicalReportPDF';
 import { pdf } from '@react-pdf/renderer';
 import Fuse from 'fuse.js';
@@ -1837,35 +1837,15 @@ export default function App() {
     }
 
     try {
-      // 1. Compute Cryptography for PHI locally (Web Crypto API)
-      const firstNameEnc = await encryptData(patientForm.firstName);
-      const lastNameEnc = await encryptData(patientForm.lastName);
-      const phoneEnc = await encryptData(patientForm.phone);
       const patientId = selectedPatientId || `P-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
       const emailH = await sha256(patientForm.email || `${patientForm.firstName}.${patientForm.lastName}.${patientId}@clinical.local`);
 
       const consultationId = activeConsultationId || `C-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
 
-      // Register patient on remote if online
+      // Register anamnesis on remote if online (patient itself is saved via savePatient below)
       if (navigator.onLine) {
         try {
-          const tblPatients = getTableName('patients');
           const tblAnamnesis = getTableName('anamnesis');
-          // UPSERT en vez de INSERT OR REPLACE: evita que created_at se resetee cada vez que se
-          // edita un paciente existente (REPLACE borra y reinserta la fila completa).
-          await executeQuery(
-            `INSERT INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-             ON CONFLICT(id) DO UPDATE SET
-               first_name_encrypted = excluded.first_name_encrypted,
-               last_name_encrypted = excluded.last_name_encrypted,
-               date_of_birth = excluded.date_of_birth,
-               email_hashed = excluded.email_hashed,
-               phone_encrypted = excluded.phone_encrypted,
-               updated_at = CURRENT_TIMESTAMP`,
-            [patientId, firstNameEnc, lastNameEnc, patientForm.dateOfBirth || '2000-01-01', emailH, phoneEnc]
-          );
-
           await executeQuery(
             `INSERT INTO ${tblAnamnesis} (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -1879,11 +1859,11 @@ export default function App() {
             [`A-${patientId}`, patientId, patientForm.medicalDiagnosis || null, patientForm.surgicalHistory || null, patientForm.allergiesCosmetics, patientForm.currentMedications, patientForm.lifestyleMetrics]
           );
         } catch (remoteErr) {
-          console.warn("Fallo al registrar paciente en Turso, se continuará localmente:", remoteErr);
+          console.warn("Fallo al registrar anamnesis en Turso, se continuará localmente:", remoteErr);
         }
       }
 
-      // Local Dexie Save for patient
+      // Local Dexie Save for patient (savePatient también intenta el guardado remoto internamente)
       const localPatient: Patient = {
         id: patientId,
         firstNameEncrypted: patientForm.firstName, // Store decrypted locally for ease of UI display
@@ -1894,7 +1874,7 @@ export default function App() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
-      await db.patients.put(localPatient);
+      await savePatient(localPatient);
 
       const localAnamnesis: Anamnesis = {
         id: `A-${patientId}`,
@@ -2633,37 +2613,12 @@ export default function App() {
       skinBiotypes: productForm.skinBiotypes || '[]'
     };
 
-    // 1. Guardar SIEMPRE localmente primero en IndexedDB para asegurar persistencia offline e inmediata
     try {
-      await db.products.put(newProd);
+      await saveProduct(newProd);
     } catch (localErr) {
       console.error("Error al guardar producto localmente:", localErr);
       showToastMsg('Error al guardar el producto localmente.', 'error');
       return;
-    }
-
-    // 2. Intentar guardar remotamente en Turso en segundo plano (si falla la red, no rompe el guardado local)
-    if (navigator.onLine) {
-      try {
-        const tblProducts = getTableName('products');
-        await executeQuery(
-          `INSERT INTO ${tblProducts} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             sku = excluded.sku,
-             name = excluded.name,
-             brand_line = excluded.brand_line,
-             product_type = excluded.product_type,
-             active_ingredients = excluded.active_ingredients,
-             physiological_actions = excluded.physiological_actions,
-             retail_price = excluded.retail_price,
-             is_professional_use = excluded.is_professional_use,
-             skin_biotypes = excluded.skin_biotypes`,
-          [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.productType, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
-        );
-      } catch (remoteErr) {
-        console.warn("Fallo temporal al guardar en Turso, producto reservado en la BD local:", remoteErr);
-      }
     }
 
     showToastMsg('Producto guardado exitosamente en catálogo.', 'success');
@@ -4218,25 +4173,7 @@ export default function App() {
   const confirmBulkImport = async () => {
     if (uploadPreview.length === 0) return;
     try {
-      for (const p of uploadPreview) {
-        if (navigator.onLine) {
-          await executeQuery(
-            `INSERT INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-               sku = excluded.sku,
-               name = excluded.name,
-               brand_line = excluded.brand_line,
-               active_ingredients = excluded.active_ingredients,
-               physiological_actions = excluded.physiological_actions,
-               retail_price = excluded.retail_price,
-               is_professional_use = excluded.is_professional_use,
-               skin_biotypes = excluded.skin_biotypes`,
-            [p.id, p.sku, p.name, p.brandLine, p.activeIngredients, p.physiologicalActions, p.retailPrice, typeof p.isProfessionalUse === 'boolean' ? (p.isProfessionalUse ? 1 : 0) : Number(p.isProfessionalUse), p.skinBiotypes || '[]']
-          );
-        }
-        await db.products.put(p);
-      }
+      await saveProducts(uploadPreview);
       showToastMsg('Catálogo importado y sincronizado con éxito.', 'success');
       setUploadPreview([]);
       loadMasterCatalogs();

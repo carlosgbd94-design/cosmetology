@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription } from './types';
+import { encryptData } from './crypto';
 
 // Configuración de Turso: se toma exclusivamente de variables de entorno (nunca hardcodeada en el
 // código fuente). En local, defínelas en .env; en el despliegue, como secretos de GitHub Actions.
@@ -159,6 +160,102 @@ export async function executeBatch(statements: { sql: string; args?: any[] }[]):
     }
   }
   return data.results;
+}
+
+// Guarda uno o varios productos local y remotamente en un solo lugar. Antes esta lógica estaba
+// duplicada en varios sitios de App.tsx (alta/edición manual, importación masiva), cada una con su
+// propia lista de columnas ligeramente distinta — la importación masiva, por ejemplo, nunca escribía
+// product_type. Local primero (para que la app funcione sin conexión), remoto es best-effort.
+const PRODUCT_UPSERT_SQL_TABLE = (tbl: string) => `
+  INSERT INTO ${tbl} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    sku = excluded.sku,
+    name = excluded.name,
+    brand_line = excluded.brand_line,
+    product_type = excluded.product_type,
+    active_ingredients = excluded.active_ingredients,
+    physiological_actions = excluded.physiological_actions,
+    retail_price = excluded.retail_price,
+    is_professional_use = excluded.is_professional_use,
+    skin_biotypes = excluded.skin_biotypes,
+    stock_quantity = excluded.stock_quantity,
+    cost_price = excluded.cost_price,
+    reorder_point = excluded.reorder_point
+`;
+
+function productUpsertArgs(product: Product): any[] {
+  return [
+    product.id,
+    product.sku,
+    product.name,
+    product.brandLine,
+    product.productType || null,
+    product.activeIngredients,
+    product.physiologicalActions,
+    product.retailPrice,
+    typeof product.isProfessionalUse === 'boolean' ? (product.isProfessionalUse ? 1 : 0) : Number(product.isProfessionalUse),
+    product.skinBiotypes || '[]',
+    product.stockQuantity ?? null,
+    product.costPrice ?? null,
+    product.reorderPoint ?? null
+  ];
+}
+
+export async function saveProduct(product: Product): Promise<void> {
+  await db.products.put(product);
+
+  if (!navigator.onLine) return;
+  try {
+    const tblProducts = getTableName('products');
+    await executeQuery(PRODUCT_UPSERT_SQL_TABLE(tblProducts), productUpsertArgs(product));
+  } catch (remoteErr) {
+    console.warn('Fallo temporal al guardar producto en Turso, guardado local completado:', remoteErr);
+  }
+}
+
+// Variante en lote para importaciones masivas: un solo request agrupado en vez de N idas y vueltas
+// de red secuenciales (el mismo problema de rendimiento que ya se corrigió en la sincronización).
+export async function saveProducts(products: Product[]): Promise<void> {
+  for (const p of products) {
+    await db.products.put(p);
+  }
+
+  if (!navigator.onLine || products.length === 0) return;
+  try {
+    const tblProducts = getTableName('products');
+    await executeBatch(products.map(p => ({ sql: PRODUCT_UPSERT_SQL_TABLE(tblProducts), args: productUpsertArgs(p) })));
+  } catch (remoteErr) {
+    console.warn('Fallo temporal al guardar productos en Turso, guardado local completado:', remoteErr);
+  }
+}
+
+// Guarda un paciente local y remotamente en un solo lugar (misma razón que saveProduct: evita que
+// cada punto de guardado tenga su propia lista de columnas, ligeramente distinta y propensa a bugs).
+export async function savePatient(patient: Patient): Promise<void> {
+  await db.patients.put(patient);
+
+  if (!navigator.onLine) return;
+  try {
+    const tblPatients = getTableName('patients');
+    const firstNameEnc = await encryptData(patient.firstNameEncrypted);
+    const lastNameEnc = await encryptData(patient.lastNameEncrypted);
+    const phoneEnc = await encryptData(patient.phoneEncrypted);
+    await executeQuery(
+      `INSERT INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET
+         first_name_encrypted = excluded.first_name_encrypted,
+         last_name_encrypted = excluded.last_name_encrypted,
+         date_of_birth = excluded.date_of_birth,
+         email_hashed = excluded.email_hashed,
+         phone_encrypted = excluded.phone_encrypted,
+         updated_at = CURRENT_TIMESTAMP`,
+      [patient.id, firstNameEnc, lastNameEnc, patient.dateOfBirth, patient.emailHashed, phoneEnc]
+    );
+  } catch (remoteErr) {
+    console.warn('Fallo temporal al guardar paciente en Turso, guardado local completado:', remoteErr);
+  }
 }
 
 // Transactional Clinical Save (ACID atomic remote + local)
