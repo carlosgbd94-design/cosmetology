@@ -17,6 +17,7 @@ import { sendManualReport } from './errorHandler';
 import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList } from './cosmetologyLogic';
 import { BeforeAfterSlider } from './BeforeAfterSlider';
 import { BackupModal } from './BackupModal';
+import { TrashModal } from './TrashModal';
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
@@ -407,6 +408,7 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [homeProtocolName, setHomeProtocolName] = useState<string>('');
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
+  const [isTrashModalOpen, setIsTrashModalOpen] = useState<boolean>(false);
 
 
 
@@ -673,7 +675,7 @@ export default function App() {
   }, [products, catalogSearch, catalogBrandFilter, catalogCategoryFilter]);
 
   const memoizedGroupedRecords = useMemo(() => {
-    return records.reduce((acc, curr) => {
+    return records.filter(r => !r.deletedAt).reduce((acc, curr) => {
       if (!acc[curr.patientId]) {
         acc[curr.patientId] = [];
       }
@@ -684,7 +686,7 @@ export default function App() {
 
   const memoizedFilteredPatients = useMemo(() => {
     const query = folderSearchQuery.toLowerCase().trim();
-    return patients.filter(pat => {
+    return patients.filter(pat => !pat.deletedAt).filter(pat => {
       const fullName = `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}`.toLowerCase();
       const phone = (pat.phoneEncrypted || '').toLowerCase();
       const matchesSearch = !query || fullName.includes(query) || phone.includes(query);
@@ -697,6 +699,15 @@ export default function App() {
       return matchesSearch && matchesBiotype;
     });
   }, [patients, folderSearchQuery, folderBiotypeFilter, memoizedGroupedRecords]);
+
+  const deletedPatients = useMemo(() => patients.filter(p => p.deletedAt), [patients]);
+
+  const deletedConsultationsWithNames = useMemo(() => {
+    return records.filter(r => r.deletedAt).map(c => {
+      const pat = patients.find(p => p.id === c.patientId);
+      return { ...c, patientName: pat ? `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}` : 'Paciente desconocido' };
+    });
+  }, [records, patients]);
 
   // ----------------------------------------------------
   // INITIALIZATIONS & BOOTSTRAPPING
@@ -853,7 +864,7 @@ export default function App() {
           }
 
           // 2. Sync patients
-          const resPatients = await executeQuery(`SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at FROM ${tblPatients}`);
+          const resPatients = await executeQuery(`SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at, deleted_at FROM ${tblPatients}`);
           if (resPatients && resPatients.rows) {
             for (const r of resPatients.rows) {
               const decryptedFirstName = await decryptData(r.first_name_encrypted);
@@ -867,7 +878,8 @@ export default function App() {
                 emailHashed: r.email_hashed,
                 phoneEncrypted: decryptedPhone,
                 createdAt: r.created_at,
-                updatedAt: r.updated_at
+                updatedAt: r.updated_at,
+                deletedAt: r.deleted_at || undefined
               });
             }
           }
@@ -890,7 +902,7 @@ export default function App() {
           }
 
           // 4. Sync consultations
-          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted FROM ${tblConsultations}`);
+          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted, deleted_at FROM ${tblConsultations}`);
           if (resConsults && resConsults.rows) {
             for (const r of resConsults.rows) {
               await db.consultations.put({
@@ -907,7 +919,8 @@ export default function App() {
                 recommendations: r.recommendations || undefined,
                 allergies: r.allergies || '',
                 medicalConditions: r.medical_conditions || '',
-                consentAccepted: Number(r.consent_accepted) === 1
+                consentAccepted: Number(r.consent_accepted) === 1,
+                deletedAt: r.deleted_at || undefined
               });
             }
           }
@@ -1837,15 +1850,31 @@ export default function App() {
         try {
           const tblPatients = getTableName('patients');
           const tblAnamnesis = getTableName('anamnesis');
+          // UPSERT en vez de INSERT OR REPLACE: evita que created_at se resetee cada vez que se
+          // edita un paciente existente (REPLACE borra y reinserta la fila completa).
           await executeQuery(
-            `INSERT OR REPLACE INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(id) DO UPDATE SET
+               first_name_encrypted = excluded.first_name_encrypted,
+               last_name_encrypted = excluded.last_name_encrypted,
+               date_of_birth = excluded.date_of_birth,
+               email_hashed = excluded.email_hashed,
+               phone_encrypted = excluded.phone_encrypted,
+               updated_at = CURRENT_TIMESTAMP`,
             [patientId, firstNameEnc, lastNameEnc, patientForm.dateOfBirth || '2000-01-01', emailH, phoneEnc]
           );
 
           await executeQuery(
-            `INSERT OR REPLACE INTO ${tblAnamnesis} (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO ${tblAnamnesis} (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(id) DO UPDATE SET
+               medical_diagnosis = excluded.medical_diagnosis,
+               surgical_history = excluded.surgical_history,
+               allergies_cosmetics = excluded.allergies_cosmetics,
+               current_medications = excluded.current_medications,
+               lifestyle_metrics = excluded.lifestyle_metrics,
+               updated_at = CURRENT_TIMESTAMP`,
             [`A-${patientId}`, patientId, patientForm.medicalDiagnosis || null, patientForm.surgicalHistory || null, patientForm.allergiesCosmetics, patientForm.currentMedications, patientForm.lifestyleMetrics]
           );
         } catch (remoteErr) {
@@ -2066,17 +2095,123 @@ export default function App() {
     showToastMsg(`Se cargaron los datos de la sesión del ${new Date(c.visitDate).toLocaleDateString()} como base.`, 'success');
   };
 
+  // Borrado suave: mueve a la Papelera en vez de destruir el registro de inmediato.
   const handleDeleteConsultation = async (consultationId: string, patientId: string) => {
-    if (!window.confirm('¿Está seguro de que desea eliminar permanentemente esta sesión de consulta/visita? Esta acción no se puede deshacer.')) {
+    if (!window.confirm('¿Enviar esta visita a la papelera? Podrás restaurarla después desde ahí.')) {
       return;
     }
     try {
-      // 1. Delete from local Dexie
+      const nowIso = new Date().toISOString();
+      const consultation = records.find(r => r.id === consultationId);
+      if (consultation) {
+        await db.consultations.put({ ...consultation, deletedAt: nowIso });
+      }
+
+      try {
+        const tblConsultations = getTableName('consultations');
+        await executeQuery(`UPDATE ${tblConsultations} SET deleted_at = ? WHERE id = ?`, [nowIso, consultationId]);
+      } catch (err) {
+        console.warn('Fallo al enviar la visita a la papelera en Turso, se reintentará en la sincronización:', err);
+      }
+
+      showToastMsg('Visita movida a la papelera.', 'success');
+
+      if (activeConsultationId === consultationId) {
+        setActiveConsultationId('');
+        resetPatientForm();
+      }
+
+      await loadMasterCatalogs();
+    } catch (e) {
+      console.error(e);
+      showToastMsg('Error al mover la visita a la papelera.', 'error');
+    }
+  };
+
+  const handleDeletePatient = async (patientId: string) => {
+    if (!window.confirm('¿Enviar este paciente a la papelera? Su expediente y consultas no se borran, solo se ocultan, y podrás restaurarlo después.')) {
+      return;
+    }
+    try {
+      const nowIso = new Date().toISOString();
+      const patient = patients.find(p => p.id === patientId);
+      if (patient) {
+        await db.patients.put({ ...patient, deletedAt: nowIso });
+      }
+
+      try {
+        const tblPatients = getTableName('patients');
+        await executeQuery(`UPDATE ${tblPatients} SET deleted_at = ? WHERE id = ?`, [nowIso, patientId]);
+      } catch (err) {
+        console.warn('Fallo al enviar el paciente a la papelera en Turso, se reintentará en la sincronización:', err);
+      }
+
+      showToastMsg('Paciente movido a la papelera.', 'success');
+
+      if (selectedPatientId === patientId) {
+        setSelectedPatientId('');
+        setActiveConsultationId('');
+        resetPatientForm();
+      }
+      await loadMasterCatalogs();
+    } catch (e) {
+      console.error(e);
+      showToastMsg('Error al mover el paciente a la papelera.', 'error');
+    }
+  };
+
+  const handleRestoreConsultation = async (consultationId: string) => {
+    try {
+      const consultation = await db.consultations.get(consultationId);
+      if (consultation) {
+        const { deletedAt, ...rest } = consultation;
+        await db.consultations.put(rest as Consultation);
+      }
+      try {
+        const tblConsultations = getTableName('consultations');
+        await executeQuery(`UPDATE ${tblConsultations} SET deleted_at = NULL WHERE id = ?`, [consultationId]);
+      } catch (err) {
+        console.warn('Fallo al restaurar la visita en Turso:', err);
+      }
+      showToastMsg('Visita restaurada.', 'success');
+      await loadMasterCatalogs();
+    } catch (e) {
+      console.error(e);
+      showToastMsg('Error al restaurar la visita.', 'error');
+    }
+  };
+
+  const handleRestorePatient = async (patientId: string) => {
+    try {
+      const patient = await db.patients.get(patientId);
+      if (patient) {
+        const { deletedAt, ...rest } = patient;
+        await db.patients.put(rest as Patient);
+      }
+      try {
+        const tblPatients = getTableName('patients');
+        await executeQuery(`UPDATE ${tblPatients} SET deleted_at = NULL WHERE id = ?`, [patientId]);
+      } catch (err) {
+        console.warn('Fallo al restaurar el paciente en Turso:', err);
+      }
+      showToastMsg('Paciente restaurado.', 'success');
+      await loadMasterCatalogs();
+    } catch (e) {
+      console.error(e);
+      showToastMsg('Error al restaurar el paciente.', 'error');
+    }
+  };
+
+  // Borrado definitivo: solo se ofrece dentro de la Papelera, sobre registros ya movidos ahí.
+  const handlePermanentlyDeleteConsultation = async (consultationId: string) => {
+    if (!window.confirm('¿Eliminar esta visita PARA SIEMPRE? Esta acción no se puede deshacer.')) {
+      return;
+    }
+    try {
       await db.prescriptions.where('consultationId').equals(consultationId).delete();
       await db.consultation_steps.where('consultationId').equals(consultationId).delete();
       await db.consultations.delete(consultationId);
 
-      // 2. Delete from Turso if online
       try {
         const tblConsultations = getTableName('consultations');
         const tblSteps = getTableName('consultation_steps');
@@ -2085,33 +2220,24 @@ export default function App() {
         await executeQuery(`DELETE FROM ${tblSteps} WHERE consultation_id = ?`, [consultationId]);
         await executeQuery(`DELETE FROM ${tblConsultations} WHERE id = ?`, [consultationId]);
       } catch (err) {
-        console.warn('Fallo al eliminar de Turso, se reintentará en la sincronización:', err);
+        console.warn('Fallo al eliminar de Turso:', err);
       }
 
-      showToastMsg('Visita eliminada correctamente.', 'success');
-      
-      // If the deleted consultation was the active one, clear active session
-      if (activeConsultationId === consultationId) {
-        setActiveConsultationId('');
-        resetPatientForm();
-      }
-      
-      await loadMasterCatalogs(); // Refresh state lists
+      showToastMsg('Visita eliminada permanentemente.', 'success');
+      await loadMasterCatalogs();
     } catch (e) {
       console.error(e);
       showToastMsg('Error al eliminar la visita.', 'error');
     }
   };
 
-  const handleDeletePatient = async (patientId: string) => {
-    if (!window.confirm('¿Está seguro de que desea eliminar este paciente? Se borrará su expediente completo, incluyendo TODAS las consultas, prescripciones e historial clínico de forma permanente.')) {
+  const handlePermanentlyDeletePatient = async (patientId: string) => {
+    if (!window.confirm('¿Eliminar este paciente PARA SIEMPRE, junto con TODAS sus consultas, prescripciones e historial clínico? Esta acción no se puede deshacer.')) {
       return;
     }
     try {
-      // Get all consultations for this patient
       const consultationsToDelete = records.filter(r => r.patientId === patientId);
 
-      // 1. Delete from local Dexie
       for (const c of consultationsToDelete) {
         await db.prescriptions.where('consultationId').equals(c.id).delete();
         await db.consultation_steps.where('consultationId').equals(c.id).delete();
@@ -2120,7 +2246,6 @@ export default function App() {
       await db.anamnesis.where('patientId').equals(patientId).delete();
       await db.patients.delete(patientId);
 
-      // 2. Delete from Turso if online
       try {
         const tblConsultations = getTableName('consultations');
         const tblSteps = getTableName('consultation_steps');
@@ -2139,14 +2264,7 @@ export default function App() {
         console.warn('Fallo al eliminar del servidor Turso:', err);
       }
 
-      showToastMsg('Expediente del paciente eliminado correctamente.', 'success');
-      
-      // If the active patient was this one, clear active patient
-      if (selectedPatientId === patientId) {
-        setSelectedPatientId('');
-        setActiveConsultationId('');
-        resetPatientForm();
-      }
+      showToastMsg('Expediente del paciente eliminado permanentemente.', 'success');
       await loadMasterCatalogs();
     } catch (e) {
       console.error(e);
@@ -2528,8 +2646,18 @@ export default function App() {
       try {
         const tblProducts = getTableName('products');
         await executeQuery(
-          `INSERT OR REPLACE INTO ${tblProducts} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ${tblProducts} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             sku = excluded.sku,
+             name = excluded.name,
+             brand_line = excluded.brand_line,
+             product_type = excluded.product_type,
+             active_ingredients = excluded.active_ingredients,
+             physiological_actions = excluded.physiological_actions,
+             retail_price = excluded.retail_price,
+             is_professional_use = excluded.is_professional_use,
+             skin_biotypes = excluded.skin_biotypes`,
           [newProd.id, newProd.sku, newProd.name, newProd.brandLine, newProd.productType, newProd.activeIngredients, newProd.physiologicalActions, newProd.retailPrice, typeof newProd.isProfessionalUse === 'boolean' ? (newProd.isProfessionalUse ? 1 : 0) : Number(newProd.isProfessionalUse), newProd.skinBiotypes]
         );
       } catch (remoteErr) {
@@ -4092,8 +4220,17 @@ export default function App() {
       for (const p of uploadPreview) {
         if (navigator.onLine) {
           await executeQuery(
-            `INSERT OR REPLACE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               sku = excluded.sku,
+               name = excluded.name,
+               brand_line = excluded.brand_line,
+               active_ingredients = excluded.active_ingredients,
+               physiological_actions = excluded.physiological_actions,
+               retail_price = excluded.retail_price,
+               is_professional_use = excluded.is_professional_use,
+               skin_biotypes = excluded.skin_biotypes`,
             [p.id, p.sku, p.name, p.brandLine, p.activeIngredients, p.physiologicalActions, p.retailPrice, typeof p.isProfessionalUse === 'boolean' ? (p.isProfessionalUse ? 1 : 0) : Number(p.isProfessionalUse), p.skinBiotypes || '[]']
           );
         }
@@ -4203,6 +4340,20 @@ export default function App() {
               <span className="hidden lg:inline">Respaldo BD</span>
             </button>
 
+            <button
+              onClick={() => setIsTrashModalOpen(true)}
+              className="relative px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-luxe-300 hover:text-amber-500 flex items-center gap-1.5 text-xs font-bold transition-all border border-slate-200/50 dark:border-white/5 shadow-sm"
+              title="Papelera de pacientes y visitas eliminados"
+            >
+              <Trash2 className="w-4 h-4 text-amber-500" />
+              <span className="hidden lg:inline">Papelera</span>
+              {(deletedPatients.length + deletedConsultationsWithNames.length) > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {deletedPatients.length + deletedConsultationsWithNames.length}
+                </span>
+              )}
+            </button>
+
             <button onClick={toggleTheme} className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-luxe-300 flex items-center justify-center">{theme === 'light' ? <Moon className="w-4.5 h-4.5" /> : <Sun className="w-4.5 h-4.5" />}</button>
             <button onClick={handleLogout} className="w-10 h-10 rounded-xl bg-red-100/50 dark:bg-red-500/10 text-red-600 flex items-center justify-center"><Lock className="w-4.5 h-4.5" /></button>
           </div>
@@ -4305,7 +4456,7 @@ export default function App() {
                         className="smart-input w-full px-4 py-2.5 rounded-xl text-xs bg-no-repeat bg-[right_1rem_center]"
                       >
                         <option value="">-- Registrar Nuevo Paciente --</option>
-                        {[...patients].sort((a,b) => a.firstNameEncrypted.localeCompare(b.firstNameEncrypted)).map(p => (
+                        {patients.filter(p => !p.deletedAt).sort((a,b) => a.firstNameEncrypted.localeCompare(b.firstNameEncrypted)).map(p => (
                           <option key={p.id} value={p.id}>
                             {`${p.firstNameEncrypted} ${p.lastNameEncrypted} (${p.phoneEncrypted})`}
                           </option>
@@ -6415,6 +6566,17 @@ export default function App() {
           bootstrapSystem();
           showToastMsg('Base de datos y catálogo sincronizados.', 'success');
         }}
+      />
+
+      <TrashModal
+        isOpen={isTrashModalOpen}
+        onClose={() => setIsTrashModalOpen(false)}
+        deletedPatients={deletedPatients}
+        deletedConsultations={deletedConsultationsWithNames}
+        onRestorePatient={handleRestorePatient}
+        onPermanentlyDeletePatient={handlePermanentlyDeletePatient}
+        onRestoreConsultation={handleRestoreConsultation}
+        onPermanentlyDeleteConsultation={handlePermanentlyDeleteConsultation}
       />
     </div>
   );

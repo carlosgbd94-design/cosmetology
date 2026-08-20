@@ -9,6 +9,7 @@ export interface Patient {
   phoneEncrypted: string;      // AES-256 base64
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string; // Fecha de borrado suave (papelera); ausente/vacío = activo
 }
 
 export interface Anamnesis {
@@ -87,4 +88,5 @@ export interface Consultation {
   beforeImageUrl?: string;   // Fotografía Antes
   afterImageUrl?: string;    // Fotografía Después
   consentAccepted?: boolean; // Consentimiento otorgado (verbal o en papel), confirmado por el especialista
+  deletedAt?: string; // Fecha de borrado suave (papelera); ausente/vacío = activa
 }
