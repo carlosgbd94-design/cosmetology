@@ -544,7 +544,7 @@ async function seedTablesImpl(): Promise<void> {
         `);
         await executeQuery(`
           INSERT OR IGNORE INTO ${tblProducts}_new (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, skin_biotypes)
-          SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, COALESCE(skin_biotypes, '[]') FROM ${tblProducts}
+          SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, '[]' FROM ${tblProducts}
         `);
         await executeQuery(`DROP TABLE IF EXISTS ${tblProducts}`);
         await executeQuery(`ALTER TABLE ${tblProducts}_new RENAME TO ${tblProducts}`);
