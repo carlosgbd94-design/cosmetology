@@ -525,11 +525,11 @@ async function seedTablesImpl(): Promise<void> {
     // Hot migration (una sola vez): agrega skin_biotypes reconstruyendo la tabla solo si aún no existe la columna.
     // IMPORTANTE: esta reconstrucción es destructiva (DROP + RENAME), por eso se protege con la
     // verificación de esquema de abajo para que nunca vuelva a ejecutarse una vez migrada la tabla.
-    if (!(await tableHasColumn('products', 'skin_biotypes'))) {
+    if (!(await tableHasColumn(tblProducts, 'skin_biotypes'))) {
       try {
         await executeQuery(`PRAGMA foreign_keys = OFF`);
         await executeQuery(`
-          CREATE TABLE IF NOT EXISTS products_new (
+          CREATE TABLE IF NOT EXISTS ${tblProducts}_new (
             id TEXT PRIMARY KEY,
             sku TEXT UNIQUE NOT NULL,
             name TEXT NOT NULL,
@@ -543,11 +543,11 @@ async function seedTablesImpl(): Promise<void> {
           )
         `);
         await executeQuery(`
-          INSERT OR IGNORE INTO products_new (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, skin_biotypes)
-          SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, COALESCE(skin_biotypes, '[]') FROM products
+          INSERT OR IGNORE INTO ${tblProducts}_new (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, skin_biotypes)
+          SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, created_at, COALESCE(skin_biotypes, '[]') FROM ${tblProducts}
         `);
-        await executeQuery(`DROP TABLE IF EXISTS products`);
-        await executeQuery(`ALTER TABLE products_new RENAME TO products`);
+        await executeQuery(`DROP TABLE IF EXISTS ${tblProducts}`);
+        await executeQuery(`ALTER TABLE ${tblProducts}_new RENAME TO ${tblProducts}`);
         await executeQuery(`PRAGMA foreign_keys = ON`);
         console.log("Hot migration of products table completed successfully with foreign keys bypassed.");
       } catch(err) {
@@ -561,11 +561,11 @@ async function seedTablesImpl(): Promise<void> {
     // Hot migration (una sola vez): relaja product_id a NULL y agrega columnas nuevas, reconstruyendo
     // la tabla solo si el esquema todavía no está migrado. Misma protección que arriba: sin esta
     // verificación, esta reconstrucción destructiva se repetiría en cada carga de la app.
-    if (!(await tableHasColumn('prescriptions', 'custom_active_ingredients'))) {
+    if (!(await tableHasColumn(tblPrescriptions, 'custom_active_ingredients'))) {
       try {
         await executeQuery(`PRAGMA foreign_keys = OFF`);
         await executeQuery(`
-          CREATE TABLE IF NOT EXISTS prescriptions_new (
+          CREATE TABLE IF NOT EXISTS ${tblPrescriptions}_new (
             id TEXT PRIMARY KEY,
             consultation_id TEXT NOT NULL,
             product_id TEXT,
@@ -578,28 +578,28 @@ async function seedTablesImpl(): Promise<void> {
             custom_active_ingredients TEXT,
             custom_actions TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (consultation_id) REFERENCES consultations(id) ON DELETE CASCADE,
-            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+            FOREIGN KEY (consultation_id) REFERENCES ${tblConsultations}(id) ON DELETE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES ${tblProducts}(id) ON DELETE SET NULL
           )
         `);
         // We will perform table schema check/migration by selecting whatever exists and mapping it
         // Let's check which columns are in the old table and insert them or fallback to NULL
         try {
           await executeQuery(`
-            INSERT OR IGNORE INTO prescriptions_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency)
-            SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency FROM prescriptions
+            INSERT OR IGNORE INTO ${tblPrescriptions}_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency)
+            SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency FROM ${tblPrescriptions}
           `);
         } catch(insErr) {
           // Old columns might differ or we already have the new columns. Let's do a complete copy of existing fields
           try {
             await executeQuery(`
-              INSERT OR IGNORE INTO prescriptions_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
-              SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions FROM prescriptions
+              INSERT OR IGNORE INTO ${tblPrescriptions}_new (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
+              SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions FROM ${tblPrescriptions}
             `);
           } catch(insErr2) {}
         }
-        await executeQuery(`DROP TABLE IF EXISTS prescriptions`);
-        await executeQuery(`ALTER TABLE prescriptions_new RENAME TO prescriptions`);
+        await executeQuery(`DROP TABLE IF EXISTS ${tblPrescriptions}`);
+        await executeQuery(`ALTER TABLE ${tblPrescriptions}_new RENAME TO ${tblPrescriptions}`);
         await executeQuery(`PRAGMA foreign_keys = ON`);
         console.log("Hot migration of prescriptions table completed successfully.");
       } catch(err) {
@@ -615,26 +615,26 @@ async function seedTablesImpl(): Promise<void> {
     // forma independiente), así que es seguro ignorar el error del lote completo.
     try {
       await executeBatch([
-        { sql: `ALTER TABLE consultations ADD COLUMN allergies TEXT` },
-        { sql: `ALTER TABLE consultations ADD COLUMN medical_conditions TEXT` },
-        { sql: `ALTER TABLE consultations ADD COLUMN recommendations TEXT` },
-        { sql: `ALTER TABLE products ADD COLUMN skin_biotypes TEXT DEFAULT '[]'` },
-        { sql: `ALTER TABLE products ADD COLUMN product_type TEXT DEFAULT 'General'` },
-        { sql: `ALTER TABLE products ADD COLUMN stock_quantity INTEGER DEFAULT 10` },
-        { sql: `ALTER TABLE products ADD COLUMN cost_price REAL DEFAULT 0` },
-        { sql: `ALTER TABLE products ADD COLUMN reorder_point INTEGER DEFAULT 3` },
-        { sql: `ALTER TABLE consultations ADD COLUMN before_image_url TEXT` },
-        { sql: `ALTER TABLE consultations ADD COLUMN after_image_url TEXT` },
-        { sql: `ALTER TABLE consultations ADD COLUMN consent_accepted INTEGER DEFAULT 0` },
-        { sql: `ALTER TABLE consultations ADD COLUMN deleted_at TEXT` },
-        { sql: `ALTER TABLE patients ADD COLUMN deleted_at TEXT` },
+        { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN allergies TEXT` },
+        { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN medical_conditions TEXT` },
+        { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN recommendations TEXT` },
+        { sql: `ALTER TABLE ${tblProducts} ADD COLUMN skin_biotypes TEXT DEFAULT '[]'` },
+        { sql: `ALTER TABLE ${tblProducts} ADD COLUMN product_type TEXT DEFAULT 'General'` },
+        { sql: `ALTER TABLE ${tblProducts} ADD COLUMN stock_quantity INTEGER DEFAULT 10` },
+        { sql: `ALTER TABLE ${tblProducts} ADD COLUMN cost_price REAL DEFAULT 0` },
+        { sql: `ALTER TABLE ${tblProducts} ADD COLUMN reorder_point INTEGER DEFAULT 3` },
+        { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN before_image_url TEXT` },
+        { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN after_image_url TEXT` },
+        { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN consent_accepted INTEGER DEFAULT 0` },
+        { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN deleted_at TEXT` },
+        { sql: `ALTER TABLE ${tblPatients} ADD COLUMN deleted_at TEXT` },
         // Ensure all custom step columns exist
-        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_product_name TEXT` },
-        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_brand TEXT` },
-        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_active_ingredients TEXT` },
-        { sql: `ALTER TABLE consultation_steps ADD COLUMN custom_actions TEXT` },
-        { sql: `ALTER TABLE consultation_steps ADD COLUMN application_description TEXT` },
-        { sql: `ALTER TABLE consultation_steps ADD COLUMN aparatology_settings TEXT` }
+        { sql: `ALTER TABLE ${tblSteps} ADD COLUMN custom_product_name TEXT` },
+        { sql: `ALTER TABLE ${tblSteps} ADD COLUMN custom_brand TEXT` },
+        { sql: `ALTER TABLE ${tblSteps} ADD COLUMN custom_active_ingredients TEXT` },
+        { sql: `ALTER TABLE ${tblSteps} ADD COLUMN custom_actions TEXT` },
+        { sql: `ALTER TABLE ${tblSteps} ADD COLUMN application_description TEXT` },
+        { sql: `ALTER TABLE ${tblSteps} ADD COLUMN aparatology_settings TEXT` }
       ]);
     } catch (e) {}
 
@@ -663,7 +663,7 @@ async function seedTablesImpl(): Promise<void> {
     ];
 
     await executeBatch(defaultProducts.map(prod => ({
-      sql: `INSERT OR IGNORE INTO products (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
+      sql: `INSERT OR IGNORE INTO ${tblProducts} (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       args: prod
     })));
