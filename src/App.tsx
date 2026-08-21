@@ -738,19 +738,37 @@ export default function App() {
 
     // Check PayPal Return URL parameters or device active license
     const urlParams = new URLSearchParams(window.location.search);
-    const paypalPayerId = urlParams.get('PayerID') || urlParams.get('tx') || urlParams.get('st');
+    // "token" es el ID real de la orden que PayPal agrega al regresar (Orders v2 / Hosted Buttons).
+    // Los demás (tx, st, PayerID) son señales de que "venimos de PayPal" mantenidas por compatibilidad,
+    // pero ya no generan una licencia por sí solas: sin un ID de orden real que el servidor pueda
+    // verificar contra PayPal, no se concede acceso.
+    const paypalOrderId = urlParams.get('token');
     const activeLicenseToken = localStorage.getItem('dermatique_license_token');
 
-    if (paypalPayerId || urlParams.has('paypal_success')) {
-      // Auto-generar licencia para cliente que retorna de PayPal
-      const randomHex = () => Math.floor(1000 + Math.random() * 9000).toString(16).toUpperCase();
-      const generatedLicense = `DERM-PAYPAL-${randomHex()}-${randomHex()}`;
-      localStorage.setItem('dermatique_license_token', generatedLicense);
-      setIsLogged(true);
-      showToastMsg(`¡Pago Confirmado por PayPal! Tu licencia activa es: ${generatedLicense}`, 'success');
-      bootstrapSystem();
-      // Limpiar URL params sin recargar la página
-      window.history.replaceState({}, document.title, window.location.pathname);
+    if (paypalOrderId) {
+      (async () => {
+        try {
+          const resp = await fetch('https://dermatique-license-worker.carlosgbd94.workers.dev/issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: paypalOrderId })
+          });
+          const data = await resp.json();
+          if (resp.ok && data.licenseKey) {
+            localStorage.setItem('dermatique_license_token', data.licenseKey);
+            setIsLogged(true);
+            showToastMsg(`¡Pago confirmado por PayPal! Tu licencia es: ${data.licenseKey} — guárdala, la necesitarás en otros dispositivos.`, 'success');
+            bootstrapSystem();
+          } else {
+            showToastMsg('No se pudo confirmar el pago con PayPal. Si ya pagaste, contacta soporte con tu número de orden.', 'error');
+          }
+        } catch (err) {
+          console.error('Error al verificar el pago de PayPal:', err);
+          showToastMsg('Error al verificar el pago con PayPal. Intenta de nuevo o contacta soporte.', 'error');
+        } finally {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      })();
     } else if (activeLicenseToken) {
       setIsLogged(true);
       bootstrapSystem();
