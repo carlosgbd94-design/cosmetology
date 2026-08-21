@@ -33,24 +33,52 @@ export function BeforeAfterSlider({ beforeImage, afterImage, onBeforeChange, onA
     handleMove(e.touches[0].clientX);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'before' | 'after') => {
-    const file = e.target.files?.[0];
-    if (file) {
+  // Reduce a un máximo de 1280px de lado y comprime a JPEG antes de guardar: una foto de celular
+  // sin procesar puede pesar varios MB, y guardar eso tal cual en cada consulta vuelve la
+  // sincronización remota muy pesada (el mismo tipo de problema de rendimiento ya visto en la app).
+  const MAX_DIMENSION = 1280;
+  const resizeImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
       reader.onloadend = () => {
-        const base64 = reader.result as string;
-        if (type === 'before' && onBeforeChange) onBeforeChange(base64);
-        if (type === 'after' && onAfterChange) onAfterChange(base64);
+        const img = new Image();
+        img.onerror = () => reject(new Error('No se pudo leer la imagen'));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+            const scale = MAX_DIMENSION / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { resolve(reader.result as string); return; }
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        };
+        img.src = reader.result as string;
       };
       reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'before' | 'after') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const resized = await resizeImage(file);
+      if (type === 'before' && onBeforeChange) onBeforeChange(resized);
+      if (type === 'after' && onAfterChange) onAfterChange(resized);
+    } catch (err) {
+      console.error('Error al procesar la imagen:', err);
     }
   };
 
-  const defaultBefore = 'https://images.unsplash.com/photo-1512290900676-26c2a4d0b5ae?q=80&w=800&auto=format&fit=crop';
-  const defaultAfter = 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=800&auto=format&fit=crop';
-
-  const imgBefore = beforeImage || defaultBefore;
-  const imgAfter = afterImage || defaultAfter;
+  const imgBefore = beforeImage;
+  const imgAfter = afterImage;
 
   return (
     <div className="space-y-4">
@@ -79,56 +107,65 @@ export function BeforeAfterSlider({ beforeImage, afterImage, onBeforeChange, onA
         </div>
       </div>
 
-      <div
-        ref={containerRef}
-        onMouseDown={() => setIsDragging(true)}
-        onMouseUp={() => setIsDragging(false)}
-        onMouseLeave={() => setIsDragging(false)}
-        onMouseMove={handleMouseMove}
-        onTouchStart={() => setIsDragging(true)}
-        onTouchEnd={() => setIsDragging(false)}
-        onTouchMove={handleTouchMove}
-        className="relative w-full h-[320px] sm:h-[420px] rounded-2xl overflow-hidden select-none cursor-ew-resize border border-slate-200 dark:border-white/10 shadow-2xl bg-black"
-      >
-        {/* Image After (Base layer) */}
-        <img
-          src={imgAfter}
-          alt="Después / Evolución Actual"
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-        />
-
-        {/* Badge Después */}
-        <span className="absolute top-3 right-3 bg-amber-500/90 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-lg backdrop-blur-md">
-          DESPUÉS (Evolución Actual)
-        </span>
-
-        {/* Image Before (Clipped layer) */}
+      {imgBefore && imgAfter ? (
         <div
-          className="absolute inset-0 overflow-hidden pointer-events-none"
-          style={{ width: `${sliderPos}%` }}
+          ref={containerRef}
+          onMouseDown={() => setIsDragging(true)}
+          onMouseUp={() => setIsDragging(false)}
+          onMouseLeave={() => setIsDragging(false)}
+          onMouseMove={handleMouseMove}
+          onTouchStart={() => setIsDragging(true)}
+          onTouchEnd={() => setIsDragging(false)}
+          onTouchMove={handleTouchMove}
+          className="relative w-full h-[320px] sm:h-[420px] rounded-2xl overflow-hidden select-none cursor-ew-resize border border-slate-200 dark:border-white/10 shadow-2xl bg-black"
         >
+          {/* Image After (Base layer) */}
           <img
-            src={imgBefore}
-            alt="Antes / Valoración Inicial"
+            src={imgAfter}
+            alt="Después / Evolución Actual"
             className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-            style={{ width: '100%', height: '100%' }}
           />
-          {/* Badge Antes */}
-          <span className="absolute top-3 left-3 bg-slate-900/90 text-amber-400 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-lg backdrop-blur-md">
-            ANTES (Valoración Inicial)
-          </span>
-        </div>
 
-        {/* Slider Divider Line & Knob */}
-        <div
-          className="absolute top-0 bottom-0 w-1 bg-white shadow-2xl pointer-events-none z-10"
-          style={{ left: `${sliderPos}%` }}
-        >
-          <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-white dark:bg-luxe-900 border-2 border-amber-500 shadow-2xl flex items-center justify-center">
-            <SlidersHorizontal className="w-4 h-4 text-amber-500 rotate-90" />
+          {/* Badge Después */}
+          <span className="absolute top-3 right-3 bg-amber-500/90 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-lg backdrop-blur-md">
+            DESPUÉS (Evolución Actual)
+          </span>
+
+          {/* Image Before (Clipped layer) */}
+          <div
+            className="absolute inset-0 overflow-hidden pointer-events-none"
+            style={{ width: `${sliderPos}%` }}
+          >
+            <img
+              src={imgBefore}
+              alt="Antes / Valoración Inicial"
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              style={{ width: '100%', height: '100%' }}
+            />
+            {/* Badge Antes */}
+            <span className="absolute top-3 left-3 bg-slate-900/90 text-amber-400 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-lg backdrop-blur-md">
+              ANTES (Valoración Inicial)
+            </span>
+          </div>
+
+          {/* Slider Divider Line & Knob */}
+          <div
+            className="absolute top-0 bottom-0 w-1 bg-white shadow-2xl pointer-events-none z-10"
+            style={{ left: `${sliderPos}%` }}
+          >
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-white dark:bg-luxe-900 border-2 border-amber-500 shadow-2xl flex items-center justify-center">
+              <SlidersHorizontal className="w-4 h-4 text-amber-500 rotate-90" />
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="w-full h-[200px] rounded-2xl border-2 border-dashed border-slate-200 dark:border-white/10 flex flex-col items-center justify-center gap-2 text-slate-400 bg-slate-50/50 dark:bg-white/[0.01]">
+          <ImageIcon className="w-8 h-8" />
+          <p className="text-xs font-medium">
+            {!imgBefore && !imgAfter ? 'Sube ambas fotos para ver la comparación deslizable' : imgBefore ? 'Falta la foto de "Después"' : 'Falta la foto de "Antes"'}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

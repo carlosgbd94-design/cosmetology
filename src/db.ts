@@ -292,8 +292,8 @@ export async function saveConsultationTransaction(
     // columna no listada (como created_at) vuelve a su DEFAULT y se pierde la fecha original de
     // creación en cada edición. Con ON CONFLICT DO UPDATE, created_at nunca se toca en una edición.
     stmts.push({
-      sql: `INSERT INTO ${tblConsultations} (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations, consent_accepted, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      sql: `INSERT INTO ${tblConsultations} (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations, consent_accepted, before_image_url, after_image_url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(id) DO UPDATE SET
               patient_id = excluded.patient_id,
               provider_id = excluded.provider_id,
@@ -308,6 +308,8 @@ export async function saveConsultationTransaction(
               medical_conditions = excluded.medical_conditions,
               recommendations = excluded.recommendations,
               consent_accepted = excluded.consent_accepted,
+              before_image_url = excluded.before_image_url,
+              after_image_url = excluded.after_image_url,
               updated_at = CURRENT_TIMESTAMP`,
       args: [
         consultation.id,
@@ -323,7 +325,9 @@ export async function saveConsultationTransaction(
         consultation.allergies || null,
         consultation.medicalConditions || null,
         consultation.recommendations || null,
-        consultation.consentAccepted ? 1 : 0
+        consultation.consentAccepted ? 1 : 0,
+        consultation.beforeImageUrl || null,
+        consultation.afterImageUrl || null
       ]
     });
 

@@ -384,7 +384,9 @@ export default function App() {
     allergies: '',
     medicalConditions: '',
     recommendations: '',
-    consentAccepted: false
+    consentAccepted: false,
+    beforeImageUrl: '',
+    afterImageUrl: ''
   });
 
   const [customConditionInput, setCustomConditionInput] = useState('');
@@ -913,7 +915,7 @@ export default function App() {
           }
 
           // 4. Sync consultations
-          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted, deleted_at FROM ${tblConsultations}`);
+          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted, before_image_url, after_image_url, deleted_at FROM ${tblConsultations}`);
           if (resConsults && resConsults.rows) {
             for (const r of resConsults.rows) {
               await db.consultations.put({
@@ -931,6 +933,8 @@ export default function App() {
                 allergies: r.allergies || '',
                 medicalConditions: r.medical_conditions || '',
                 consentAccepted: Number(r.consent_accepted) === 1,
+                beforeImageUrl: r.before_image_url || undefined,
+                afterImageUrl: r.after_image_url || undefined,
                 deletedAt: r.deleted_at || undefined
               });
             }
@@ -1914,7 +1918,9 @@ export default function App() {
         allergies: patientForm.allergies || '',
         medicalConditions: patientForm.medicalConditions || '',
         recommendations: patientForm.recommendations || '',
-        consentAccepted: patientForm.consentAccepted || false
+        consentAccepted: patientForm.consentAccepted || false,
+        beforeImageUrl: patientForm.beforeImageUrl || undefined,
+        afterImageUrl: patientForm.afterImageUrl || undefined
       };
 
       const finalSteps = currentSteps.map(s => ({ ...s, consultationId }));
@@ -2289,7 +2295,9 @@ export default function App() {
       allergies: '',
       medicalConditions: '',
       recommendations: '',
-      consentAccepted: false
+      consentAccepted: false,
+      beforeImageUrl: '',
+      afterImageUrl: ''
     });
     setCurrentSteps([]);
     setPrescriptionsList([]);
@@ -2385,7 +2393,10 @@ export default function App() {
       state: c.state,
       allergies: c.allergies || '',
       medicalConditions: c.medicalConditions || '',
-      recommendations: c.recommendations || ''
+      recommendations: c.recommendations || '',
+      consentAccepted: c.consentAccepted || false,
+      beforeImageUrl: c.beforeImageUrl || '',
+      afterImageUrl: c.afterImageUrl || ''
     });
 
     const anam = await db.anamnesis.where('patientId').equals(c.patientId).first();
@@ -4592,6 +4603,14 @@ export default function App() {
                   <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Recomendaciones y Sugerencias de Apoyo (Opcional - Rutinas de lavado, hábitos, etc.)</label>
                   <textarea value={patientForm.recommendations} onChange={e => setPatientForm(prev => ({ ...prev, recommendations: e.target.value }))} rows={4} placeholder="Escribe aquí sugerencias opcionales de cuidado en casa, tipos de rutinas de lavado, frecuencia de mantenimiento, etc..." className="smart-input w-full p-4 rounded-xl text-sm resize-none" />
                 </div>
+
+                {/* Fotografías Antes / Después */}
+                <BeforeAfterSlider
+                  beforeImage={patientForm.beforeImageUrl}
+                  afterImage={patientForm.afterImageUrl}
+                  onBeforeChange={url => setPatientForm(prev => ({ ...prev, beforeImageUrl: url }))}
+                  onAfterChange={url => setPatientForm(prev => ({ ...prev, afterImageUrl: url }))}
+                />
 
                 {/* Diseñador de Pasos del Protocolo */}
                 <div className="liquid-glass-light rounded-2xl p-6 border border-slate-200/50 dark:border-white/5 space-y-6">
