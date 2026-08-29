@@ -1,5 +1,5 @@
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer';
 import { Patient, Consultation } from './types';
 import { getLayerOrder, parseStringList } from './cosmetologyLogic';
 
@@ -137,6 +137,28 @@ const styles = StyleSheet.create({
   colActives: { width: '20%' },
   colActions: { width: '20%' },
   colDescription: { width: '25%' },
+  signatureBox: {
+    marginTop: 6,
+    alignItems: 'center',
+    width: '45%',
+  },
+  signatureImg: {
+    width: 160,
+    height: 60,
+    objectFit: 'contain',
+  },
+  signatureLine: {
+    borderTopWidth: 1,
+    borderTopColor: '#2D3748',
+    width: 160,
+    marginTop: 2,
+  },
+  signatureCaption: {
+    fontSize: 6.5,
+    color: '#718096',
+    marginTop: 3,
+    textAlign: 'center',
+  },
 });
 
 interface PDFProps {
@@ -419,6 +441,24 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
             <Text style={styles.value}>No se prescribieron productos para cuidado en el hogar en esta sesión.</Text>
           )}
         </View>
+
+        {/* Consentimiento Informado firmado (solo si la consulta se capturó en un dispositivo táctil) */}
+        {consultation.signatureData && (
+          <View style={styles.card} wrap={false}>
+            <Text style={styles.cardTitle}>Consentimiento Informado — Firma del Paciente</Text>
+            <Text style={{ fontSize: 7, color: '#4A5568', marginBottom: 6 }}>
+              El paciente firmó digitalmente en el dispositivo del especialista, confirmando haber recibido la
+              información sobre el tratamiento y otorgando su consentimiento para realizarlo.
+            </Text>
+            <View style={styles.signatureBox}>
+              <Image style={styles.signatureImg} src={consultation.signatureData} />
+              <View style={styles.signatureLine} />
+              <Text style={styles.signatureCaption}>
+                Firma del paciente — {new Date(consultation.visitDate).toLocaleDateString()}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Pie de página corporativo fijo */}
         <View style={styles.footer} fixed>

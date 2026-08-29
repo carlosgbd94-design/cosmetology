@@ -18,6 +18,8 @@ import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generate
 import { BeforeAfterSlider } from './BeforeAfterSlider';
 import { BackupModal } from './BackupModal';
 import { TrashModal } from './TrashModal';
+import { SignaturePadField } from './SignaturePad';
+import { isTouchPrimaryDevice, getOrCreateDeviceId } from './deviceUtils';
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
@@ -345,6 +347,14 @@ export default function App() {
   const [licenseKeyInput, setLicenseKeyInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [licenseDevices, setLicenseDevices] = useState<{ used: number; max: number } | null>(() => {
+    try {
+      const raw = localStorage.getItem('dermatique_license_devices');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [activeTab, setActiveTab] = useState<'generator' | 'inventory' | 'records'>('generator');
   const [syncStatus, setSyncStatus] = useState<'online' | 'local' | 'syncing'>('online');
@@ -386,8 +396,15 @@ export default function App() {
     recommendations: '',
     consentAccepted: false,
     beforeImageUrl: '',
-    afterImageUrl: ''
+    afterImageUrl: '',
+    signatureData: ''
   });
+
+  // Consentimiento por firma táctil en escritorio (mouse/trackpad) vs. firma dibujada en dispositivos
+  // touch (iPad, tablet): se decide una sola vez por sesión según las capacidades reales del puntero,
+  // no por userAgent (iPadOS se anuncia como escritorio desde iOS 13).
+  const [isTouchDevice] = useState<boolean>(() => isTouchPrimaryDevice());
+  const [signatureValid, setSignatureValid] = useState<boolean>(false);
 
   const [customConditionInput, setCustomConditionInput] = useState('');
 
@@ -751,11 +768,12 @@ export default function App() {
           const resp = await fetch('https://dermatique-license-worker.carlosgbd94.workers.dev/issue', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderId: paypalOrderId })
+            body: JSON.stringify({ orderId: paypalOrderId, deviceId: getOrCreateDeviceId() })
           });
           const data = await resp.json();
           if (resp.ok && data.licenseKey) {
             localStorage.setItem('dermatique_license_token', data.licenseKey);
+            applyLicenseDevices(data.devices);
             setIsLogged(true);
             showToastMsg(`¡Pago confirmado por PayPal! Tu licencia es: ${data.licenseKey} — guárdala, la necesitarás en otros dispositivos.`, 'success');
             bootstrapSystem();
@@ -772,6 +790,7 @@ export default function App() {
     } else if (activeLicenseToken) {
       setIsLogged(true);
       bootstrapSystem();
+      revalidateLicenseIfDue(activeLicenseToken);
     }
   }, []);
 
@@ -933,7 +952,7 @@ export default function App() {
           }
 
           // 4. Sync consultations
-          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted, before_image_url, after_image_url, deleted_at FROM ${tblConsultations}`);
+          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted, before_image_url, after_image_url, signature_data, deleted_at FROM ${tblConsultations}`);
           if (resConsults && resConsults.rows) {
             for (const r of resConsults.rows) {
               await db.consultations.put({
@@ -953,6 +972,7 @@ export default function App() {
                 consentAccepted: Number(r.consent_accepted) === 1,
                 beforeImageUrl: r.before_image_url || undefined,
                 afterImageUrl: r.after_image_url || undefined,
+                signatureData: r.signature_data || undefined,
                 deletedAt: r.deleted_at || undefined
               });
             }
@@ -1063,6 +1083,56 @@ export default function App() {
     }, 4000);
   };
 
+  // Guarda el cupo de dispositivos que regresa el Worker (2 de 3, etc.) para poder mostrarlo sin
+  // tener que volver a validar contra el servidor cada vez que se abre la app.
+  const applyLicenseDevices = (devices?: { used: number; max: number } | null) => {
+    if (devices && typeof devices.used === 'number' && typeof devices.max === 'number') {
+      setLicenseDevices(devices);
+      localStorage.setItem('dermatique_license_devices', JSON.stringify(devices));
+    }
+  };
+
+  // Revalidación periódica y silenciosa: hoy, una vez guardado el token, la app nunca vuelve a
+  // preguntarle al servidor si sigue activo, así que una licencia revocada/reembolsada seguiría
+  // funcionando para siempre en ese dispositivo. Se revisa como mucho una vez por semana (y solo
+  // si hay conexión) para no afectar el uso offline normal. Si el servidor confirma explícitamente
+  // que ya no es válida, se cierra sesión; cualquier falla de red se ignora por completo — jamás se
+  // cierra sesión solo porque no se pudo confirmar nada.
+  const REVALIDATION_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+  const revalidateLicenseIfDue = (token: string) => {
+    if (!token || (!!MASTER_LICENSE_KEY && token === MASTER_LICENSE_KEY) || !navigator.onLine) return;
+
+    const lastCheck = Number(localStorage.getItem('dermatique_license_last_check') || 0);
+    if (Date.now() - lastCheck < REVALIDATION_INTERVAL_MS) return;
+
+    (async () => {
+      try {
+        const resp = await fetch('https://dermatique-license-worker.carlosgbd94.workers.dev/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ licenseKey: token, deviceId: getOrCreateDeviceId() })
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (typeof data.valid !== 'boolean') return;
+
+        localStorage.setItem('dermatique_license_last_check', Date.now().toString());
+
+        if (data.valid) {
+          applyLicenseDevices(data.devices);
+        } else {
+          localStorage.removeItem('dermatique_license_token');
+          localStorage.removeItem('dermatique_license_devices');
+          setLicenseDevices(null);
+          setIsLogged(false);
+          showToastMsg('Tu licencia ya no está activa (revocada, reembolsada o vencida). Vuelve a activarla para continuar.', 'error');
+        }
+      } catch (err) {
+        console.warn('No se pudo revalidar la licencia en este arranque (se reintentará después):', err);
+      }
+    })();
+  };
+
   // ----------------------------------------------------
   // LICENSE ACTIVATION (CLOUDFLARE WORKERS / LOCAL HMAC)
   // ----------------------------------------------------
@@ -1072,6 +1142,7 @@ export default function App() {
     setLoginLoading(true);
 
     const cleanKey = licenseKeyInput.trim().toUpperCase();
+    let deviceLimitReached = false;
 
     try {
       // 1. Validar a través del Endpoint de Cloudflare Workers si hay conexión
@@ -1081,22 +1152,32 @@ export default function App() {
           const response = await fetch(cfWorkerUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey: cleanKey })
+            body: JSON.stringify({ licenseKey: cleanKey, deviceId: getOrCreateDeviceId() })
           });
 
           if (response.ok) {
             const data = await response.json();
             if (data.valid) {
               localStorage.setItem('dermatique_license_token', cleanKey);
+              applyLicenseDevices(data.devices);
               setIsLogged(true);
-              showToastMsg('Licencia activada con éxito en este dispositivo.', 'success');
+              const quotaMsg = data.devices ? ` (${data.devices.used} de ${data.devices.max} dispositivos activados)` : '';
+              showToastMsg(`Licencia activada con éxito en este dispositivo.${quotaMsg}`, 'success');
               bootstrapSystem();
               return;
+            }
+            if (data.reason === 'device_limit') {
+              deviceLimitReached = true;
             }
           }
         } catch (apiErr) {
           console.warn('Cloudflare Worker fallback to cryptographic offline validation.', apiErr);
         }
+      }
+
+      if (deviceLimitReached) {
+        setLoginError('Esta licencia ya se activó en el máximo de 3 dispositivos permitidos. Contacta soporte si necesitas liberar un dispositivo.');
+        return;
       }
 
       // 2. Respaldo offline: solo la clave maestra exacta, sin aceptar cualquier texto con forma
@@ -1122,6 +1203,8 @@ export default function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('dermatique_license_token');
+    localStorage.removeItem('dermatique_license_devices');
+    localStorage.removeItem('dermatique_license_last_check');
     setIsLogged(false);
     window.location.reload();
   };
@@ -1936,9 +2019,10 @@ export default function App() {
         allergies: patientForm.allergies || '',
         medicalConditions: patientForm.medicalConditions || '',
         recommendations: patientForm.recommendations || '',
-        consentAccepted: patientForm.consentAccepted || false,
+        consentAccepted: isTouchDevice ? signatureValid : (patientForm.consentAccepted || false),
         beforeImageUrl: patientForm.beforeImageUrl || undefined,
-        afterImageUrl: patientForm.afterImageUrl || undefined
+        afterImageUrl: patientForm.afterImageUrl || undefined,
+        signatureData: isTouchDevice ? (patientForm.signatureData || undefined) : undefined
       };
 
       const finalSteps = currentSteps.map(s => ({ ...s, consultationId }));
@@ -2315,8 +2399,10 @@ export default function App() {
       recommendations: '',
       consentAccepted: false,
       beforeImageUrl: '',
-      afterImageUrl: ''
+      afterImageUrl: '',
+      signatureData: ''
     });
+    setSignatureValid(false);
     setCurrentSteps([]);
     setPrescriptionsList([]);
     setActiveFacialZones({
@@ -2359,7 +2445,12 @@ export default function App() {
         prescriptions: prescriptionsList,
         allergies: patientForm.allergies || '',
         medicalConditions: patientForm.medicalConditions || '',
-        consentAccepted: patientForm.consentAccepted || false
+        // No condicionar por dispositivo: si el consentimiento ya se obtuvo por cualquier medio
+        // (checkbox en un guardado previo desde escritorio, o firma dibujada en touch), editar el
+        // registro desde el otro tipo de dispositivo sin volver a firmar/marcar NO debe revocarlo
+        // en silencio. Por eso es un OR monótono, no una elección exclusiva por isTouchDevice.
+        consentAccepted: (patientForm.consentAccepted || false) || signatureValid,
+        signatureData: patientForm.signatureData || undefined
       };
 
       const doc = <ClinicalReportPDF patient={activePatient} consultation={activeConsultation} type={type} />;
@@ -2414,8 +2505,10 @@ export default function App() {
       recommendations: c.recommendations || '',
       consentAccepted: c.consentAccepted || false,
       beforeImageUrl: c.beforeImageUrl || '',
-      afterImageUrl: c.afterImageUrl || ''
+      afterImageUrl: c.afterImageUrl || '',
+      signatureData: c.signatureData || ''
     });
+    setSignatureValid(!!c.signatureData);
 
     const anam = await db.anamnesis.where('patientId').equals(c.patientId).first();
     if (anam) {
@@ -4279,7 +4372,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F6] dark:bg-[#0A0A0D] text-slate-700 dark:text-luxe-100 pb-16 antialiased">
+    <div className={`min-h-screen bg-[#FAF9F6] dark:bg-[#0A0A0D] text-slate-700 dark:text-luxe-100 pb-16 antialiased ${isTouchDevice ? 'touch-device' : ''}`}>
       {/* Sync / Toast Notifications */}
       {toast.visible && (
         <div className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl max-w-md border border-slate-200/50 dark:border-white/10 text-slate-800 dark:text-white bg-white/90 dark:bg-luxe-800/90 backdrop-blur-md`}>
@@ -4298,6 +4391,15 @@ export default function App() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span>{syncStatus === 'online' ? 'En línea' : syncStatus === 'syncing' ? 'Sincronizando...' : 'Local'}</span>
               </div>
+              {licenseDevices && (
+                <div
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border border-slate-200/50 dark:border-white/10 bg-slate-100 dark:bg-white/5 text-slate-500 dark:text-luxe-300"
+                  title={`Esta licencia está activada en ${licenseDevices.used} de ${licenseDevices.max} dispositivos permitidos.`}
+                >
+                  <Key className="w-3 h-3 text-amber-500" />
+                  <span>{licenseDevices.used}/{licenseDevices.max}</span>
+                </div>
+              )}
             </div>
             
             <div className="flex items-center gap-2 md:hidden">
@@ -4353,16 +4455,21 @@ export default function App() {
             <div className="liquid-glass rounded-[32px] p-8 md:p-10 relative overflow-hidden">
               <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-bronze-500/10 blur-[100px] pointer-events-none" />
 
-              <div className="flex justify-between items-start mb-8 pb-6 border-b border-slate-200/50 dark:border-white/5">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-5 mb-8 pb-6 border-b border-slate-200/50 dark:border-white/5">
                 <div>
                   <h1 className="font-outfit text-2xl font-bold text-slate-800 dark:text-white">Ficha de Diagnóstico Estético</h1>
                   <p className="text-slate-500 dark:text-luxe-300 text-xs mt-1">Valoración cutánea y recomendación cosmética profesional</p>
                 </div>
-                <div className="flex flex-col items-end gap-2">
-                  {/* Clinical Workflow Phases Controller */}
-                  <div className="flex flex-col items-end">
+                <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto">
+                  {/* Clinical Workflow Phases Controller: en escritorio son píldoras compactas alineadas
+                      a la derecha; en táctil se apilan a ancho completo, sin scroll oculto, y cada botón
+                      crece a un tamaño de toque real (min 44px de alto) en vez de comprimirse hasta cortar texto. */}
+                  <div className="flex flex-col items-start md:items-end w-full md:w-auto">
                     <span className="text-[9px] font-extrabold uppercase text-slate-400 dark:text-luxe-400 tracking-widest mb-1">Fase del Proceso Clínico</span>
-                    <div className="flex gap-1.5 bg-slate-100 dark:bg-white/5 p-1.5 rounded-2xl border border-slate-200/50 dark:border-white/5 relative group">
+                    <div className={isTouchDevice
+                      ? 'grid grid-cols-2 sm:grid-cols-3 gap-1.5 bg-slate-100 dark:bg-white/5 p-1.5 rounded-2xl border border-slate-200/50 dark:border-white/5 relative group w-full'
+                      : 'flex flex-wrap gap-1.5 bg-slate-100 dark:bg-white/5 p-1.5 rounded-2xl border border-slate-200/50 dark:border-white/5 relative group w-full md:w-auto'
+                    }>
                       {(['Borrador', 'Admision', 'Consentimiento', 'Tratamiento', 'Evaluacion'] as ConsultationState[]).map(st => {
                         const descriptions: Record<ConsultationState, string> = {
                           Borrador: 'Borrador inicial / Notas preliminares de cabina',
@@ -4384,7 +4491,9 @@ export default function App() {
                             type="button"
                             onClick={() => updateState(st)}
                             title={descriptions[st]}
-                            className={`px-3 py-1.5 rounded-xl text-[10px] font-bold tracking-wider uppercase transition-all relative ${
+                            className={`rounded-xl font-bold tracking-wider uppercase transition-all relative ${
+                              isTouchDevice ? 'px-3 py-3 text-[11px] min-h-[44px]' : 'flex-1 md:flex-none px-3 py-1.5 text-[10px]'
+                            } ${
                               patientForm.state === st
                                 ? 'bg-gradient-to-r from-bronze-500 to-bronze-600 text-white shadow-md'
                                 : 'text-slate-500 dark:text-luxe-300 hover:bg-slate-200/50 dark:hover:bg-white/5'
@@ -4521,22 +4630,45 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Consentimiento Informado */}
-                <label className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={patientForm.consentAccepted}
-                    onChange={e => setPatientForm(prev => ({ ...prev, consentAccepted: e.target.checked }))}
-                    className="w-5 h-5 rounded accent-amber-500 shrink-0"
-                  />
-                  <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
-                  <div>
-                    <span className="font-bold text-xs text-slate-800 dark:text-white block">Consentimiento Informado Clínico</span>
-                    <span className="text-[10px] text-slate-400">
-                      Confirmo que el paciente otorgó su consentimiento (verbal o en papel) para el tratamiento
-                    </span>
+                {/* Consentimiento Informado: checkbox en escritorio (no hay paciente frente a un mouse
+                    para firmar), firma táctil real en iPad/tablet (sí lo hay, en el punto de consulta). */}
+                {isTouchDevice ? (
+                  <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-2">
+                    <div className="flex items-center gap-2.5">
+                      <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
+                      <span className="font-bold text-xs text-slate-800 dark:text-white">Consentimiento Informado Clínico — Firma del Paciente</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 ml-[30px] -mt-1">
+                      Pida al paciente firmar con el dedo o el lápiz óptico directamente sobre el recuadro.
+                    </p>
+                    <div className="ml-0 sm:ml-[30px]">
+                      <SignaturePadField
+                        label="Firma del paciente"
+                        value={patientForm.signatureData || undefined}
+                        onChange={(dataUrl, valid) => {
+                          setPatientForm(prev => ({ ...prev, signatureData: dataUrl || '' }));
+                          setSignatureValid(valid);
+                        }}
+                      />
+                    </div>
                   </div>
-                </label>
+                ) : (
+                  <label className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={patientForm.consentAccepted}
+                      onChange={e => setPatientForm(prev => ({ ...prev, consentAccepted: e.target.checked }))}
+                      className="w-5 h-5 rounded accent-amber-500 shrink-0"
+                    />
+                    <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 dark:text-white block">Consentimiento Informado Clínico</span>
+                      <span className="text-[10px] text-slate-400">
+                        Confirmo que el paciente otorgó su consentimiento (verbal o en papel) para el tratamiento
+                      </span>
+                    </div>
+                  </label>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-2">
@@ -4677,13 +4809,13 @@ export default function App() {
                     </div>
 
                     <div className="lg:col-span-7 space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
-                        <input type="text" value={stepInput.customProductName} onChange={e => setStepInput(prev => ({ ...prev, customProductName: e.target.value }))} placeholder="Nombre del Producto..." className="smart-input w-full" />
-                        <input type="text" value={stepInput.customBrand} onChange={e => setStepInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Marca/Línea..." className="smart-input w-full" />
+                      <div className="grid grid-cols-2 touch:grid-cols-1 gap-3">
+                        <input type="text" value={stepInput.customProductName} onChange={e => setStepInput(prev => ({ ...prev, customProductName: e.target.value }))} placeholder="Nombre del Producto..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                        <input type="text" value={stepInput.customBrand} onChange={e => setStepInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Marca/Línea..." className="smart-input w-full touch:py-3 touch:text-sm" />
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <input type="text" value={stepInput.customActiveIngredients} onChange={e => setStepInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Activos Clave..." className="smart-input w-full" />
-                        <input type="text" value={stepInput.customActions} onChange={e => setStepInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Acción / Efecto Clínico..." className="smart-input w-full" />
+                      <div className="grid grid-cols-2 touch:grid-cols-1 gap-3">
+                        <input type="text" value={stepInput.customActiveIngredients} onChange={e => setStepInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Activos Clave..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                        <input type="text" value={stepInput.customActions} onChange={e => setStepInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Acción / Efecto Clínico..." className="smart-input w-full touch:py-3 touch:text-sm" />
                       </div>
                       <textarea value={stepInput.applicationDescription} onChange={e => setStepInput(prev => ({ ...prev, applicationDescription: e.target.value }))} rows={2} placeholder="Descripción de Aplicación (maniobras, pose, neutralizador...)" className="smart-input w-full resize-none" />
 
@@ -4722,61 +4854,122 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* List of Added Steps */}
+                  {/* List of Added Steps: misma conversión a tarjetas en touch que la tabla de
+                      apoyo domiciliario (7 columnas es aún peor para encimarse en un iPad). */}
                   <div className="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/40 dark:bg-luxe-950/20">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
-                          <th className="py-3 px-4">Orden</th>
-                          <th className="py-3 px-4">Protocolo</th>
-                          <th className="py-3 px-4">Producto</th>
-                          <th className="py-3 px-4">Marca</th>
-                          <th className="py-3 px-4">Activo</th>
-                          <th className="py-3 px-4">Acción</th>
-                          <th className="py-3 px-4 text-right">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
-                        {currentSteps.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="py-6 text-center text-slate-400 italic">No se han añadido pasos.</td>
-                          </tr>
+                    {(() => {
+                      const resolveProductLabel = (step: typeof currentSteps[number]) => {
+                        const nameLower = (step.customProductName || '').toLowerCase();
+                        if (nameLower === 'sin producto' || !step.customProductName) {
+                          if (step.aparatologySettings) {
+                            try {
+                              const parsed = JSON.parse(step.aparatologySettings);
+                              if (Array.isArray(parsed) && parsed.length > 0) {
+                                return `Aparatología: ${parsed.join(', ')}`;
+                              }
+                            } catch (e) {}
+                            return `Aparatología: ${step.aparatologySettings}`;
+                          }
+                        }
+                        return step.customProductName;
+                      };
+
+                      if (currentSteps.length === 0) {
+                        return isTouchDevice ? (
+                          <div className="py-6 px-4 text-center text-slate-400 italic text-xs">No se han añadido pasos.</div>
                         ) : (
-                          currentSteps.map((step, idx) => (
-                            <tr key={step.id}>
-                              <td className="py-3 px-4">{step.stepOrder}</td>
-                              <td className="py-3 px-4 font-bold">{step.stepName}</td>
-                              <td className="py-3 px-4">
-                                {(() => {
-                                  const nameLower = (step.customProductName || '').toLowerCase();
-                                  if (nameLower === 'sin producto' || !step.customProductName) {
-                                    if (step.aparatologySettings) {
-                                      try {
-                                        const parsed = JSON.parse(step.aparatologySettings);
-                                        if (Array.isArray(parsed) && parsed.length > 0) {
-                                          return <span className="text-bronze-600 dark:text-bronze-400 font-medium">Aparatología: {parsed.join(', ')}</span>;
-                                        }
-                                      } catch(e) {}
-                                      return <span className="text-bronze-600 dark:text-bronze-400 font-medium">Aparatología: {step.aparatologySettings}</span>;
-                                    }
-                                  }
-                                  return step.customProductName;
-                                })()}
-                              </td>
-                              <td className="py-3 px-4">{step.customBrand}</td>
-                              <td className="py-3 px-4 truncate max-w-[150px]">{step.customActiveIngredients || 'N/A'}</td>
-                              <td className="py-3 px-4 truncate max-w-[150px]">{step.customActions || 'N/A'}</td>
-                              <td className="py-3 px-4 text-right space-x-2">
-                                <button type="button" onClick={() => moveStepUp(idx)} disabled={idx === 0} className={`inline-flex items-center gap-1 text-[11px] ${idx === 0 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Subir">▲</button>
-                                <button type="button" onClick={() => moveStepDown(idx)} disabled={idx === currentSteps.length - 1} className={`inline-flex items-center gap-1 text-[11px] ${idx === currentSteps.length - 1 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Bajar">▼</button>
-                                <button type="button" onClick={() => editStep(idx)} className="text-bronze-600 dark:text-bronze-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
-                                <button type="button" onClick={() => removeStep(idx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
-                              </td>
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
+                                <th className="py-3 px-4">Orden</th>
+                                <th className="py-3 px-4">Protocolo</th>
+                                <th className="py-3 px-4">Producto</th>
+                                <th className="py-3 px-4">Marca</th>
+                                <th className="py-3 px-4">Activo</th>
+                                <th className="py-3 px-4">Acción</th>
+                                <th className="py-3 px-4 text-right">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td colSpan={7} className="py-6 text-center text-slate-400 italic">No se han añadido pasos.</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        );
+                      }
+
+                      if (isTouchDevice) {
+                        return (
+                          <div className="divide-y divide-slate-200/50 dark:divide-white/5">
+                            {currentSteps.map((step, idx) => (
+                              <div key={step.id} className="p-4 flex flex-col gap-2.5">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start gap-2.5 min-w-0">
+                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-bronze-500/10 text-bronze-600 dark:text-bronze-400 font-bold text-[11px] shrink-0 mt-0.5">
+                                      {step.stepOrder}
+                                    </span>
+                                    <div className="min-w-0">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block">{step.stepName}</span>
+                                      <span className="font-semibold text-slate-800 dark:text-white block truncate">{resolveProductLabel(step)}</span>
+                                      <span className="text-[10px] text-slate-400 block truncate">{step.customBrand}</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-1.5 shrink-0 flex-wrap justify-end">
+                                    <button type="button" onClick={() => moveStepUp(idx)} disabled={idx === 0} className={`w-10 h-10 rounded-xl flex items-center justify-center ${idx === 0 ? 'text-slate-300 dark:text-slate-600' : 'text-slate-600 dark:text-luxe-300 bg-slate-100 dark:bg-white/5'}`} title="Subir">▲</button>
+                                    <button type="button" onClick={() => moveStepDown(idx)} disabled={idx === currentSteps.length - 1} className={`w-10 h-10 rounded-xl flex items-center justify-center ${idx === currentSteps.length - 1 ? 'text-slate-300 dark:text-slate-600' : 'text-slate-600 dark:text-luxe-300 bg-slate-100 dark:bg-white/5'}`} title="Bajar">▼</button>
+                                    <button type="button" onClick={() => editStep(idx)} className="w-10 h-10 rounded-xl flex items-center justify-center text-bronze-600 dark:text-bronze-400 bg-bronze-500/10" title="Editar"><Pencil className="w-4 h-4" /></button>
+                                    <button type="button" onClick={() => removeStep(idx)} className="w-10 h-10 rounded-xl flex items-center justify-center text-red-500 bg-red-500/10" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
+                                  </div>
+                                </div>
+                                <div className="text-[11px] text-slate-600 dark:text-luxe-300">
+                                  <span className="font-bold text-slate-500 dark:text-slate-400">Activos: </span>
+                                  {step.customActiveIngredients || 'N/A'}
+                                </div>
+                                <div className="text-[11px] text-slate-600 dark:text-luxe-300">
+                                  <span className="font-bold text-slate-500 dark:text-slate-400">Acción: </span>
+                                  {step.customActions || 'N/A'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
+                              <th className="py-3 px-4">Orden</th>
+                              <th className="py-3 px-4">Protocolo</th>
+                              <th className="py-3 px-4">Producto</th>
+                              <th className="py-3 px-4">Marca</th>
+                              <th className="py-3 px-4">Activo</th>
+                              <th className="py-3 px-4">Acción</th>
+                              <th className="py-3 px-4 text-right">Acciones</th>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
+                            {currentSteps.map((step, idx) => (
+                              <tr key={step.id}>
+                                <td className="py-3 px-4">{step.stepOrder}</td>
+                                <td className="py-3 px-4 font-bold">{step.stepName}</td>
+                                <td className="py-3 px-4">{resolveProductLabel(step)}</td>
+                                <td className="py-3 px-4">{step.customBrand}</td>
+                                <td className="py-3 px-4 truncate max-w-[150px]">{step.customActiveIngredients || 'N/A'}</td>
+                                <td className="py-3 px-4 truncate max-w-[150px]">{step.customActions || 'N/A'}</td>
+                                <td className="py-3 px-4 text-right space-x-2">
+                                  <button type="button" onClick={() => moveStepUp(idx)} disabled={idx === 0} className={`inline-flex items-center gap-1 text-[11px] ${idx === 0 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Subir">▲</button>
+                                  <button type="button" onClick={() => moveStepDown(idx)} disabled={idx === currentSteps.length - 1} className={`inline-flex items-center gap-1 text-[11px] ${idx === currentSteps.length - 1 ? 'text-slate-300 dark:text-slate-600 cursor-not-allowed' : 'text-slate-600 dark:text-luxe-300 hover:text-amber-500'}`} title="Bajar">▼</button>
+                                  <button type="button" onClick={() => editStep(idx)} className="text-bronze-600 dark:text-bronze-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
+                                  <button type="button" onClick={() => removeStep(idx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })()}
                     {prescriptionsList.length > 0 && (
                       <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex justify-end bg-slate-50/50 dark:bg-luxe-950/10">
                         <button
@@ -4927,36 +5120,36 @@ export default function App() {
                     </div>
 
                     <div className="lg:col-span-7 space-y-3.5">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 touch:grid-cols-1 gap-3">
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Nombre Comercial</label>
-                          <input type="text" value={presInput.customProductName} onChange={e => setPresInput(prev => ({ ...prev, customProductName: e.target.value }))} placeholder="Ej. Gel Limpiador Purificante..." className="smart-input w-full" />
+                          <input type="text" value={presInput.customProductName} onChange={e => setPresInput(prev => ({ ...prev, customProductName: e.target.value }))} placeholder="Ej. Gel Limpiador Purificante..." className="smart-input w-full touch:py-3 touch:text-sm" />
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Laboratorio / Marca</label>
-                          <input type="text" value={presInput.customBrand} onChange={e => setPresInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Ej. Línea Clínica..." className="smart-input w-full" />
+                          <input type="text" value={presInput.customBrand} onChange={e => setPresInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Ej. Línea Clínica..." className="smart-input w-full touch:py-3 touch:text-sm" />
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 touch:grid-cols-1 gap-3">
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Activos Principales</label>
-                          <input type="text" value={presInput.customActiveIngredients} onChange={e => setPresInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Ej. Ácido Salicílico 2%, Niacinamida..." className="smart-input w-full" />
+                          <input type="text" value={presInput.customActiveIngredients} onChange={e => setPresInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Ej. Ácido Salicílico 2%, Niacinamida..." className="smart-input w-full touch:py-3 touch:text-sm" />
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Efecto / Acción Cutánea</label>
-                          <input type="text" value={presInput.customActions} onChange={e => setPresInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Ej. Seborregulador, Calmante..." className="smart-input w-full" />
+                          <input type="text" value={presInput.customActions} onChange={e => setPresInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Ej. Seborregulador, Calmante..." className="smart-input w-full touch:py-3 touch:text-sm" />
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 touch:grid-cols-1 gap-3">
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Dosis / Modo de Aplicación</label>
-                          <input type="text" value={presInput.dosageInstructions} onChange={e => setPresInput(prev => ({ ...prev, dosageInstructions: e.target.value }))} placeholder="Ej. 3-4 gotas con masaje suave..." className="smart-input w-full" />
+                          <input type="text" value={presInput.dosageInstructions} onChange={e => setPresInput(prev => ({ ...prev, dosageInstructions: e.target.value }))} placeholder="Ej. 3-4 gotas con masaje suave..." className="smart-input w-full touch:py-3 touch:text-sm" />
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Frecuencia</label>
-                          <input type="text" value={presInput.applicationFrequency} onChange={e => setPresInput(prev => ({ ...prev, applicationFrequency: e.target.value }))} placeholder="Ej. Diario / 2 veces por semana..." className="smart-input w-full" />
+                          <input type="text" value={presInput.applicationFrequency} onChange={e => setPresInput(prev => ({ ...prev, applicationFrequency: e.target.value }))} placeholder="Ej. Diario / 2 veces por semana..." className="smart-input w-full touch:py-3 touch:text-sm" />
                         </div>
                       </div>
 
@@ -4979,40 +5172,40 @@ export default function App() {
 
                   {/* Pestañas de Rutina por Bloques de Tiempo (☀️ Mañana, 🌙 Noche, 📅 Semanal) */}
                   <div className="space-y-4 pt-2">
-                    <div className="flex items-center justify-between border-b border-slate-200/50 dark:border-white/5 pb-2">
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-col touch:items-stretch touch:gap-3 md:flex-row md:items-center justify-between border-b border-slate-200/50 dark:border-white/5 pb-2 gap-2">
+                      <div className={isTouchDevice ? 'grid grid-cols-1 gap-2 w-full' : 'flex items-center flex-wrap gap-2'}>
                         <button
                           type="button"
                           onClick={() => setActiveProtocolTab('AM')}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                          className={`px-4 py-2 touch:w-full touch:py-3.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
                             activeProtocolTab === 'AM'
                               ? 'bg-amber-500 text-white shadow-md'
                               : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10'
                           }`}
                         >
-                          <Sun className="w-4 h-4 text-amber-200" /> ☀️ Rutina de Día (AM)
+                          <Sun className="w-4 h-4 text-amber-200 shrink-0" /> ☀️ Rutina de Día (AM)
                         </button>
                         <button
                           type="button"
                           onClick={() => setActiveProtocolTab('PM')}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                          className={`px-4 py-2 touch:w-full touch:py-3.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
                             activeProtocolTab === 'PM'
                               ? 'bg-indigo-600 text-white shadow-md'
                               : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10'
                           }`}
                         >
-                          <Moon className="w-4 h-4 text-indigo-200" /> 🌙 Rutina de Noche (PM)
+                          <Moon className="w-4 h-4 text-indigo-200 shrink-0" /> 🌙 Rutina de Noche (PM)
                         </button>
                         <button
                           type="button"
                           onClick={() => setActiveProtocolTab('SEMANAL')}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                          className={`px-4 py-2 touch:w-full touch:py-3.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 whitespace-nowrap ${
                             activeProtocolTab === 'SEMANAL'
                               ? 'bg-emerald-600 text-white shadow-md'
                               : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10'
                           }`}
                         >
-                          <Calendar className="w-4 h-4 text-emerald-200" /> 📅 Cuidados Semanales
+                          <Calendar className="w-4 h-4 text-emerald-200 shrink-0" /> 📅 Cuidados Semanales
                         </button>
                       </div>
 
@@ -5021,72 +5214,133 @@ export default function App() {
                       </span>
                     </div>
 
-                    {/* Tabla de Productos Prescritos por Pestaña */}
+                    {/* Tabla de Productos Prescritos por Pestaña: una tabla de 6 columnas no cabe en
+                        un iPad sin encimarse (columnas comprimidas, texto cortado), así que en touch
+                        se reemplaza por tarjetas apiladas con botones de edición/borrado de tamaño de
+                        toque real; en escritorio la tabla original queda intacta. */}
                     <div className="border border-slate-200/50 dark:border-white/5 rounded-2xl overflow-hidden bg-white/40 dark:bg-luxe-950/20 shadow-sm">
-                      <table className="w-full text-left border-collapse text-xs">
-                        <thead>
-                          <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
-                            <th className="py-3 px-4 w-12 text-center">Capa</th>
-                            <th className="py-3 px-4">Fase / Capa</th>
-                            <th className="py-3 px-4">Producto & Marca</th>
-                            <th className="py-3 px-4">Activos Clave</th>
-                            <th className="py-3 px-4">Instrucciones & Dosis</th>
-                            <th className="py-3 px-4 text-right">Acciones</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
-                          {(() => {
-                            const filteredList = prescriptionsList
-                              .filter(p => {
-                                if (activeProtocolTab === 'AM') return p.timeOfDay === 'Dia' || p.timeOfDay === 'Dia y Noche';
-                                if (activeProtocolTab === 'PM') return p.timeOfDay === 'Noche' || p.timeOfDay === 'Dia y Noche';
-                                const stepNorm = (p.stepName || '').toLowerCase();
-                                return stepNorm.includes('semanal') || stepNorm.includes('mascarilla') || stepNorm.includes('exfolia');
-                              })
-                              .sort((a, b) => getLayerOrder(a.stepName || a.customProductName || '') - getLayerOrder(b.stepName || b.customProductName || ''));
+                      {(() => {
+                        const filteredList = prescriptionsList
+                          .filter(p => {
+                            if (activeProtocolTab === 'AM') return p.timeOfDay === 'Dia' || p.timeOfDay === 'Dia y Noche';
+                            if (activeProtocolTab === 'PM') return p.timeOfDay === 'Noche' || p.timeOfDay === 'Dia y Noche';
+                            const stepNorm = (p.stepName || '').toLowerCase();
+                            return stepNorm.includes('semanal') || stepNorm.includes('mascarilla') || stepNorm.includes('exfolia');
+                          })
+                          .sort((a, b) => getLayerOrder(a.stepName || a.customProductName || '') - getLayerOrder(b.stepName || b.customProductName || ''));
 
-                            if (filteredList.length === 0) {
-                              return (
+                        const emptyMsg = `No hay productos asignados para el bloque de ${activeProtocolTab === 'AM' ? 'Mañana ☀️' : activeProtocolTab === 'PM' ? 'Noche 🌙' : 'Cuidados Semanales 📅'}.`;
+
+                        if (filteredList.length === 0) {
+                          return isTouchDevice ? (
+                            <div className="py-8 px-4 text-center text-slate-400 italic text-xs">{emptyMsg}</div>
+                          ) : (
+                            <table className="w-full text-left border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
+                                  <th className="py-3 px-4 w-12 text-center">Capa</th>
+                                  <th className="py-3 px-4">Fase / Capa</th>
+                                  <th className="py-3 px-4">Producto & Marca</th>
+                                  <th className="py-3 px-4">Activos Clave</th>
+                                  <th className="py-3 px-4">Instrucciones & Dosis</th>
+                                  <th className="py-3 px-4 text-right">Acciones</th>
+                                </tr>
+                              </thead>
+                              <tbody>
                                 <tr>
-                                  <td colSpan={6} className="py-8 text-center text-slate-400 italic">
-                                    No hay productos asignados para el bloque de {activeProtocolTab === 'AM' ? 'Mañana ☀️' : activeProtocolTab === 'PM' ? 'Noche 🌙' : 'Cuidados Semanales 📅'}.
-                                  </td>
+                                  <td colSpan={6} className="py-8 text-center text-slate-400 italic">{emptyMsg}</td>
                                 </tr>
-                              );
-                            }
+                              </tbody>
+                            </table>
+                          );
+                        }
 
-                            return filteredList.map((pres, idx) => {
-                              const originalIdx = prescriptionsList.findIndex(p => p.id === pres.id);
-                              const layerNum = getLayerOrder(pres.stepName || pres.customProductName || '');
-                              return (
-                                <tr key={pres.id} className="hover:bg-slate-500/5 transition-colors">
-                                  <td className="py-3 px-4 text-center">
-                                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[11px]">
-                                      {layerNum < 9 ? layerNum : idx + 1}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-4 font-bold text-slate-800 dark:text-white">{pres.stepName}</td>
-                                  <td className="py-3 px-4">
-                                    <span className="font-semibold text-slate-800 dark:text-white block">{pres.customProductName || pres.productDetails?.name}</span>
-                                    <span className="text-[10px] text-slate-400">{pres.customBrand || pres.productDetails?.brandLine}</span>
-                                  </td>
-                                  <td className="py-3 px-4 max-w-[180px]">
-                                    <span className="truncate block text-slate-600 dark:text-luxe-300">{pres.customActiveIngredients || 'N/A'}</span>
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    <span className="font-medium text-slate-700 dark:text-luxe-200 block">{pres.dosageInstructions || 'Sin dosis específica'}</span>
-                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">{pres.applicationFrequency}</span>
-                                  </td>
-                                  <td className="py-3 px-4 text-right space-x-2">
-                                    <button type="button" onClick={() => editPrescription(originalIdx)} className="text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
-                                    <button type="button" onClick={() => removePrescription(originalIdx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
-                                  </td>
-                                </tr>
-                              );
-                            });
-                          })()}
-                        </tbody>
-                      </table>
+                        if (isTouchDevice) {
+                          return (
+                            <div className="divide-y divide-slate-200/50 dark:divide-white/5">
+                              {filteredList.map((pres, idx) => {
+                                const originalIdx = prescriptionsList.findIndex(p => p.id === pres.id);
+                                const layerNum = getLayerOrder(pres.stepName || pres.customProductName || '');
+                                return (
+                                  <div key={pres.id} className="p-4 flex flex-col gap-2.5">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="flex items-start gap-2.5 min-w-0">
+                                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[11px] shrink-0 mt-0.5">
+                                          {layerNum < 9 ? layerNum : idx + 1}
+                                        </span>
+                                        <div className="min-w-0">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide block">{pres.stepName}</span>
+                                          <span className="font-semibold text-slate-800 dark:text-white block truncate">{pres.customProductName || pres.productDetails?.name}</span>
+                                          <span className="text-[10px] text-slate-400 block truncate">{pres.customBrand || pres.productDetails?.brandLine}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-1.5 shrink-0">
+                                        <button type="button" onClick={() => editPrescription(originalIdx)} className="w-10 h-10 rounded-xl flex items-center justify-center text-amber-600 dark:text-amber-400 bg-amber-500/10" title="Editar"><Pencil className="w-4 h-4" /></button>
+                                        <button type="button" onClick={() => removePrescription(originalIdx)} className="w-10 h-10 rounded-xl flex items-center justify-center text-red-500 bg-red-500/10" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
+                                      </div>
+                                    </div>
+                                    <div className="text-[11px] text-slate-600 dark:text-luxe-300">
+                                      <span className="font-bold text-slate-500 dark:text-slate-400">Activos: </span>
+                                      {pres.customActiveIngredients || 'N/A'}
+                                    </div>
+                                    <div className="text-[11px]">
+                                      <span className="font-bold text-amber-600 dark:text-amber-400">Dosis: </span>
+                                      <span className="text-slate-700 dark:text-luxe-200">{pres.dosageInstructions || 'Sin dosis específica'}</span>
+                                      <span className="text-amber-600 dark:text-amber-400 font-semibold"> · {pres.applicationFrequency}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-100/60 dark:bg-white/5 border-b border-slate-200/50 dark:border-white/5 text-[10px] font-bold uppercase tracking-wider">
+                                <th className="py-3 px-4 w-12 text-center">Capa</th>
+                                <th className="py-3 px-4">Fase / Capa</th>
+                                <th className="py-3 px-4">Producto & Marca</th>
+                                <th className="py-3 px-4">Activos Clave</th>
+                                <th className="py-3 px-4">Instrucciones & Dosis</th>
+                                <th className="py-3 px-4 text-right">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200/50 dark:divide-white/5">
+                              {filteredList.map((pres, idx) => {
+                                const originalIdx = prescriptionsList.findIndex(p => p.id === pres.id);
+                                const layerNum = getLayerOrder(pres.stepName || pres.customProductName || '');
+                                return (
+                                  <tr key={pres.id} className="hover:bg-slate-500/5 transition-colors">
+                                    <td className="py-3 px-4 text-center">
+                                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[11px]">
+                                        {layerNum < 9 ? layerNum : idx + 1}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-4 font-bold text-slate-800 dark:text-white">{pres.stepName}</td>
+                                    <td className="py-3 px-4">
+                                      <span className="font-semibold text-slate-800 dark:text-white block">{pres.customProductName || pres.productDetails?.name}</span>
+                                      <span className="text-[10px] text-slate-400">{pres.customBrand || pres.productDetails?.brandLine}</span>
+                                    </td>
+                                    <td className="py-3 px-4 max-w-[180px]">
+                                      <span className="truncate block text-slate-600 dark:text-luxe-300">{pres.customActiveIngredients || 'N/A'}</span>
+                                    </td>
+                                    <td className="py-3 px-4">
+                                      <span className="font-medium text-slate-700 dark:text-luxe-200 block">{pres.dosageInstructions || 'Sin dosis específica'}</span>
+                                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">{pres.applicationFrequency}</span>
+                                    </td>
+                                    <td className="py-3 px-4 text-right space-x-2">
+                                      <button type="button" onClick={() => editPrescription(originalIdx)} className="text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1" title="Editar"><Pencil className="w-3.5 h-3.5" /></button>
+                                      <button type="button" onClick={() => removePrescription(originalIdx)} className="text-red-500 hover:underline inline-flex items-center gap-1" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        );
+                      })()}
 
                       {prescriptionsList.length > 0 && (
                         <div className="p-4 border-t border-slate-200/50 dark:border-white/5 flex justify-end bg-slate-50/50 dark:bg-luxe-950/10">
@@ -5104,16 +5358,18 @@ export default function App() {
                 </div>
 
 
-                {/* Final Form Operations */}
-                <div className="flex justify-end gap-4 pt-6 border-t border-slate-200/50 dark:border-white/5">
-                  <button type="button" onClick={resetPatientForm} className="px-5 py-3 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide">
+                {/* Final Form Operations: en escritorio son 3 botones en fila alineados a la derecha;
+                    en touch se apilan a ancho completo (misma altura de padding para los 3) para que
+                    ninguno se corte ni el texto se parta en varias líneas dentro de un botón angosto. */}
+                <div className="flex flex-col touch:gap-2.5 md:flex-row justify-end gap-4 pt-6 border-t border-slate-200/50 dark:border-white/5">
+                  <button type="button" onClick={resetPatientForm} className="touch:w-full touch:py-3.5 touch:order-3 px-5 py-3 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide">
                     Limpiar Ficha
                   </button>
-                  <button type="button" onClick={() => setIsPdfModalOpen(true)} className="bg-gradient-to-r from-amber-500 to-bronze-600 hover:brightness-110 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-2">
-                    <FileText className="w-4 h-4" /> Exportar PDF Directo
+                  <button type="button" onClick={() => setIsPdfModalOpen(true)} className="touch:w-full touch:py-3.5 bg-gradient-to-r from-amber-500 to-bronze-600 hover:brightness-110 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center justify-center gap-2">
+                    <FileText className="w-4 h-4 shrink-0" /> Exportar PDF Directo
                   </button>
-                  <button type="submit" className="bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white px-8 py-3 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-2">
-                    <Save className="w-4 h-4" /> Guardar Ficha Paciente
+                  <button type="submit" className="touch:w-full touch:py-3.5 bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 text-white px-8 py-3 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center justify-center gap-2">
+                    <Save className="w-4 h-4 shrink-0" /> Guardar Ficha Paciente
                   </button>
                 </div>
               </form>

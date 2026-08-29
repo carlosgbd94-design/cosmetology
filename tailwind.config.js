@@ -1,3 +1,5 @@
+import plugin from 'tailwindcss/plugin';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -44,5 +46,14 @@ export default {
       }
     },
   },
-  plugins: [],
+  plugins: [
+    // Variante "touch:" análoga a "dark:" (mismo mecanismo que darkMode: 'class'): en vez de basarse
+    // en el ancho de pantalla (que ya cubren sm:/md:/lg:), se activa cuando App.tsx pone la clase
+    // "touch-device" en el contenedor raíz según isTouchPrimaryDevice(). Así cualquier elemento puede
+    // llevar ajustes específicos para dedo/lápiz (touch:grid-cols-1, touch:py-3, etc.) sin repetir
+    // ternarios de JS en cada sitio.
+    plugin(function ({ addVariant }) {
+      addVariant('touch', '.touch-device &');
+    }),
+  ],
 }
