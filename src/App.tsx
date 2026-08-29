@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, downloadBackupFile } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { decryptData, sha256 } from './crypto';
@@ -11,14 +11,14 @@ import Papa from 'papaparse';
 import { 
   Activity, Award, Beaker, CheckCircle, ChevronDown, Clipboard, Clock, CloudDownload, 
   Database, FileText, FileUp, FolderHeart, Info, Layers, Lock, Moon, Plus, Printer, 
-  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, ShieldCheck, Calendar, Droplets, Key, CreditCard
+  Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, ShieldCheck, Calendar, Droplets, Key, CreditCard, Maximize2
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
 import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList } from './cosmetologyLogic';
 import { BeforeAfterSlider } from './BeforeAfterSlider';
 import { BackupModal } from './BackupModal';
 import { TrashModal } from './TrashModal';
-import { SignaturePadField } from './SignaturePad';
+import { SignatureKioskModal } from './SignaturePad';
 import { isTouchPrimaryDevice, getOrCreateDeviceId } from './deviceUtils';
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
@@ -405,6 +405,7 @@ export default function App() {
   // no por userAgent (iPadOS se anuncia como escritorio desde iOS 13).
   const [isTouchDevice] = useState<boolean>(() => isTouchPrimaryDevice());
   const [signatureValid, setSignatureValid] = useState<boolean>(false);
+  const [isSignatureKioskOpen, setIsSignatureKioskOpen] = useState<boolean>(false);
 
   const [customConditionInput, setCustomConditionInput] = useState('');
 
@@ -861,6 +862,25 @@ export default function App() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
+
+  // Respaldo automático semanal: el Centro de Respaldo (BackupModal) exporta bajo demanda, pero si
+  // nadie se acuerda de abrirlo, no queda ninguna red de protección más allá de la sincronización con
+  // Turso. Esto reutiliza el mismo exportador y lo dispara solo una vez por semana como mucho, sin
+  // requerir conexión (exporta la base local, no la remota), para no depender de que el especialista
+  // recuerde hacerlo manualmente.
+  const AUTO_BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+  const maybeRunAutomaticBackup = async () => {
+    try {
+      const lastBackup = Number(localStorage.getItem('dermatique_last_backup_at') || 0);
+      if (Date.now() - lastBackup < AUTO_BACKUP_INTERVAL_MS) return;
+      await downloadBackupFile('Respaldo_Automatico_Dermatique');
+      localStorage.setItem('dermatique_last_backup_at', Date.now().toString());
+      showToastMsg('📦 Respaldo automático semanal descargado en tu carpeta de Descargas.', 'success');
+    } catch (err) {
+      console.warn('No se pudo generar el respaldo automático de esta semana (se reintentará en el próximo arranque):', err);
+    }
+  };
+
   async function bootstrapSystem() {
     setSyncStatus('syncing');
     try {
@@ -1024,6 +1044,7 @@ export default function App() {
 
       await loadMasterCatalogs();
       setSyncStatus(navigator.onLine ? 'online' : 'local');
+      maybeRunAutomaticBackup();
     } catch (e) {
       console.error(e);
       setSyncStatus('local');
@@ -4633,23 +4654,32 @@ export default function App() {
                 {/* Consentimiento Informado: checkbox en escritorio (no hay paciente frente a un mouse
                     para firmar), firma táctil real en iPad/tablet (sí lo hay, en el punto de consulta). */}
                 {isTouchDevice ? (
-                  <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-2">
+                  <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 space-y-3">
                     <div className="flex items-center gap-2.5">
                       <ShieldCheck className="w-5 h-5 text-amber-500 shrink-0" />
                       <span className="font-bold text-xs text-slate-800 dark:text-white">Consentimiento Informado Clínico — Firma del Paciente</span>
                     </div>
-                    <p className="text-[10px] text-slate-400 ml-[30px] -mt-1">
-                      Pida al paciente firmar con el dedo o el lápiz óptico directamente sobre el recuadro.
-                    </p>
-                    <div className="ml-0 sm:ml-[30px]">
-                      <SignaturePadField
-                        label="Firma del paciente"
-                        value={patientForm.signatureData || undefined}
-                        onChange={(dataUrl, valid) => {
-                          setPatientForm(prev => ({ ...prev, signatureData: dataUrl || '' }));
-                          setSignatureValid(valid);
-                        }}
-                      />
+                    {/* La firma solo se dibuja dentro del modal de pantalla completa (un único canvas
+                        activo a la vez); aquí solo se muestra una vista estática de lo ya capturado
+                        para evitar dos canvases desincronizados mostrando cosas distintas. */}
+                    <div className="ml-0 sm:ml-[30px] flex items-center justify-between gap-3 flex-wrap p-3 rounded-xl border border-dashed border-slate-300 dark:border-white/10 bg-white/50 dark:bg-white/[0.02]">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {patientForm.signatureData ? (
+                          <img src={patientForm.signatureData} alt="Firma del paciente" className="h-10 w-24 object-contain bg-white rounded-md border border-slate-200 shrink-0" />
+                        ) : (
+                          <div className="h-10 w-24 rounded-md border border-dashed border-slate-300 dark:border-white/10 flex items-center justify-center text-[9px] text-slate-400 shrink-0">Sin firma</div>
+                        )}
+                        <span className={`text-[10px] font-semibold ${signatureValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                          {signatureValid ? 'Firma capturada' : 'Pendiente de firma'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsSignatureKioskOpen(true)}
+                        className="bg-amber-500 hover:brightness-110 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shrink-0"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" /> {patientForm.signatureData ? 'Ver / Volver a firmar' : 'Entregar al paciente para firmar'}
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -4668,6 +4698,18 @@ export default function App() {
                       </span>
                     </div>
                   </label>
+                )}
+
+                {isSignatureKioskOpen && (
+                  <SignatureKioskModal
+                    patientName={`${patientForm.firstName} ${patientForm.lastName}`.trim() || undefined}
+                    value={patientForm.signatureData || undefined}
+                    onChange={(dataUrl, valid) => {
+                      setPatientForm(prev => ({ ...prev, signatureData: dataUrl || '' }));
+                      setSignatureValid(valid);
+                    }}
+                    onDone={() => setIsSignatureKioskOpen(false)}
+                  />
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { db } from './db';
+import { db, downloadBackupFile } from './db';
 import { Database, Download, Upload, ShieldCheck, X, Check } from 'lucide-react';
 
 interface BackupModalProps {
@@ -17,35 +17,7 @@ export function BackupModal({ isOpen, onClose, onRestoreComplete }: BackupModalP
   const handleExportJSON = async () => {
     setLoading(true);
     try {
-      const products = await db.products.toArray();
-      const patients = await db.patients.toArray();
-      const anamnesis = await db.anamnesis.toArray();
-      const consultations = await db.consultations.toArray();
-      const consultation_steps = await db.consultation_steps.toArray();
-      const prescriptions = await db.prescriptions.toArray();
-
-      const backupData = {
-        exportDate: new Date().toISOString(),
-        version: '7.0',
-        data: {
-          products,
-          patients,
-          anamnesis,
-          consultations,
-          consultation_steps,
-          prescriptions
-        }
-      };
-
-      const jsonStr = JSON.stringify(backupData, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Respaldo_Dermatique_${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-
+      await downloadBackupFile();
       setStatusMsg('✅ Respaldo completo descargado exitosamente.');
     } catch(e) {
       console.error(e);

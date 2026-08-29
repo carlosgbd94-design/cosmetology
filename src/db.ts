@@ -796,3 +796,35 @@ export async function restoreLegacyIndexedDBData(): Promise<void> {
   }
 }
 
+// Construye el mismo JSON de respaldo completo que usa el Centro de Respaldo manual (BackupModal),
+// centralizado aquí para que también lo use el respaldo automático programado sin duplicar la lista
+// de tablas en dos lugares que se puedan desincronizar.
+export async function buildBackupJSON(): Promise<string> {
+  const products = await db.products.toArray();
+  const patients = await db.patients.toArray();
+  const anamnesis = await db.anamnesis.toArray();
+  const consultations = await db.consultations.toArray();
+  const consultation_steps = await db.consultation_steps.toArray();
+  const prescriptions = await db.prescriptions.toArray();
+
+  const backupData = {
+    exportDate: new Date().toISOString(),
+    version: '7.0',
+    data: { products, patients, anamnesis, consultations, consultation_steps, prescriptions }
+  };
+  return JSON.stringify(backupData, null, 2);
+}
+
+// Dispara la descarga del archivo de respaldo (mismo mecanismo que el botón "Exportar" manual: un
+// <a download> programático, que la mayoría de navegadores guarda directo en Descargas sin diálogo).
+export async function downloadBackupFile(filenamePrefix: string = 'Respaldo_Dermatique'): Promise<void> {
+  const jsonStr = await buildBackupJSON();
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filenamePrefix}_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+

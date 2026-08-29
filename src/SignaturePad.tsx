@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import SignaturePadLib from 'signature_pad';
-import { Eraser, ShieldCheck } from 'lucide-react';
+import { Eraser, ShieldCheck, X, Check } from 'lucide-react';
 
 interface Point { x: number; y: number; time?: number; }
 interface PointGroup { points: Point[]; }
@@ -45,9 +45,10 @@ interface SignaturePadFieldProps {
   helperText?: string;
   value?: string; // dataURL existente (modo edición)
   onChange: (dataUrl: string | undefined, isValid: boolean) => void;
+  canvasHeightClass?: string; // p.ej. "h-[280px]" para el modo pantalla completa
 }
 
-export function SignaturePadField({ label, helperText, value, onChange }: SignaturePadFieldProps) {
+export function SignaturePadField({ label, helperText, value, onChange, canvasHeightClass = 'h-[140px]' }: SignaturePadFieldProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
@@ -158,7 +159,7 @@ export function SignaturePadField({ label, helperText, value, onChange }: Signat
       >
         <canvas
           ref={canvasRef}
-          className="w-full h-[140px] block"
+          className={`w-full ${canvasHeightClass} block`}
           style={{ touchAction: 'none' }}
         />
       </div>
@@ -168,6 +169,79 @@ export function SignaturePadField({ label, helperText, value, onChange }: Signat
           {isValid ? 'Firma detectada' : isEmpty ? 'Pendiente de firma' : 'Trazo insuficiente, firme de nuevo'}
         </span>
         {helperText && <span className="text-slate-400 ml-1">— {helperText}</span>}
+      </div>
+    </div>
+  );
+}
+
+interface SignatureKioskModalProps {
+  patientName?: string;
+  value?: string;
+  onChange: (dataUrl: string | undefined, isValid: boolean) => void;
+  onDone: () => void;
+}
+
+// Pantalla completa que se le entrega al paciente para firmar: oculta por completo el resto de la
+// ficha clínica (alergias, notas, historial de otros pacientes) mientras el dispositivo está en sus
+// manos. La única salida sin firma válida es la "X" del especialista; el botón principal solo se
+// habilita con una firma real detectada, para no aceptar por accidente un trazo a medias.
+export function SignatureKioskModal({ patientName, value, onChange, onDone }: SignatureKioskModalProps) {
+  const [isValid, setIsValid] = useState<boolean>(!!value);
+
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-white dark:bg-luxe-950 flex flex-col animate-fade-in">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10 shrink-0">
+        <div>
+          <span className="font-outfit text-sm font-bold text-slate-800 dark:text-white block">Firma de Consentimiento</span>
+          {patientName && <span className="text-xs text-slate-400">{patientName}</span>}
+        </div>
+        <button
+          type="button"
+          onClick={onDone}
+          className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10"
+          title="Regresar al especialista sin terminar"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-6 py-6 gap-6">
+        <p className="max-w-md text-center text-sm text-slate-600 dark:text-luxe-300">
+          Al firmar abajo, usted confirma que recibió la información sobre el tratamiento a realizar
+          y otorga su consentimiento para llevarlo a cabo.
+        </p>
+        <div className="w-full max-w-md">
+          <SignaturePadField
+            label="Firme aquí con su dedo o lápiz óptico"
+            value={value}
+            canvasHeightClass="h-[280px]"
+            onChange={(dataUrl, valid) => {
+              setIsValid(valid);
+              onChange(dataUrl, valid);
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="px-6 py-5 border-t border-slate-200 dark:border-white/10 shrink-0">
+        <button
+          type="button"
+          onClick={onDone}
+          disabled={!isValid}
+          className={`w-full py-4 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            isValid
+              ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg'
+              : 'bg-slate-100 dark:bg-white/5 text-slate-400 cursor-not-allowed'
+          }`}
+        >
+          <Check className="w-5 h-5" /> {isValid ? 'Listo, firma completada' : 'Falta completar la firma'}
+        </button>
       </div>
     </div>
   );
