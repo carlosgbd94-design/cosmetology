@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import SignaturePadLib from 'signature_pad';
 import { Eraser, ShieldCheck, X, Check } from 'lucide-react';
 
@@ -194,7 +195,12 @@ export function SignatureKioskModal({ patientName, value, onChange, onDone }: Si
     return () => { document.body.style.overflow = prevOverflow; };
   }, []);
 
-  return (
+  // Portal directo a document.body: si este modal se renderizara en su lugar natural del árbol,
+  // cualquier ancestro con transform/will-change/contain (como .liquid-glass, usado en las tarjetas
+  // de la ficha para acelerar por GPU) crea sin querer un "containing block" para position:fixed, y
+  // el modal queda confinado dentro de esa tarjeta en vez de cubrir la pantalla real — se ve un
+  // canvas, pero los toques reales del dedo caen fuera de donde el navegador cree que está.
+  return createPortal(
     <div className="fixed inset-0 z-[100] bg-white dark:bg-luxe-950 flex flex-col animate-fade-in">
       <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-white/10 shrink-0">
         <div>
@@ -243,6 +249,7 @@ export function SignatureKioskModal({ patientName, value, onChange, onDone }: Si
           <Check className="w-5 h-5" /> {isValid ? 'Listo, firma completada' : 'Falta completar la firma'}
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
