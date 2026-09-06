@@ -243,7 +243,7 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                     <Text style={styles.value}>{consultation.allergies || 'Ninguna registrada'}</Text>
                   </View>
                   <View style={{ width: '50%', paddingRight: 10 }}>
-                    <Text style={styles.label}>Condiciones Médicas:</Text>
+                    <Text style={styles.label}>Condiciones Médicas/Procedimientos Qx:</Text>
                     <Text style={styles.value}>{consultation.medicalConditions || 'Ninguna registrada'}</Text>
                   </View>
                 </View>

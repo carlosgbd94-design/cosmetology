@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, downloadBackupFile } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { decryptData, sha256 } from './crypto';
@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
 import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList } from './cosmetologyLogic';
-import { BeforeAfterSlider } from './BeforeAfterSlider';
+import { BeforeAfterSlider, parseImageList, serializeImageList } from './BeforeAfterSlider';
 import { BackupModal } from './BackupModal';
 import { TrashModal } from './TrashModal';
 import { SignatureKioskModal } from './SignaturePad';
@@ -863,24 +863,6 @@ export default function App() {
     };
   }, []);
 
-  // Respaldo automático semanal: el Centro de Respaldo (BackupModal) exporta bajo demanda, pero si
-  // nadie se acuerda de abrirlo, no queda ninguna red de protección más allá de la sincronización con
-  // Turso. Esto reutiliza el mismo exportador y lo dispara solo una vez por semana como mucho, sin
-  // requerir conexión (exporta la base local, no la remota), para no depender de que el especialista
-  // recuerde hacerlo manualmente.
-  const AUTO_BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-  const maybeRunAutomaticBackup = async () => {
-    try {
-      const lastBackup = Number(localStorage.getItem('dermatique_last_backup_at') || 0);
-      if (Date.now() - lastBackup < AUTO_BACKUP_INTERVAL_MS) return;
-      await downloadBackupFile('Respaldo_Automatico_Dermatique');
-      localStorage.setItem('dermatique_last_backup_at', Date.now().toString());
-      showToastMsg('📦 Respaldo automático semanal descargado en tu carpeta de Descargas.', 'success');
-    } catch (err) {
-      console.warn('No se pudo generar el respaldo automático de esta semana (se reintentará en el próximo arranque):', err);
-    }
-  };
-
   async function bootstrapSystem() {
     setSyncStatus('syncing');
     try {
@@ -898,7 +880,26 @@ export default function App() {
           const tblPrescriptions = getTableName('prescriptions');
 
           // 1. Sync products
-          const resProds = await executeQuery(`SELECT id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes FROM ${tblProducts}`);
+          // Empuja primero los productos locales (upsert, en lotes) antes de halar el remoto: así,
+          // si una edición previa (Tipo de Producto/Formato, Precio Público, Costo de Adquisición)
+          // se guardó localmente pero el push a Turso falló en su momento (offline o error de red),
+          // este reintento la sube antes de que el pull de abajo pueda pisarla con el valor remoto
+          // desactualizado.
+          const localProdsBeforePull = await db.products.toArray();
+          const pushChunkSize = 50;
+          for (let i = 0; i < localProdsBeforePull.length; i += pushChunkSize) {
+            const chunk = localProdsBeforePull.slice(i, i + pushChunkSize);
+            try {
+              await saveProducts(chunk);
+            } catch (batchErr) {
+              console.warn('Fallo al sincronizar lote de productos locales hacia remoto:', batchErr);
+            }
+          }
+
+          // Pull remoto -> local. Debe traer TODAS las columnas editables del catálogo (antes se
+          // omitían product_type, stock_quantity, cost_price y reorder_point, así que cada arranque
+          // con conexión borraba esos campos en Dexie porque `put` reemplaza el registro completo).
+          const resProds = await executeQuery(`SELECT id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point FROM ${tblProducts}`);
           if (resProds && resProds.rows) {
             for (const r of resProds.rows) {
               await db.products.put({
@@ -906,30 +907,16 @@ export default function App() {
                 sku: r.sku,
                 name: r.name,
                 brandLine: r.brand_line,
+                productType: r.product_type || undefined,
                 activeIngredients: r.active_ingredients,
                 physiologicalActions: r.physiological_actions,
                 retailPrice: Number(r.retail_price),
                 isProfessionalUse: Number(r.is_professional_use),
-                skinBiotypes: r.skin_biotypes || '[]'
+                skinBiotypes: r.skin_biotypes || '[]',
+                stockQuantity: r.stock_quantity !== null && r.stock_quantity !== undefined ? Number(r.stock_quantity) : undefined,
+                costPrice: r.cost_price !== null && r.cost_price !== undefined ? Number(r.cost_price) : undefined,
+                reorderPoint: r.reorder_point !== null && r.reorder_point !== undefined ? Number(r.reorder_point) : undefined
               });
-            }
-          }
-
-          // Push local Dexie products to Turso remote if missing (en lotes para evitar cientos de
-          // idas y vueltas de red secuenciales, una por producto, que dejaban la sincronización colgada)
-          const localProds = await db.products.toArray();
-          const pushChunkSize = 50;
-          for (let i = 0; i < localProds.length; i += pushChunkSize) {
-            const chunk = localProds.slice(i, i + pushChunkSize);
-            const stmts = chunk.map(lp => ({
-              sql: `INSERT OR IGNORE INTO ${tblProducts} (id, sku, name, brand_line, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              args: [lp.id, lp.sku, lp.name, lp.brandLine, lp.activeIngredients, lp.physiologicalActions, lp.retailPrice, typeof lp.isProfessionalUse === 'boolean' ? (lp.isProfessionalUse ? 1 : 0) : Number(lp.isProfessionalUse), lp.skinBiotypes || '[]']
-            }));
-            try {
-              await executeBatch(stmts);
-            } catch (batchErr) {
-              console.warn('Fallo al sincronizar lote de productos locales hacia remoto:', batchErr);
             }
           }
 
@@ -1044,7 +1031,6 @@ export default function App() {
 
       await loadMasterCatalogs();
       setSyncStatus(navigator.onLine ? 'online' : 'local');
-      maybeRunAutomaticBackup();
     } catch (e) {
       console.error(e);
       setSyncStatus('local');
@@ -4718,8 +4704,8 @@ export default function App() {
                     <input type="text" value={patientForm.allergies} onChange={e => setPatientForm(prev => ({ ...prev, allergies: e.target.value }))} placeholder="P. ej., Alergia al látex, fragancias, cosméticos..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Condiciones Médicas</label>
-                    <input type="text" value={patientForm.medicalConditions} onChange={e => setPatientForm(prev => ({ ...prev, medicalConditions: e.target.value }))} placeholder="P. ej., Diabetes, embarazo, hipertensión..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Condiciones Médicas/Procedimientos Qx</label>
+                    <input type="text" value={patientForm.medicalConditions} onChange={e => setPatientForm(prev => ({ ...prev, medicalConditions: e.target.value }))} placeholder="P. ej., Diabetes, embarazo, hipertensión, rinoplastia previa..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
                 </div>
 
@@ -4798,10 +4784,10 @@ export default function App() {
 
                 {/* Fotografías Antes / Después */}
                 <BeforeAfterSlider
-                  beforeImage={patientForm.beforeImageUrl}
-                  afterImage={patientForm.afterImageUrl}
-                  onBeforeChange={url => setPatientForm(prev => ({ ...prev, beforeImageUrl: url }))}
-                  onAfterChange={url => setPatientForm(prev => ({ ...prev, afterImageUrl: url }))}
+                  beforeImages={parseImageList(patientForm.beforeImageUrl)}
+                  afterImages={parseImageList(patientForm.afterImageUrl)}
+                  onBeforeImagesChange={imgs => setPatientForm(prev => ({ ...prev, beforeImageUrl: serializeImageList(imgs) }))}
+                  onAfterImagesChange={imgs => setPatientForm(prev => ({ ...prev, afterImageUrl: serializeImageList(imgs) }))}
                 />
 
                 {/* Diseñador de Pasos del Protocolo */}
@@ -6527,7 +6513,7 @@ export default function App() {
                                   </span>
                                 </div>
                                 <div>
-                                  <span className="block text-[9px] text-slate-400 uppercase">Condiciones Médicas</span>
+                                  <span className="block text-[9px] text-slate-400 uppercase">Condiciones Médicas/Procedimientos Qx</span>
                                   <span className="text-[11px] font-medium text-slate-700 dark:text-luxe-100">
                                     {latestConsultation?.medicalConditions || 'Ninguna registrada'}
                                   </span>
