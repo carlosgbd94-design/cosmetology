@@ -21,6 +21,11 @@ import { TrashModal } from './TrashModal';
 import { SignatureKioskModal } from './SignaturePad';
 import { isTouchPrimaryDevice, getOrCreateDeviceId } from './deviceUtils';
 
+// Clave de localStorage para el borrador automático de la Ficha de Diagnóstico en curso (ver
+// useEffects de autoguardado/restauración cerca de resetPatientForm). Persiste solo en este
+// dispositivo/navegador; no viaja a Turso.
+const FICHA_DRAFT_KEY = 'dermatique_ficha_draft_v1';
+
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
   "Shampoo": ["Limpiador"],
@@ -366,7 +371,7 @@ export default function App() {
   const [patients, setPatients] = useState<Patient[]>([]);
 
   // Toast State
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; visible: boolean }>({ message: '', type: 'success', visible: false });
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean }>({ message: '', type: 'success', visible: false });
 
   const [selectedPatientId, setSelectedPatientId] = useState<string>('');
   const [activeConsultationId, setActiveConsultationId] = useState<string>('');
@@ -399,6 +404,12 @@ export default function App() {
     afterImageUrl: '',
     signatureData: ''
   });
+
+  // Autoguardado local de la Ficha en curso (ver useEffects más abajo, cerca de resetPatientForm):
+  // protege contra recargas accidentales, cierres del navegador o el especialista cambiando de
+  // paciente por error mientras captura un caso nuevo.
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const draftRestoredRef = useRef(false);
 
   // Consentimiento por firma táctil en escritorio (mouse/trackpad) vs. firma dibujada en dispositivos
   // touch (iPad, tablet): se decide una sola vez por sesión según las capacidades reales del puntero,
@@ -1083,11 +1094,11 @@ export default function App() {
     setPatients(patList);
   };
 
-  const showToastMsg = (msg: string, type: 'success' | 'error' = 'success') => {
+  const showToastMsg = (msg: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ message: msg, type, visible: true });
     setTimeout(() => {
       setToast(prev => ({ ...prev, visible: false }));
-    }, 4000);
+    }, type === 'info' ? 6000 : 4000);
   };
 
   // Guarda el cupo de dispositivos que regresa el Worker (2 de 3, etc.) para poder mostrarlo sin
@@ -2045,7 +2056,7 @@ export default function App() {
       }
 
       loadMasterCatalogs();
-      resetPatientForm();
+      resetPatientForm({ skipConfirm: true });
     } catch(err) {
       console.error(err);
       showToastMsg('Fallo en la transacción de guardado clínico.', 'error');
@@ -2111,14 +2122,23 @@ export default function App() {
 
   const handleSelectPatient = async (patientId: string) => {
     if (!patientId) {
-      setSelectedPatientId('');
-      setActiveConsultationId('');
+      // resetPatientForm ya confirma (si hace falta) antes de limpiar; si el especialista cancela,
+      // el <select> controlado permanece en su valor actual sin perder lo capturado.
       resetPatientForm();
       return;
     }
 
     const pat = patients.find(p => p.id === patientId);
     if (!pat) return;
+
+    // Cambiar de paciente a medio capturar un caso nuevo (o edición no guardada) descarta esos
+    // datos; se confirma antes de pisarlos con el historial del paciente recién seleccionado.
+    if (hasMeaningfulDraftContent()) {
+      const confirmed = window.confirm('Hay información sin guardar en la ficha actual. Si seleccionas otro paciente, se perderá. ¿Deseas continuar?');
+      if (!confirmed) return;
+    }
+    localStorage.removeItem(FICHA_DRAFT_KEY);
+    setDraftSavedAt(null);
 
     setSelectedPatientId(patientId);
     setActiveConsultationId('');
@@ -2225,7 +2245,7 @@ export default function App() {
 
       if (activeConsultationId === consultationId) {
         setActiveConsultationId('');
-        resetPatientForm();
+        resetPatientForm({ skipConfirm: true });
       }
 
       await loadMasterCatalogs();
@@ -2258,7 +2278,7 @@ export default function App() {
       if (selectedPatientId === patientId) {
         setSelectedPatientId('');
         setActiveConsultationId('');
-        resetPatientForm();
+        resetPatientForm({ skipConfirm: true });
       }
       await loadMasterCatalogs();
     } catch (e) {
@@ -2379,7 +2399,104 @@ export default function App() {
     }
   };
 
-  const resetPatientForm = () => {
+  // Hay algo que perder si se descarta la ficha ahora mismo: datos de identificación del paciente,
+  // notas clínicas, o cualquier paso/prescripción ya armado en el protocolo. Se usa tanto para decidir
+  // si vale la pena autoguardar un borrador como para decidir si hay que confirmar antes de borrar todo.
+  const hasMeaningfulDraftContent = (): boolean => {
+    return !!(
+      patientForm.firstName.trim() ||
+      patientForm.lastName.trim() ||
+      patientForm.phone.trim() ||
+      patientForm.medicalDiagnosis.trim() ||
+      patientForm.clinicalNotes.trim() ||
+      patientForm.allergies.trim() ||
+      patientForm.medicalConditions.trim() ||
+      patientForm.recommendations.trim() ||
+      patientForm.beforeImageUrl ||
+      patientForm.afterImageUrl ||
+      currentSteps.length > 0 ||
+      prescriptionsList.length > 0
+    );
+  };
+
+  // Restaura, una sola vez al montar, el borrador de la Ficha guardado localmente en la sesión
+  // anterior (p. ej. si se cerró/recargó el navegador a medio capturar un caso nuevo).
+  useEffect(() => {
+    if (draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(FICHA_DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (!draft || typeof draft !== 'object' || !draft.patientForm) return;
+
+      setPatientForm(prev => ({ ...prev, ...draft.patientForm }));
+      if (Array.isArray(draft.currentSteps)) setCurrentSteps(draft.currentSteps);
+      if (Array.isArray(draft.prescriptionsList)) setPrescriptionsList(draft.prescriptionsList);
+      if (typeof draft.customConditionInput === 'string') setCustomConditionInput(draft.customConditionInput);
+      if (typeof draft.selectedPatientId === 'string') setSelectedPatientId(draft.selectedPatientId);
+      if (typeof draft.activeConsultationId === 'string') setActiveConsultationId(draft.activeConsultationId);
+      if (draft.activeFacialZones && typeof draft.activeFacialZones === 'object') setActiveFacialZones(draft.activeFacialZones);
+      setDraftSavedAt(typeof draft.savedAt === 'number' ? draft.savedAt : Date.now());
+      showToastMsg('📝 Se recuperó un borrador sin guardar de tu ficha anterior. Revísalo y confirma antes de continuar.', 'info');
+    } catch (err) {
+      console.warn('No se pudo recuperar el borrador local de la ficha:', err);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autoguarda (con un pequeño debounce para no escribir en cada tecla) el estado en curso de la
+  // Ficha en localStorage. Si el especialista deja el formulario vacío otra vez (guardó, limpió, o
+  // nunca escribió nada), no deja un borrador fantasma atrás.
+  useEffect(() => {
+    if (!draftRestoredRef.current) return;
+    const timer = setTimeout(() => {
+      if (!hasMeaningfulDraftContent()) {
+        localStorage.removeItem(FICHA_DRAFT_KEY);
+        setDraftSavedAt(null);
+        return;
+      }
+      const savedAt = Date.now();
+      try {
+        localStorage.setItem(FICHA_DRAFT_KEY, JSON.stringify({
+          patientForm, currentSteps, prescriptionsList, customConditionInput,
+          selectedPatientId, activeConsultationId, activeFacialZones, savedAt
+        }));
+        setDraftSavedAt(savedAt);
+      } catch (err) {
+        console.warn('No se pudo autoguardar el borrador local de la ficha:', err);
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientForm, currentSteps, prescriptionsList, customConditionInput, selectedPatientId, activeConsultationId, activeFacialZones]);
+
+  // Aviso nativo del navegador si se intenta cerrar/recargar la pestaña con datos sin guardar. El
+  // borrador local ya protege contra la pérdida real, pero prevenir el cierre accidental de entrada
+  // es mejor que depender siempre de la recuperación.
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasMeaningfulDraftContent()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientForm, currentSteps, prescriptionsList]);
+
+  // `skipConfirm` se usa cuando la ficha ya se descarta por una razón legítima que el especialista
+  // ya confirmó por otra vía (guardado exitoso, o el paciente/visita actualmente cargado se acaba de
+  // enviar a la papelera): pedir una segunda confirmación ahí solo sería fricción sin sentido. En
+  // cualquier otro caso (botón "Limpiar Ficha", "Nueva Consulta/Limpiar", o cambiar de paciente en el
+  // selector a medio capturar), si hay datos sin guardar se confirma antes de borrarlos.
+  const resetPatientForm = (opts?: { skipConfirm?: boolean }) => {
+    if (!opts?.skipConfirm && hasMeaningfulDraftContent()) {
+      const confirmed = window.confirm('Hay información sin guardar en esta ficha (datos del paciente, protocolo o prescripciones). Si continúas, se perderá. ¿Deseas descartarla?');
+      if (!confirmed) return;
+    }
+    localStorage.removeItem(FICHA_DRAFT_KEY);
+    setDraftSavedAt(null);
     setSelectedPatientId('');
     setActiveConsultationId('');
     setCustomConditionInput('');
@@ -2475,10 +2592,19 @@ export default function App() {
   };
 
   const handleEditConsultation = async (c: Consultation) => {
+    // Cargar un expediente distinto desde "Expedientes Clínicos" pisa lo que esté a medio capturar
+    // en el Generador (p. ej. un paciente nuevo aún sin guardar); se confirma antes de descartarlo.
+    if (hasMeaningfulDraftContent()) {
+      const confirmed = window.confirm('Hay información sin guardar en el Generador de Fichas. Si cargas este expediente, se perderá. ¿Deseas continuar?');
+      if (!confirmed) return;
+    }
+    localStorage.removeItem(FICHA_DRAFT_KEY);
+    setDraftSavedAt(null);
+
     const pat = patients.find(p => p.id === c.patientId);
     setSelectedPatientId(c.patientId);
     setActiveConsultationId(c.id);
-    
+
     // Resolve steps and prescriptions
     const steps = await db.consultation_steps.where('consultationId').equals(c.id).toArray();
     const prescriptions = await db.prescriptions.where('consultationId').equals(c.id).toArray();
@@ -4382,9 +4508,19 @@ export default function App() {
     <div className={`min-h-screen bg-[#FAF9F6] dark:bg-[#0A0A0D] text-slate-700 dark:text-luxe-100 pb-16 antialiased ${isTouchDevice ? 'touch-device' : ''}`}>
       {/* Sync / Toast Notifications */}
       {toast.visible && (
-        <div className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl max-w-md border border-slate-200/50 dark:border-white/10 text-slate-800 dark:text-white bg-white/90 dark:bg-luxe-800/90 backdrop-blur-md`}>
-          {toast.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-400" /> : <Info className="w-5 h-5 text-red-400" />}
-          <p className="text-sm font-medium tracking-wide">{toast.message}</p>
+        <div className={`fixed top-5 right-5 z-50 flex items-start gap-3 px-5 py-3.5 rounded-2xl shadow-2xl max-w-md border-l-4 ${
+          toast.type === 'success' ? 'border-emerald-400' : toast.type === 'info' ? 'border-amber-400' : 'border-red-400'
+        } border-y border-r border-slate-200/50 dark:border-white/10 text-slate-800 dark:text-white bg-white/90 dark:bg-luxe-800/90 backdrop-blur-md animate-toast-in`}>
+          {toast.type === 'success' ? <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" /> : toast.type === 'info' ? <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" /> : <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />}
+          <p className="text-sm font-medium tracking-wide flex-1">{toast.message}</p>
+          <button
+            type="button"
+            onClick={() => setToast(prev => ({ ...prev, visible: false }))}
+            className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors -mt-0.5"
+            aria-label="Cerrar notificación"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -4466,6 +4602,24 @@ export default function App() {
                 <div>
                   <h1 className="font-outfit text-2xl font-bold text-slate-800 dark:text-white">Ficha de Diagnóstico Estético</h1>
                   <p className="text-slate-500 dark:text-luxe-300 text-xs mt-1">Valoración cutánea y recomendación cosmética profesional</p>
+                  {draftSavedAt && (
+                    <div className="flex items-center gap-2 mt-2 animate-fade-in">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 tracking-wide">
+                        Borrador guardado localmente · {new Date(draftSavedAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => resetPatientForm()}
+                        className="text-[10px] font-semibold text-slate-400 hover:text-red-500 underline decoration-dotted transition-colors"
+                      >
+                        Descartar
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto">
                   {/* Clinical Workflow Phases Controller: en escritorio son píldoras compactas alineadas
@@ -5390,7 +5544,7 @@ export default function App() {
                     en touch se apilan a ancho completo (misma altura de padding para los 3) para que
                     ninguno se corte ni el texto se parta en varias líneas dentro de un botón angosto. */}
                 <div className="flex flex-col touch:gap-2.5 md:flex-row justify-end gap-4 pt-6 border-t border-slate-200/50 dark:border-white/5">
-                  <button type="button" onClick={resetPatientForm} className="touch:w-full touch:py-3.5 touch:order-3 px-5 py-3 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide">
+                  <button type="button" onClick={() => resetPatientForm()} className="touch:w-full touch:py-3.5 touch:order-3 px-5 py-3 rounded-xl text-slate-500 dark:text-luxe-300 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-semibold tracking-wide">
                     Limpiar Ficha
                   </button>
                   <button type="button" onClick={() => setIsPdfModalOpen(true)} className="touch:w-full touch:py-3.5 bg-gradient-to-r from-amber-500 to-bronze-600 hover:brightness-110 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center justify-center gap-2">
