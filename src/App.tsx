@@ -7161,7 +7161,7 @@ export default function App() {
                                       </div>
                                       <div className="flex gap-4 text-[11px] text-slate-500 dark:text-luxe-300">
                                         <span>Biotipo: <strong className="text-bronze-600 dark:text-bronze-400">{consultation.skinBiotype}</strong></span>
-                                        <span>Escala Fitzpatrick: <strong>{consultation.fitzpatrickScale}</strong></span>
+                                        <span>Protocolo: <strong>{consultation.medicalDiagnosis || 'Sin protocolo'}</strong></span>
                                       </div>
                                       <p className="text-[11px] text-slate-500 dark:text-luxe-400 line-clamp-1 italic">
                                         SOAP: {consultation.clinicalNotes}
