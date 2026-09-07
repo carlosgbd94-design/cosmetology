@@ -41,6 +41,42 @@ export function getLayerOrder(stepName: string): number {
   return 9;
 }
 
+// Redacción canónica de dosis/frecuencia por capa de aplicación (mismo orden que
+// LAYERING_CATEGORIES/getLayerOrder), reutilizada por generateSuggestedHomeRoutine y por la
+// sugerencia "usar redacción sugerida" en el formulario de Prescripciones.
+const DEFAULT_DOSAGE_BY_LAYER: Record<number, string> = {
+  1: 'Aplicar sobre rostro húmedo con masaje circular suave durante 60 segundos y enjuagar con agua templada.',
+  2: 'Brumizar a 20cm del rostro o aplicar con suave tecleo de yemas hasta su total absorción.',
+  3: 'Aplicar una pequeña cantidad con el dedo anular, con toques suaves alrededor del contorno de ojos.',
+  4: 'Aplicar 3 a 4 gotas distribuidas en frente, mejillas y mentón.',
+  5: 'Extender una pequeña cantidad en rostro y cuello con pases ascendentes.',
+  6: 'Aplicar generosamente 15 minutos antes de la exposición solar. Replicar cada 2 a 3 horas.',
+  7: 'Aplicar una capa uniforme evitando contorno de ojos y labios; dejar actuar 10-15 minutos y retirar con agua tibia.',
+  8: 'Aplicar sobre piel húmeda con masaje suave en movimientos circulares; enjuagar bien.'
+};
+
+const DEFAULT_FREQUENCY_BY_LAYER: Record<number, string> = {
+  1: 'Diario (Mañana y Noche)',
+  2: 'Diario (Mañana y Noche)',
+  3: 'Diario (Mañana y Noche)',
+  4: 'Diario por la Mañana',
+  5: 'Diario por la Noche',
+  6: 'Diario por la Mañana y Reaplicación',
+  7: '1-2 veces por semana',
+  8: '1-2 veces por semana'
+};
+
+export function getDefaultDosageInstructions(stepName: string): string {
+  return DEFAULT_DOSAGE_BY_LAYER[getLayerOrder(stepName)] || '';
+}
+
+export function getDefaultApplicationFrequency(stepName: string, timeOfDay?: string): string {
+  const order = getLayerOrder(stepName);
+  if (order === 4 && timeOfDay === 'Noche') return 'Diario por la Noche';
+  if (order === 5 && (timeOfDay === 'Dia' || timeOfDay === 'Dia y Noche')) return timeOfDay === 'Dia y Noche' ? 'Diario (Mañana y Noche)' : 'Diario por la Mañana';
+  return DEFAULT_FREQUENCY_BY_LAYER[order] || '';
+}
+
 export interface ActiveConflictAlert {
   severity: 'warning' | 'danger' | 'info';
   title: string;
@@ -126,8 +162,8 @@ export function generateSuggestedHomeRoutine(biotype: string, conditionsStr: str
     customProductName: cleanser ? cleanser.name : (bio.includes('grasa') ? 'Gel Limpiador Seborregulador' : 'Limpiador Suave Dermatológico'),
     customBrand: cleanser ? cleanser.brandLine : 'Línea Clínica',
     customActiveIngredients: cleanser ? (typeof cleanser.activeIngredients === 'string' ? cleanser.activeIngredients : JSON.stringify(cleanser.activeIngredients)) : (bio.includes('grasa') ? 'Ácido Salicílico, Árbol de Té' : 'Pantenol, Manzanilla'),
-    dosageInstructions: 'Aplicar sobre rostro húmedo con masaje circular suave durante 60 segundos y enjuagar con agua templada.',
-    applicationFrequency: 'Diario (Mañana y Noche)',
+    dosageInstructions: getDefaultDosageInstructions('Limpieza / Higiene'),
+    applicationFrequency: getDefaultApplicationFrequency('Limpieza / Higiene', 'Dia y Noche'),
     productId: cleanser?.id,
     productDetails: cleanser
   });
@@ -141,8 +177,8 @@ export function generateSuggestedHomeRoutine(biotype: string, conditionsStr: str
     customProductName: toner ? toner.name : 'Loción Tonificante Armonizadora',
     customBrand: toner ? toner.brandLine : 'Línea Clínica',
     customActiveIngredients: toner ? (typeof toner.activeIngredients === 'string' ? toner.activeIngredients : JSON.stringify(toner.activeIngredients)) : 'Agua de Rosas, Niacinamida, Hamamelis',
-    dosageInstructions: 'Brumizar a 20cm del rostro o aplicar con suave tecleo de yemas hasta su total absorción.',
-    applicationFrequency: 'Diario (Mañana y Noche)',
+    dosageInstructions: getDefaultDosageInstructions('Tonificación / Loción'),
+    applicationFrequency: getDefaultApplicationFrequency('Tonificación / Loción', 'Dia y Noche'),
     productId: toner?.id,
     productDetails: toner
   });
@@ -156,8 +192,8 @@ export function generateSuggestedHomeRoutine(biotype: string, conditionsStr: str
     customProductName: serum ? serum.name : (bio.includes('anti-aging') ? 'Suero Reafirmante con Péptidos' : 'Suero Hidratante Concentrado Hialurónico'),
     customBrand: serum ? serum.brandLine : 'Línea Clínica',
     customActiveIngredients: serum ? (typeof serum.activeIngredients === 'string' ? serum.activeIngredients : JSON.stringify(serum.activeIngredients)) : 'Ácido Hialurónico Multinivel, Vitamina B5',
-    dosageInstructions: 'Aplicar 3 a 4 gotas distribuidas en frente, mejillas y mentón.',
-    applicationFrequency: 'Diario por la Mañana',
+    dosageInstructions: getDefaultDosageInstructions('Suero / Activo Concentrado'),
+    applicationFrequency: getDefaultApplicationFrequency('Suero / Activo Concentrado', 'Dia'),
     productId: serum?.id,
     productDetails: serum
   });
@@ -171,8 +207,8 @@ export function generateSuggestedHomeRoutine(biotype: string, conditionsStr: str
     customProductName: cream ? cream.name : 'Crema Restructurante Nutritiva Noche',
     customBrand: cream ? cream.brandLine : 'Línea Clínica',
     customActiveIngredients: cream ? (typeof cream.activeIngredients === 'string' ? cream.activeIngredients : JSON.stringify(cream.activeIngredients)) : 'Ceramidas, Escualano, Coenzima Q10',
-    dosageInstructions: 'Extender una pequeña cantidad en rostro y cuello con pases ascendentes.',
-    applicationFrequency: 'Diario por la Noche',
+    dosageInstructions: getDefaultDosageInstructions('Crema / Emulsión / Hidratante'),
+    applicationFrequency: getDefaultApplicationFrequency('Crema / Emulsión / Hidratante', 'Noche'),
     productId: cream?.id,
     productDetails: cream
   });
@@ -186,8 +222,8 @@ export function generateSuggestedHomeRoutine(biotype: string, conditionsStr: str
     customProductName: sun ? sun.name : 'Fotoprotector Fluido Toque Seco SPF 50+',
     customBrand: sun ? sun.brandLine : 'Línea Clínica',
     customActiveIngredients: sun ? (typeof sun.activeIngredients === 'string' ? sun.activeIngredients : JSON.stringify(sun.activeIngredients)) : 'Filtros UVA/UVB Amplio Espectro, Óxido de Zinc',
-    dosageInstructions: 'Aplicar generosamente 15 minutos antes de la exposición solar. Replicar cada 2 a 3 horas.',
-    applicationFrequency: 'Diario por la Mañana y Reaplicación',
+    dosageInstructions: getDefaultDosageInstructions('Protección Solar'),
+    applicationFrequency: getDefaultApplicationFrequency('Protección Solar', 'Dia'),
     productId: sun?.id,
     productDetails: sun
   });

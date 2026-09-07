@@ -14,7 +14,7 @@ import {
   Save, Search, Sparkles, Sun, Trash2, User, UserCheck, Wand2, Bug, MessageSquare, X, Send, Edit, Pencil, Eye, AlertTriangle, Check, ShieldAlert, ShieldCheck, Calendar, Droplets, Key, CreditCard, Maximize2
 } from 'lucide-react';
 import { sendManualReport } from './errorHandler';
-import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList } from './cosmetologyLogic';
+import { LAYERING_CATEGORIES, getLayerOrder, analyzePrescriptionSafety, generateSuggestedHomeRoutine, parseStringList, getDefaultDosageInstructions, getDefaultApplicationFrequency } from './cosmetologyLogic';
 import { BeforeAfterSlider, parseImageList, serializeImageList } from './BeforeAfterSlider';
 import { BackupModal } from './BackupModal';
 import { TrashModal } from './TrashModal';
@@ -86,13 +86,52 @@ export function inferProductType(name: string, brandLine?: string): string {
   return 'General';
 }
 
-interface SmartProductTypeSelectorProps {
-  value: string;
-  onChange: (type: string) => void;
-  availableTypes: string[];
+// Mismo criterio de deduplicación que ya usa `seedTablesImpl` en db.ts para la migración legada
+// de `productos_activos`: mismo nombre + misma marca (sin importar mayúsculas) se considera el
+// mismo producto ya existente en el catálogo.
+function isDuplicateProduct(p: Product, existing: Product[]): boolean {
+  const key = `${p.name.trim().toLowerCase()}_${(p.brandLine || '').trim().toLowerCase()}`;
+  return existing.some(e => `${e.name.trim().toLowerCase()}_${(e.brandLine || '').trim().toLowerCase()}` === key);
 }
 
-function SmartProductTypeSelector({ value, onChange, availableTypes }: SmartProductTypeSelectorProps) {
+function parseMoneyValue(val: any): number {
+  if (val === undefined || val === null || val === '') return 0;
+  if (typeof val === 'number') return val;
+  const cleaned = String(val).replace(/[^0-9.\-]/g, '');
+  return parseFloat(cleaned) || 0;
+}
+
+export function productMatchesBiotype(p: Product, biotype: string): boolean {
+  if (!biotype) return false;
+  const list = parseStringList(p.skinBiotypes);
+  return list.some(b => b.toLowerCase() === biotype.toLowerCase());
+}
+
+// Ordena por coincidencia de biotipo sin descartar nada más (orden estable: dentro de cada
+// grupo se conserva el orden de relevancia/búsqueda original).
+function sortByBiotypeMatch(items: Product[], biotype: string): Product[] {
+  if (!biotype) return items;
+  return [...items].sort((a, b) => Number(productMatchesBiotype(b, biotype)) - Number(productMatchesBiotype(a, biotype)));
+}
+
+interface SuggestFieldProps {
+  label?: string;
+  value: string;
+  onChange: (val: string) => void;
+  options: string[];
+  placeholder?: string;
+  required?: boolean;
+  hint?: string;
+  emptyLabel?: string;
+  addNewLabel?: string;
+  inputClassName?: string;
+}
+
+// Combobox genérico reutilizable: texto libre + desplegable filtrado con lo ya capturado en la
+// base + opción de "agregar nuevo". Generalizado a partir del selector de Tipo/Formato de
+// producto (único caso original) para no duplicar esta misma lógica de dropdown en cada campo
+// de texto libre que se repite entre fichas (marca, protocolo, alergias, condiciones médicas...).
+function SuggestField({ label, value, onChange, options, placeholder, required, hint, emptyLabel, addNewLabel, inputClassName }: SuggestFieldProps) {
   const [search, setSearch] = useState(value || '');
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -120,19 +159,21 @@ function SmartProductTypeSelector({ value, onChange, availableTypes }: SmartProd
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return availableTypes;
-    return availableTypes.filter(t => t.toLowerCase().includes(q));
-  }, [search, availableTypes]);
+    if (!q) return options;
+    return options.filter(t => t.toLowerCase().includes(q));
+  }, [search, options]);
 
-  const exactMatch = availableTypes.some(t => t.toLowerCase() === search.trim().toLowerCase());
+  const exactMatch = options.some(t => t.toLowerCase() === search.trim().toLowerCase());
 
   return (
     <div ref={containerRef} className="flex flex-col gap-1.5 relative w-full">
-      <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1 flex items-center justify-between">
-        <span>Tipo de Producto / Formato *</span>
-        <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold">Desplegable & Autocompletado</span>
-      </label>
-      
+      {label && (
+        <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1 flex items-center justify-between">
+          <span>{label}</span>
+          {hint !== '' && <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold">{hint || 'Autocompletado'}</span>}
+        </label>
+      )}
+
       <input
         type="text"
         value={search}
@@ -142,23 +183,25 @@ function SmartProductTypeSelector({ value, onChange, availableTypes }: SmartProd
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
-        placeholder="Ej: Gel limpiador, Suero, Fotoprotector..."
-        required
-        className="smart-input w-full font-semibold text-slate-800 dark:text-white"
+        placeholder={placeholder}
+        required={required}
+        className={inputClassName || 'smart-input w-full font-semibold text-slate-800 dark:text-white'}
       />
 
-      {isOpen && (
+      {isOpen && (filtered.length > 0 || search.trim().length > 0) && (
         <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-white/5 animate-fade-in">
-          <div className="px-3 py-1.5 bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between sticky top-0 backdrop-blur-md z-10 border-b border-slate-100 dark:border-white/5">
-            <span>Tipos / Formatos Registrados ({filtered.length})</span>
-            <button
-              type="button"
-              onClick={() => setIsOpen(false)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-xs"
-            >
-              ✕
-            </button>
-          </div>
+          {filtered.length > 0 && (
+            <div className="px-3 py-1.5 bg-slate-50 dark:bg-white/5 text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between sticky top-0 backdrop-blur-md z-10 border-b border-slate-100 dark:border-white/5">
+              <span>{emptyLabel || 'Registrados'} ({filtered.length})</span>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white font-bold text-xs"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {filtered.map(t => (
             <div
@@ -180,19 +223,64 @@ function SmartProductTypeSelector({ value, onChange, availableTypes }: SmartProd
           {!exactMatch && search.trim().length > 0 && (
             <div
               onClick={() => {
-                const newType = search.trim();
-                onChange(newType);
-                setSearch(newType);
+                const newVal = search.trim();
+                onChange(newVal);
+                setSearch(newVal);
                 setIsOpen(false);
               }}
               className="p-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold text-xs cursor-pointer flex items-center gap-2 transition-colors border-t border-amber-500/30"
             >
               <Plus className="w-4 h-4 text-amber-500" />
-              <span>Agregar "{search.trim()}" como nuevo tipo</span>
+              <span>{addNewLabel || 'Agregar'} "{search.trim()}"</span>
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+interface SuggestChipsProps {
+  value: string;
+  onChange: (val: string) => void;
+  options: string[];
+  maxChips?: number;
+}
+
+// Sugerencias en píldoras para campos de texto libre separados por comas (activos, acciones):
+// a diferencia de SuggestField, no reemplazan el valor completo — añaden el texto elegido al
+// final de la lista, filtradas por lo que se está escribiendo tras la última coma.
+function SuggestChips({ value, onChange, options, maxChips = 6 }: SuggestChipsProps) {
+  const segments = value.split(',');
+  const lastSegment = (segments[segments.length - 1] || '').trim().toLowerCase();
+
+  const matches = useMemo(() => {
+    const already = new Set(segments.map(s => s.trim().toLowerCase()).filter(Boolean));
+    const pool = lastSegment
+      ? options.filter(o => o.toLowerCase().includes(lastSegment))
+      : options;
+    return pool.filter(o => !already.has(o.toLowerCase())).slice(0, maxChips);
+  }, [options, lastSegment, value, maxChips]);
+
+  if (matches.length === 0) return null;
+
+  const appendChip = (chip: string) => {
+    const prefix = segments.slice(0, -1).map(s => s.trim()).filter(Boolean);
+    onChange([...prefix, chip].join(', '));
+  };
+
+  return (
+    <div className="flex flex-wrap gap-1.5 -mt-1">
+      {matches.map(m => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => appendChip(m)}
+          className="px-2 py-1 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-luxe-300 border border-slate-200/50 dark:border-white/10 hover:bg-amber-500/10 hover:border-amber-500/40 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+        >
+          + {m}
+        </button>
+      ))}
     </div>
   );
 }
@@ -204,9 +292,10 @@ interface SmartCatalogSelectorProps {
   products: Product[];
   matches: Product[];
   onSelect: (productId: string) => void;
+  biotype?: string;
 }
 
-function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId, products, matches, onSelect }: SmartCatalogSelectorProps) {
+function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId, products, matches, onSelect, biotype = '' }: SmartCatalogSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -240,12 +329,12 @@ function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId,
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(p => {
+    const base = !q ? products : products.filter(p => {
       const activesStr = typeof p.activeIngredients === 'string' ? p.activeIngredients : JSON.stringify(p.activeIngredients);
       return p.name.toLowerCase().includes(q) || p.brandLine.toLowerCase().includes(q) || activesStr.toLowerCase().includes(q);
     });
-  }, [search, products]);
+    return sortByBiotypeMatch(base, biotype);
+  }, [search, products, biotype]);
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -329,7 +418,12 @@ function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId,
                       }`}
                     >
                       <div className="space-y-0.5 max-w-[85%]">
-                        <span className="block font-bold text-slate-800 dark:text-white truncate">{p.name}</span>
+                        <span className="font-bold text-slate-800 dark:text-white truncate flex items-center gap-1.5">
+                          {p.name}
+                          {productMatchesBiotype(p, biotype) && (
+                            <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">✓ Biotipo</span>
+                          )}
+                        </span>
                         <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold block">{p.brandLine}</span>
                         {activesText && <span className="text-[9.5px] text-slate-400 truncate block">{activesText}</span>}
                       </div>
@@ -649,6 +743,58 @@ export default function App() {
     return Array.from(actionSet).sort();
   }, [products, ingredients]);
 
+  const PRESET_SKIN_CONDITIONS = ['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'];
+
+  // Listas de valores ya capturados en fichas anteriores, para sugerir en campos de texto libre
+  // que hoy se re-escriben igual sesión tras sesión (protocolo, alergias, condiciones médicas,
+  // "otro" en condición cutánea). Se derivan de `records`, que ya está cargado en memoria — no
+  // agregan ninguna consulta nueva a la base de datos.
+  const allCapturedProtocols = useMemo(() => {
+    const set = new Set<string>();
+    records.forEach(r => { if (r.medicalDiagnosis && r.medicalDiagnosis.trim()) set.add(r.medicalDiagnosis.trim()); });
+    return Array.from(set).sort();
+  }, [records]);
+
+  const allCapturedAllergies = useMemo(() => {
+    const set = new Set<string>();
+    records.forEach(r => { if (r.allergies && r.allergies.trim()) set.add(r.allergies.trim()); });
+    return Array.from(set).sort();
+  }, [records]);
+
+  const allCapturedMedicalConditions = useMemo(() => {
+    const set = new Set<string>();
+    records.forEach(r => { if (r.medicalConditions && r.medicalConditions.trim()) set.add(r.medicalConditions.trim()); });
+    return Array.from(set).sort();
+  }, [records]);
+
+  // Frases sueltas de recomendaciones ya escritas antes, para insertar en un clic sin tener que
+  // redactarlas de nuevo cada vez (se dividen por línea o por punto y coma para obtener frases
+  // cortas y reutilizables, no el bloque completo de texto).
+  const allCapturedRecommendationPhrases = useMemo(() => {
+    const set = new Set<string>();
+    records.forEach(r => {
+      if (!r.recommendations) return;
+      r.recommendations.split(/[\n;]+/).forEach(part => {
+        const phrase = part.trim().replace(/^[-•]\s*/, '');
+        if (phrase.length >= 8 && phrase.length <= 140) set.add(phrase);
+      });
+    });
+    return Array.from(set).sort();
+  }, [records]);
+
+  const allCapturedCustomSkinConditions = useMemo(() => {
+    const set = new Set<string>();
+    records.forEach(r => {
+      try {
+        const parsed: string[] = JSON.parse(r.skinConditions || '[]');
+        parsed.forEach(c => {
+          if (c && c.trim() && !PRESET_SKIN_CONDITIONS.includes(c)) set.add(c.trim());
+        });
+      } catch (e) {}
+    });
+    return Array.from(set).sort();
+  }, [records]);
+
   // Catálogo alfabético de activos únicos (ingrediente + acción/efecto clínico), se recalcula
   // automáticamente cada vez que se agregan/editan activos en cualquier producto del catálogo.
   const alphabeticalIngredientsCatalog = useMemo(() => {
@@ -672,8 +818,11 @@ export default function App() {
     );
   }, [alphabeticalIngredientsCatalog, activosCatalogSearch]);
 
-  // Bulk Excel import preview state
+  // Bulk Excel import preview state. `uploadPreviewExcludedIds` marca filas que el usuario no
+  // quiere importar (se pre-marcan solas las que ya existen en el catálogo por nombre+marca, para
+  // no duplicar al reimportar el mismo archivo, pero el usuario puede reincluirlas con 1 clic).
   const [uploadPreview, setUploadPreview] = useState<Product[]>([]);
+  const [uploadPreviewExcludedIds, setUploadPreviewExcludedIds] = useState<Record<string, boolean>>({});
   const [apiBrandSelect, setApiBrandSelect] = useState('');
   const [apiPreview, setApiPreview] = useState<Product[]>([]);
 
@@ -1554,8 +1703,8 @@ export default function App() {
       threshold: 0.4
     });
 
-    const results = fuse.search(val).map(r => r.item).slice(0, 6);
-    setStepSuggestions(results);
+    const results = fuse.search(val).map(r => r.item);
+    setStepSuggestions(sortByBiotypeMatch(results, patientForm.skinBiotype).slice(0, 6));
   };
 
   const selectSearchProduct = (p: Product) => {
@@ -1746,8 +1895,8 @@ export default function App() {
       setPresSuggestions([]);
       return;
     }
-    const matches = products.filter(p => p.name.toLowerCase().includes(val.toLowerCase()) || p.brandLine.toLowerCase().includes(val.toLowerCase())).slice(0, 5);
-    setPresSuggestions(matches);
+    const matches = products.filter(p => p.name.toLowerCase().includes(val.toLowerCase()) || p.brandLine.toLowerCase().includes(val.toLowerCase()));
+    setPresSuggestions(sortByBiotypeMatch(matches, patientForm.skinBiotype).slice(0, 5));
   };
 
   const selectPresSearchProduct = (p: Product) => {
@@ -4400,12 +4549,24 @@ export default function App() {
         });
       }
 
-      setUploadPreview(parsedProducts);
-      showToastMsg(`Previsualizando ${parsedProducts.length} productos extraídos del PDF.`, 'success');
+      applyUploadPreview(parsedProducts);
+      showToastMsg(`Previsualizando ${parsedProducts.length} productos extraídos del PDF. Revisa y corrige cada fila antes de confirmar — el reconocimiento automático de PDF varía según el diseño de catálogo de cada marca.`, 'success');
     } catch (e: any) {
       console.error(e);
       showToastMsg(e.message || 'Error al procesar el archivo PDF.', 'error');
     }
+  };
+
+  // Carga la vista previa y pre-marca como excluidas (pero editable/reincluible) las filas cuyo
+  // nombre+marca ya exista en el catálogo actual, para poder reimportar el mismo archivo sin
+  // duplicar todo cada vez.
+  const applyUploadPreview = (mapped: Product[]) => {
+    const excluded: Record<string, boolean> = {};
+    mapped.forEach(p => {
+      if (isDuplicateProduct(p, products)) excluded[p.id] = true;
+    });
+    setUploadPreviewExcludedIds(excluded);
+    setUploadPreview(mapped);
   };
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4424,30 +4585,75 @@ export default function App() {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const json = XLSX.utils.sheet_to_json(sheet) as any[];
 
-      const mapped: Product[] = json.map((row, idx) => ({
-        id: `EXCEL-${idx}-${Math.floor(Math.random() * 1000)}`,
-        sku: row.SKU || `SKU-${idx}`,
-        name: row.Nombre || row.Producto || 'Insumo importado',
-        brandLine: row.Marca || 'Genérico',
-        retailPrice: parseFloat(row.Precio) || 0,
-        isProfessionalUse: row.UsoProfesional === 'Ambos' || row.UsoProfesional === 2 || String(row.UsoProfesional).toLowerCase().includes('ambos') ? 2 : (row.UsoProfesional === 'Sí' || row.UsoProfesional === 1 || String(row.UsoProfesional).toLowerCase().includes('cabina') || String(row.UsoProfesional).toLowerCase().includes('sí') ? 1 : 0),
-        activeIngredients: JSON.stringify(row.Activos ? String(row.Activos).split(',') : []),
-        physiologicalActions: JSON.stringify(row.Acciones ? String(row.Acciones).split(',') : []),
-        skinBiotypes: JSON.stringify(row.Biotipos ? String(row.Biotipos).split(',') : [])
-      }));
+      // Reconoce tanto los encabezados genéricos originales (SKU, Nombre, Marca, Precio...) como
+      // los de catálogos reales de proveedor (ID / Clave, Nombre del Producto, Categoría, Precio
+      // Esteticista/Público (MXN), Activos Clave, Biotipo / Indicación) — p. ej. el catálogo de
+      // Resourses/Catalogo_Productos_Corregido.xlsx usa este segundo formato.
+      const mapped: Product[] = json.map((row, idx) => {
+        const rawName = row.Nombre || row['Nombre del Producto'] || row.Producto || 'Insumo importado';
+        const capacity = row.Capacidad ? String(row.Capacidad).trim() : '';
+        const name = capacity && !String(rawName).toLowerCase().includes(capacity.toLowerCase())
+          ? `${String(rawName).trim()} (${capacity})`
+          : String(rawName).trim();
+        const brandLine = String(row.Marca || 'Genérico').trim();
+        const sku = String(row.SKU || row['ID / Clave'] || row['ID/Clave'] || `SKU-${idx}`).trim();
+        const productType = row.Categoría || row.Categoria;
 
-      setUploadPreview(mapped);
-      showToastMsg(`Previsualizando ${mapped.length} productos del archivo.`, 'success');
+        const publicPriceRaw = row['Precio Público (MXN)'] ?? row['Precio Publico (MXN)'];
+        const hasPublicPrice = publicPriceRaw !== undefined && String(publicPriceRaw).trim() !== '' && String(publicPriceRaw).trim().toUpperCase() !== 'N/A';
+        const retailPrice = parseMoneyValue(row['Precio Esteticista (MXN)'] ?? row.Precio);
+
+        let isProfessionalUse: number;
+        if (row.UsoProfesional !== undefined) {
+          isProfessionalUse = row.UsoProfesional === 'Ambos' || row.UsoProfesional === 2 || String(row.UsoProfesional).toLowerCase().includes('ambos') ? 2 : (row.UsoProfesional === 'Sí' || row.UsoProfesional === 1 || String(row.UsoProfesional).toLowerCase().includes('cabina') || String(row.UsoProfesional).toLowerCase().includes('sí') ? 1 : 0);
+        } else {
+          // Sin columna explícita de uso: si tiene precio público real, se asume venta en cabina
+          // y en casa (2); si el precio público es "N/A"/vacío, se asume solo uso profesional (1).
+          isProfessionalUse = hasPublicPrice ? 2 : 1;
+        }
+
+        const activesRaw = row.Activos || row['Activos Clave'];
+        const actionsRaw = row.Acciones;
+        const biotypesRaw = row.Biotipos || row['Biotipo / Indicación'] || row['Biotipo / Indicacion'];
+        const splitList = (raw: any) => raw ? String(raw).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+
+        return {
+          id: `EXCEL-${idx}-${Math.floor(Math.random() * 1000)}`,
+          sku,
+          name,
+          brandLine,
+          productType: productType ? String(productType).trim() : undefined,
+          retailPrice,
+          isProfessionalUse,
+          activeIngredients: JSON.stringify(splitList(activesRaw)),
+          physiologicalActions: JSON.stringify(splitList(actionsRaw)),
+          skinBiotypes: JSON.stringify(splitList(biotypesRaw))
+        };
+      });
+
+      applyUploadPreview(mapped);
+      const dupCount = mapped.filter(p => isDuplicateProduct(p, products)).length;
+      showToastMsg(`Previsualizando ${mapped.length} productos del archivo${dupCount > 0 ? ` (${dupCount} ya existen y se excluyeron por defecto)` : ''}.`, 'success');
     };
     reader.readAsArrayBuffer(file);
   };
 
+  const updateUploadPreviewRow = (id: string, patch: Partial<Product>) => {
+    setUploadPreview(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+  };
+
+  const toggleUploadPreviewExclusion = (id: string) => {
+    setUploadPreviewExcludedIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const confirmBulkImport = async () => {
-    if (uploadPreview.length === 0) return;
+    const toImport = uploadPreview.filter(p => !uploadPreviewExcludedIds[p.id]);
+    if (toImport.length === 0) return;
     try {
-      await saveProducts(uploadPreview);
-      showToastMsg('Catálogo importado y sincronizado con éxito.', 'success');
+      await saveProducts(toImport);
+      showToastMsg(`${toImport.length} productos importados y sincronizados con éxito.`, 'success');
       setUploadPreview([]);
+      setUploadPreviewExcludedIds({});
       loadMasterCatalogs();
     } catch(err) {
       console.error(err);
@@ -4770,6 +4976,38 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Aviso de posible paciente duplicado: solo al registrar uno nuevo (no cuando ya
+                    se seleccionó uno existente arriba), comparando teléfono o nombre+apellido
+                    contra los ya guardados. Solo sugiere — nunca fusiona ni bloquea el guardado. */}
+                {!selectedPatientId && (() => {
+                  const phone = patientForm.phone.trim();
+                  const fullName = `${patientForm.firstName.trim()} ${patientForm.lastName.trim()}`.trim().toLowerCase();
+                  const match = patients.find(p => {
+                    if (p.deletedAt) return false;
+                    if (phone.length >= 7 && p.phoneEncrypted.trim() === phone) return true;
+                    if (fullName.length > 3 && `${p.firstNameEncrypted} ${p.lastNameEncrypted}`.trim().toLowerCase() === fullName) return true;
+                    return false;
+                  });
+                  if (!match) return null;
+                  return (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 animate-fade-in">
+                      <div className="flex items-center gap-2.5 text-xs text-amber-800 dark:text-amber-300">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span>
+                          Ya existe un paciente similar: <strong>{match.firstNameEncrypted} {match.lastNameEncrypted}</strong> ({match.phoneEncrypted}). ¿Es la misma persona?
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectPatient(match.id)}
+                        className="shrink-0 px-3.5 py-2 rounded-xl bg-amber-500 hover:brightness-110 text-white text-xs font-bold transition-all"
+                      >
+                        Usar este paciente
+                      </button>
+                    </div>
+                  );
+                })()}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Biotipo Cutáneo</label>
@@ -4785,10 +5023,17 @@ export default function App() {
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Fototipo Fitzpatrick</label>
                     <input type="number" min="1" max="6" value={patientForm.fitzpatrickScale} onChange={e => setPatientForm(prev => ({ ...prev, fitzpatrickScale: parseInt(e.target.value) || 1 }))} className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Protocolo</label>
-                    <input type="text" value={patientForm.medicalDiagnosis} onChange={e => setPatientForm(prev => ({ ...prev, medicalDiagnosis: e.target.value }))} placeholder="P. ej., Limpieza profunda, Peeling..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
-                  </div>
+                  <SuggestField
+                    label="Protocolo"
+                    value={patientForm.medicalDiagnosis}
+                    onChange={val => setPatientForm(prev => ({ ...prev, medicalDiagnosis: val }))}
+                    options={allCapturedProtocols}
+                    placeholder="P. ej., Limpieza profunda, Peeling..."
+                    hint=""
+                    emptyLabel="Protocolos usados antes"
+                    addNewLabel="Usar"
+                    inputClassName="smart-input w-full px-4 py-3 rounded-xl text-sm"
+                  />
                 </div>
 
                 {/* Consentimiento Informado: checkbox en escritorio (no hay paciente frente a un mouse
@@ -4853,14 +5098,28 @@ export default function App() {
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Alergias</label>
-                    <input type="text" value={patientForm.allergies} onChange={e => setPatientForm(prev => ({ ...prev, allergies: e.target.value }))} placeholder="P. ej., Alergia al látex, fragancias, cosméticos..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Condiciones Médicas/Procedimientos Qx</label>
-                    <input type="text" value={patientForm.medicalConditions} onChange={e => setPatientForm(prev => ({ ...prev, medicalConditions: e.target.value }))} placeholder="P. ej., Diabetes, embarazo, hipertensión, rinoplastia previa..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
-                  </div>
+                  <SuggestField
+                    label="Alergias"
+                    value={patientForm.allergies}
+                    onChange={val => setPatientForm(prev => ({ ...prev, allergies: val }))}
+                    options={allCapturedAllergies}
+                    placeholder="P. ej., Alergia al látex, fragancias, cosméticos..."
+                    hint=""
+                    emptyLabel="Alergias ya registradas"
+                    addNewLabel="Usar"
+                    inputClassName="smart-input w-full px-4 py-3 rounded-xl text-sm"
+                  />
+                  <SuggestField
+                    label="Condiciones Médicas/Procedimientos Qx"
+                    value={patientForm.medicalConditions}
+                    onChange={val => setPatientForm(prev => ({ ...prev, medicalConditions: val }))}
+                    options={allCapturedMedicalConditions}
+                    placeholder="P. ej., Diabetes, embarazo, hipertensión, rinoplastia previa..."
+                    hint=""
+                    emptyLabel="Condiciones ya registradas"
+                    addNewLabel="Usar"
+                    inputClassName="smart-input w-full px-4 py-3 rounded-xl text-sm"
+                  />
                 </div>
 
                 {/* Condición (Skin Conditions) */}
@@ -4905,9 +5164,18 @@ export default function App() {
                     const hasCustom = parsed.some((c: string) => !['Deshidratada', 'Asfixiada/ocluida', 'Sensible', 'Acneica', 'Desvitalizada', 'Poro fino', 'Poro dilatado'].includes(c));
                     if (hasCustom) {
                       return (
-                        <div className="mt-4 flex flex-col gap-2 animate-fade-in">
-                          <label className="text-[9px] font-bold text-amber-500 dark:text-amber-400 uppercase tracking-widest ml-1">Especifique Otra Condición</label>
-                          <input type="text" value={customConditionInput} onChange={e => handleCustomConditionChange(e.target.value)} placeholder="Describa la condición de la piel..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+                        <div className="mt-4 animate-fade-in">
+                          <SuggestField
+                            label="Especifique Otra Condición"
+                            value={customConditionInput}
+                            onChange={handleCustomConditionChange}
+                            options={allCapturedCustomSkinConditions}
+                            placeholder="Describa la condición de la piel..."
+                            hint=""
+                            emptyLabel="Otras condiciones ya registradas"
+                            addNewLabel="Usar"
+                            inputClassName="smart-input w-full px-4 py-3 rounded-xl text-sm"
+                          />
                         </div>
                       );
                     }
@@ -4934,6 +5202,29 @@ export default function App() {
                 <div className="flex flex-col gap-2">
                   <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Recomendaciones y Sugerencias de Apoyo (Opcional - Rutinas de lavado, hábitos, etc.)</label>
                   <textarea value={patientForm.recommendations} onChange={e => setPatientForm(prev => ({ ...prev, recommendations: e.target.value }))} rows={4} placeholder="Escribe aquí sugerencias opcionales de cuidado en casa, tipos de rutinas de lavado, frecuencia de mantenimiento, etc..." className="smart-input w-full p-4 rounded-xl text-sm resize-none" />
+                  {(() => {
+                    const already = patientForm.recommendations.toLowerCase();
+                    const chips = allCapturedRecommendationPhrases.filter(p => !already.includes(p.toLowerCase())).slice(0, 6);
+                    if (chips.length === 0) return null;
+                    return (
+                      <div className="flex flex-wrap gap-1.5 mt-0.5">
+                        {chips.map(phrase => (
+                          <button
+                            key={phrase}
+                            type="button"
+                            onClick={() => setPatientForm(prev => ({
+                              ...prev,
+                              recommendations: prev.recommendations.trim() ? `${prev.recommendations.trim()}\n- ${phrase}` : `- ${phrase}`
+                            }))}
+                            className="px-2 py-1 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-luxe-300 border border-slate-200/50 dark:border-white/10 hover:bg-amber-500/10 hover:border-amber-500/40 hover:text-amber-700 dark:hover:text-amber-300 transition-colors max-w-full truncate"
+                            title={phrase}
+                          >
+                            + {phrase}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Fotografías Antes / Después */}
@@ -4959,8 +5250,11 @@ export default function App() {
                         {stepSuggestions.length > 0 && (
                           <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-luxe-900 shadow-xl max-h-52 overflow-y-auto">
                             {stepSuggestions.map(p => (
-                              <div key={p.id} onClick={() => selectSearchProduct(p)} className="p-2.5 hover:bg-slate-100 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5 last:border-0 cursor-pointer text-xs">
+                              <div key={p.id} onClick={() => selectSearchProduct(p)} className="p-2.5 hover:bg-slate-100 dark:hover:bg-white/5 border-b border-slate-100 dark:border-white/5 last:border-0 cursor-pointer text-xs flex items-center justify-between gap-2">
                                 <span className="font-bold text-slate-800 dark:text-white">{p.name} ({p.brandLine})</span>
+                                {productMatchesBiotype(p, patientForm.skinBiotype) && (
+                                  <span className="shrink-0 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">✓ Biotipo</span>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -4993,11 +5287,34 @@ export default function App() {
                     <div className="lg:col-span-7 space-y-4">
                       <div className="grid grid-cols-2 touch:grid-cols-1 gap-3">
                         <input type="text" value={stepInput.customProductName} onChange={e => setStepInput(prev => ({ ...prev, customProductName: e.target.value }))} placeholder="Nombre del Producto..." className="smart-input w-full touch:py-3 touch:text-sm" />
-                        <input type="text" value={stepInput.customBrand} onChange={e => setStepInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Marca/Línea..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                        <SuggestField
+                          value={stepInput.customBrand}
+                          onChange={val => setStepInput(prev => ({ ...prev, customBrand: val }))}
+                          options={allCapturedBrands}
+                          placeholder="Marca/Línea..."
+                          hint=""
+                          emptyLabel="Marcas en catálogo"
+                          addNewLabel="Usar"
+                          inputClassName="smart-input w-full touch:py-3 touch:text-sm"
+                        />
                       </div>
                       <div className="grid grid-cols-2 touch:grid-cols-1 gap-3">
-                        <input type="text" value={stepInput.customActiveIngredients} onChange={e => setStepInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Activos Clave..." className="smart-input w-full touch:py-3 touch:text-sm" />
-                        <input type="text" value={stepInput.customActions} onChange={e => setStepInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Acción / Efecto Clínico..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                        <div className="flex flex-col gap-1.5">
+                          <input type="text" value={stepInput.customActiveIngredients} onChange={e => setStepInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Activos Clave..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                          <SuggestChips
+                            value={stepInput.customActiveIngredients}
+                            onChange={val => setStepInput(prev => ({ ...prev, customActiveIngredients: val }))}
+                            options={alphabeticalIngredientsCatalog.map(i => i.name)}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <input type="text" value={stepInput.customActions} onChange={e => setStepInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Acción / Efecto Clínico..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                          <SuggestChips
+                            value={stepInput.customActions}
+                            onChange={val => setStepInput(prev => ({ ...prev, customActions: val }))}
+                            options={allCapturedActions}
+                          />
+                        </div>
                       </div>
                       <textarea value={stepInput.applicationDescription} onChange={e => setStepInput(prev => ({ ...prev, applicationDescription: e.target.value }))} rows={2} placeholder="Descripción de Aplicación (maniobras, pose, neutralizador...)" className="smart-input w-full resize-none" />
 
@@ -5263,10 +5580,15 @@ export default function App() {
                                 className="p-2.5 hover:bg-amber-500/10 cursor-pointer text-xs transition-colors flex items-center justify-between"
                               >
                                 <div>
-                                  <span className="font-bold text-slate-800 dark:text-white block">{p.name}</span>
+                                  <span className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                    {p.name}
+                                    {productMatchesBiotype(p, patientForm.skinBiotype) && (
+                                      <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">✓ Biotipo</span>
+                                    )}
+                                  </span>
                                   <span className="text-[10px] text-slate-400">{p.brandLine}</span>
                                 </div>
-                                <span className="text-[10px] font-semibold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md">Cargar</span>
+                                <span className="text-[10px] font-semibold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-md shrink-0">Cargar</span>
                               </div>
                             ))}
                           </div>
@@ -5309,7 +5631,16 @@ export default function App() {
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Laboratorio / Marca</label>
-                          <input type="text" value={presInput.customBrand} onChange={e => setPresInput(prev => ({ ...prev, customBrand: e.target.value }))} placeholder="Ej. Línea Clínica..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                          <SuggestField
+                            value={presInput.customBrand}
+                            onChange={val => setPresInput(prev => ({ ...prev, customBrand: val }))}
+                            options={allCapturedBrands}
+                            placeholder="Ej. Línea Clínica..."
+                            hint=""
+                            emptyLabel="Marcas en catálogo"
+                            addNewLabel="Usar"
+                            inputClassName="smart-input w-full touch:py-3 touch:text-sm"
+                          />
                         </div>
                       </div>
 
@@ -5317,10 +5648,20 @@ export default function App() {
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Activos Principales</label>
                           <input type="text" value={presInput.customActiveIngredients} onChange={e => setPresInput(prev => ({ ...prev, customActiveIngredients: e.target.value }))} placeholder="Ej. Ácido Salicílico 2%, Niacinamida..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                          <SuggestChips
+                            value={presInput.customActiveIngredients}
+                            onChange={val => setPresInput(prev => ({ ...prev, customActiveIngredients: val }))}
+                            options={alphabeticalIngredientsCatalog.map(i => i.name)}
+                          />
                         </div>
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-wider block mb-1">Efecto / Acción Cutánea</label>
                           <input type="text" value={presInput.customActions} onChange={e => setPresInput(prev => ({ ...prev, customActions: e.target.value }))} placeholder="Ej. Seborregulador, Calmante..." className="smart-input w-full touch:py-3 touch:text-sm" />
+                          <SuggestChips
+                            value={presInput.customActions}
+                            onChange={val => setPresInput(prev => ({ ...prev, customActions: val }))}
+                            options={allCapturedActions}
+                          />
                         </div>
                       </div>
 
@@ -5334,6 +5675,26 @@ export default function App() {
                           <input type="text" value={presInput.applicationFrequency} onChange={e => setPresInput(prev => ({ ...prev, applicationFrequency: e.target.value }))} placeholder="Ej. Diario / 2 veces por semana..." className="smart-input w-full touch:py-3 touch:text-sm" />
                         </div>
                       </div>
+
+                      {!presInput.dosageInstructions.trim() && !presInput.applicationFrequency.trim() && (() => {
+                        const phaseName = presInput.stepName === 'Otro' ? presInput.customStepName : presInput.stepName;
+                        const suggestedDosage = getDefaultDosageInstructions(phaseName);
+                        const suggestedFrequency = getDefaultApplicationFrequency(phaseName, presInput.timeOfDay);
+                        if (!suggestedDosage && !suggestedFrequency) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setPresInput(prev => ({
+                              ...prev,
+                              dosageInstructions: suggestedDosage || prev.dosageInstructions,
+                              applicationFrequency: suggestedFrequency || prev.applicationFrequency
+                            }))}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition-colors"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" /> Usar redacción sugerida para esta fase
+                          </button>
+                        );
+                      })()}
 
                       {editingPrescriptionIndex !== null ? (
                         <div className="flex gap-2 pt-1">
@@ -5864,6 +6225,7 @@ export default function App() {
                                 selectedProductId={selectedVal}
                                 products={products}
                                 matches={matches}
+                                biotype={patientForm.skinBiotype}
                                 onSelect={(newProdId) => {
                                   setRoutineStepSelections(prev => ({
                                     ...prev,
@@ -5942,10 +6304,16 @@ export default function App() {
                 <form onSubmit={handleSaveProduct} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-5 gap-5 items-start">
                     {/* Position 1: Tipo / Formato */}
-                    <SmartProductTypeSelector
+                    <SuggestField
+                      label="Tipo de Producto / Formato *"
                       value={productForm.productType}
                       onChange={type => setProductForm(prev => ({ ...prev, productType: type }))}
-                      availableTypes={allCapturedProductTypes}
+                      options={allCapturedProductTypes}
+                      placeholder="Ej: Gel limpiador, Suero, Fotoprotector..."
+                      required
+                      hint="Desplegable & Autocompletado"
+                      emptyLabel="Tipos / Formatos Registrados"
+                      addNewLabel="Agregar"
                     />
 
                     {/* Position 2: Nombre Comercial */}
@@ -6422,16 +6790,93 @@ export default function App() {
                 <p className="text-xs font-semibold">Selecciona o arrastra tu archivo Excel (.xlsx, .xls) o PDF (.pdf)</p>
               </div>
 
-              {uploadPreview.length > 0 && (
-                <div className="mt-6 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-slate-400">Total a importar: {uploadPreview.length} productos</span>
-                    <button onClick={confirmBulkImport} className="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white px-6 py-2 rounded-xl text-xs font-bold">
-                      Confirmar e Importar Catálogo
-                    </button>
+              {uploadPreview.length > 0 && (() => {
+                const includedCount = uploadPreview.filter(p => !uploadPreviewExcludedIds[p.id]).length;
+                return (
+                  <div className="mt-6 space-y-3">
+                    <div className="flex flex-wrap justify-between items-center gap-3">
+                      <span className="text-xs font-bold text-slate-400">
+                        {includedCount} de {uploadPreview.length} productos se importarán — revisa y corrige cada fila antes de confirmar.
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setUploadPreview([]); setUploadPreviewExcludedIds({}); }}
+                          className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-luxe-200"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={confirmBulkImport}
+                          disabled={includedCount === 0}
+                          className="bg-gradient-to-r from-bronze-500 to-bronze-600 text-white px-6 py-2 rounded-xl text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          Confirmar e Importar {includedCount} Productos
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="border border-slate-200/50 dark:border-white/10 rounded-2xl overflow-hidden">
+                      <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <thead className="sticky top-0 bg-slate-50 dark:bg-luxe-900 z-10">
+                            <tr className="text-left text-[9px] uppercase tracking-wider text-slate-400 border-b border-slate-200/50 dark:border-white/10">
+                              <th className="p-2 w-8"></th>
+                              <th className="p-2 min-w-[160px]">Nombre</th>
+                              <th className="p-2 min-w-[110px]">Marca</th>
+                              <th className="p-2 min-w-[100px]">Tipo</th>
+                              <th className="p-2 min-w-[90px]">Precio</th>
+                              <th className="p-2 min-w-[160px]">Activos Clave</th>
+                              <th className="p-2 min-w-[130px]">Biotipo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {uploadPreview.map(p => {
+                              const excluded = !!uploadPreviewExcludedIds[p.id];
+                              let actives = '';
+                              try { actives = parseStringList(p.activeIngredients).join(', '); } catch(e) {}
+                              let biotypes = '';
+                              try { biotypes = parseStringList(p.skinBiotypes).join(', '); } catch(e) {}
+                              return (
+                                <tr key={p.id} className={`border-b border-slate-100 dark:border-white/5 last:border-0 ${excluded ? 'opacity-40' : ''}`}>
+                                  <td className="p-2 align-top">
+                                    <input
+                                      type="checkbox"
+                                      checked={!excluded}
+                                      onChange={() => toggleUploadPreviewExclusion(p.id)}
+                                      title={excluded ? 'Excluido de la importación (ya existe en catálogo)' : 'Se importará'}
+                                      className="w-3.5 h-3.5 rounded accent-bronze-500"
+                                    />
+                                  </td>
+                                  <td className="p-1.5 align-top">
+                                    <input type="text" value={p.name} onChange={e => updateUploadPreviewRow(p.id, { name: e.target.value })} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-white/10 focus:border-amber-500 rounded-md px-1.5 py-1 text-xs font-semibold" />
+                                    {excluded && <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold ml-1.5">Ya existe</span>}
+                                  </td>
+                                  <td className="p-1.5 align-top">
+                                    <input type="text" value={p.brandLine} onChange={e => updateUploadPreviewRow(p.id, { brandLine: e.target.value })} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-white/10 focus:border-amber-500 rounded-md px-1.5 py-1 text-xs" />
+                                  </td>
+                                  <td className="p-1.5 align-top">
+                                    <input type="text" value={p.productType || ''} onChange={e => updateUploadPreviewRow(p.id, { productType: e.target.value })} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-white/10 focus:border-amber-500 rounded-md px-1.5 py-1 text-xs" />
+                                  </td>
+                                  <td className="p-1.5 align-top">
+                                    <input type="number" step="0.01" value={p.retailPrice} onChange={e => updateUploadPreviewRow(p.id, { retailPrice: parseFloat(e.target.value) || 0 })} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-white/10 focus:border-amber-500 rounded-md px-1.5 py-1 text-xs" />
+                                  </td>
+                                  <td className="p-1.5 align-top">
+                                    <input type="text" value={actives} onChange={e => updateUploadPreviewRow(p.id, { activeIngredients: JSON.stringify(e.target.value.split(',').map(s => s.trim()).filter(Boolean)) })} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-white/10 focus:border-amber-500 rounded-md px-1.5 py-1 text-xs" />
+                                  </td>
+                                  <td className="p-1.5 align-top">
+                                    <input type="text" value={biotypes} onChange={e => updateUploadPreviewRow(p.id, { skinBiotypes: JSON.stringify(e.target.value.split(',').map(s => s.trim()).filter(Boolean)) })} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-white/10 focus:border-amber-500 rounded-md px-1.5 py-1 text-xs" />
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
 
             {/* Professional Cosmetology Brands Resource Center */}

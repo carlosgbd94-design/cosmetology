@@ -1,7 +1,19 @@
 import React from 'react';
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer';
 import { Patient, Consultation } from './types';
-import { getLayerOrder, parseStringList } from './cosmetologyLogic';
+import { getLayerOrder, parseStringList, analyzePrescriptionSafety } from './cosmetologyLogic';
+import { parseImageList } from './BeforeAfterSlider';
+
+// Mismo logo que ya usa el resto de la app (login y barra de navegación en App.tsx) — se
+// reutiliza aquí para que la ficha impresa quede identificada con la clínica.
+const CLINIC_LOGO_URL = 'https://raw.githubusercontent.com/carlosgbd94-design/Logos/refs/heads/main/logo_xarixuri_cosmetolog_a-removebg-preview.png';
+const CLINIC_NAME = 'Xarixuri Cosmetología';
+
+const ALERT_COLORS: Record<string, string> = {
+  danger: '#C53030',
+  warning: '#B7791F',
+  info: '#2C5282'
+};
 
 // Paleta corporativa de Medicina Estética (Azul Slate Corporate)
 const styles = StyleSheet.create({
@@ -159,6 +171,62 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textAlign: 'center',
   },
+  signatureRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  headerLogoImg: {
+    width: 18,
+    height: 18,
+    marginRight: 6,
+    objectFit: 'contain',
+  },
+  headerBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 4,
+  },
+  photoThumb: {
+    width: 90,
+    height: 90,
+    objectFit: 'cover',
+    borderRadius: 3,
+    marginRight: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  photoGroupLabel: {
+    fontSize: 7,
+    fontWeight: 'bold',
+    color: '#718096',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+  },
+  alertRow: {
+    flexDirection: 'row',
+    marginBottom: 5,
+    paddingLeft: 6,
+  },
+  alertBar: {
+    width: 3,
+    marginRight: 6,
+    borderRadius: 2,
+  },
+  alertTitle: {
+    fontSize: 7.5,
+    fontWeight: 'bold',
+    marginBottom: 1,
+  },
+  alertMessage: {
+    fontSize: 6.5,
+    color: '#4A5568',
+    lineHeight: 1.3,
+  },
 });
 
 interface PDFProps {
@@ -175,13 +243,23 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
     conditionsList = [];
   }
 
+  // parseImageList devuelve siempre 4 posiciones fijas (con '' de relleno en los slots vacíos,
+  // para que una foto no salte de posición al recargar) — aquí solo interesan las que sí tienen
+  // imagen capturada.
+  const beforePhotos = parseImageList(consultation.beforeImageUrl).filter(Boolean);
+  const afterPhotos = parseImageList(consultation.afterImageUrl).filter(Boolean);
+  const safetyAlerts = type === 'ficha' ? analyzePrescriptionSafety(consultation.prescriptions || []) : [];
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        
+
         {/* Encabezado fijo en todas las páginas */}
         <View style={styles.header} fixed>
-          <Text style={styles.headerLogo}></Text>
+          <View style={styles.headerBrandRow}>
+            <Image style={styles.headerLogoImg} src={CLINIC_LOGO_URL} />
+            <Text style={styles.headerLogo}>{CLINIC_NAME}</Text>
+          </View>
           <Text style={styles.headerSub}>
             Servicio Profesional de Cosmetología y Cosmeatría Dermoestética
           </Text>
@@ -259,6 +337,54 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
                 </View>
               )}
             </View>
+
+            {/* Fotografías Antes / Después: tamaño de miniatura fijo y en grilla que envuelve
+                (flexWrap), para que la cantidad de fotos nunca deforme el resto de la página —
+                si no caben en la página actual, la tarjeta completa fluye a la siguiente. */}
+            {(beforePhotos.length > 0 || afterPhotos.length > 0) && (
+              <View style={styles.card} wrap={true}>
+                <Text style={styles.cardTitle}>Registro Fotográfico Antes / Después</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                  {beforePhotos.length > 0 && (
+                    <View style={{ width: '50%', paddingRight: 6 }}>
+                      <Text style={styles.photoGroupLabel}>Antes</Text>
+                      <View style={styles.photosGrid}>
+                        {beforePhotos.map((src, i) => (
+                          <Image key={`before-${i}`} style={styles.photoThumb} src={src} />
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                  {afterPhotos.length > 0 && (
+                    <View style={{ width: '50%', paddingLeft: 6 }}>
+                      <Text style={styles.photoGroupLabel}>Después</Text>
+                      <View style={styles.photosGrid}>
+                        {afterPhotos.map((src, i) => (
+                          <Image key={`after-${i}`} style={styles.photoThumb} src={src} />
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* Alertas de seguridad de activos: mismo análisis que ya corre en pantalla
+                (analyzePrescriptionSafety), impreso aquí para que quede en el expediente físico. */}
+            {safetyAlerts.length > 0 && (
+              <View style={styles.card} wrap={true}>
+                <Text style={styles.cardTitle}>Alertas de Seguridad de Activos</Text>
+                {safetyAlerts.map((alert, i) => (
+                  <View key={i} style={styles.alertRow} wrap={false}>
+                    <View style={[styles.alertBar, { backgroundColor: ALERT_COLORS[alert.severity] || '#718096' }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.alertTitle, { color: ALERT_COLORS[alert.severity] || '#2D3748' }]}>{alert.title}</Text>
+                      <Text style={styles.alertMessage}>{alert.message}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {/* Tabla del Protocolo en Cabina (Mapeo de la Ficha Técnica Dermoestética) */}
             <View style={styles.card} wrap={true}>
@@ -442,20 +568,37 @@ export const ClinicalReportPDF: React.FC<PDFProps> = ({ patient, consultation, t
           )}
         </View>
 
-        {/* Consentimiento Informado firmado (solo si la consulta se capturó en un dispositivo táctil) */}
-        {consultation.signatureData && (
+        {/* Consentimiento Informado: firma táctil del paciente si se capturó digitalmente, o
+            espacio en blanco para firma en tinta si el consentimiento fue solo verbal/checkbox
+            (captura en escritorio). En ambos casos se deja también línea de firma del
+            especialista responsable, en la misma fila (45% + 45%) para que no se encimen. */}
+        {(consultation.signatureData || consultation.consentAccepted) && (
           <View style={styles.card} wrap={false}>
-            <Text style={styles.cardTitle}>Consentimiento Informado — Firma del Paciente</Text>
+            <Text style={styles.cardTitle}>Consentimiento Informado</Text>
             <Text style={{ fontSize: 7, color: '#4A5568', marginBottom: 6 }}>
-              El paciente firmó digitalmente en el dispositivo del especialista, confirmando haber recibido la
-              información sobre el tratamiento y otorgando su consentimiento para realizarlo.
+              {consultation.signatureData
+                ? 'El paciente firmó digitalmente en el dispositivo del especialista, confirmando haber recibido la información sobre el tratamiento y otorgando su consentimiento para realizarlo.'
+                : 'El paciente otorgó su consentimiento (verbal o en papel) para el tratamiento, confirmado por el especialista responsable.'}
             </Text>
-            <View style={styles.signatureBox}>
-              <Image style={styles.signatureImg} src={consultation.signatureData} />
-              <View style={styles.signatureLine} />
-              <Text style={styles.signatureCaption}>
-                Firma del paciente — {new Date(consultation.visitDate).toLocaleDateString()}
-              </Text>
+            <View style={styles.signatureRow}>
+              <View style={styles.signatureBox}>
+                {consultation.signatureData ? (
+                  <Image style={styles.signatureImg} src={consultation.signatureData} />
+                ) : (
+                  <View style={{ height: 60 }} />
+                )}
+                <View style={styles.signatureLine} />
+                <Text style={styles.signatureCaption}>
+                  Firma del paciente — {new Date(consultation.visitDate).toLocaleDateString()}
+                </Text>
+              </View>
+              <View style={styles.signatureBox}>
+                <View style={{ height: 60 }} />
+                <View style={styles.signatureLine} />
+                <Text style={styles.signatureCaption}>
+                  Firma del especialista responsable
+                </Text>
+              </View>
             </View>
           </View>
         )}
