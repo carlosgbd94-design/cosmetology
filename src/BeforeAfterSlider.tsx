@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import QRCode from 'qrcode';
 import { SlidersHorizontal, Image as ImageIcon, Sparkles, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Trash2, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
 import { fetchPhotoTransfer, deletePhotoTransfer, cleanupOldPhotoTransfers } from './db';
@@ -433,7 +434,12 @@ function PhotoBridgeModal({
     onClose();
   };
 
-  return (
+  // Portal directo a document.body: igual que el teclado de firma (SignaturePad), si este modal se
+  // renderizara en su lugar natural quedaría anidado dentro de la tarjeta ".liquid-glass" de la
+  // galería, cuyo transform/will-change crea sin querer un "containing block" para position:fixed —
+  // el modal se ve confinado dentro de esa tarjeta (muy abajo en la página) en vez de cubrir la
+  // pantalla completa.
+  return createPortal(
     <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4" onClick={handleCancel}>
       <div
         className="liquid-glass bg-white dark:bg-luxe-900 rounded-3xl p-6 max-w-sm w-full space-y-5 border border-slate-200/50 dark:border-white/5"
@@ -502,6 +508,7 @@ function PhotoBridgeModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
