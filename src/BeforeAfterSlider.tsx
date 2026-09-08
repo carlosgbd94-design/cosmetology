@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { SlidersHorizontal, Image as ImageIcon, Sparkles, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Trash2 } from 'lucide-react';
+import QRCode from 'qrcode';
+import { SlidersHorizontal, Image as ImageIcon, Sparkles, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Trash2, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
+import { fetchPhotoTransfer, deletePhotoTransfer, cleanupOldPhotoTransfers } from './db';
 
 // Hasta 4 pares de fotos comparables: frente, ambos laterales y un área específica a discreción
 // del especialista (p. ej. una zona con acné o una cicatriz puntual).
@@ -47,7 +49,7 @@ interface BeforeAfterSliderProps {
 // sin procesar puede pesar varios MB, y guardar eso tal cual en cada consulta vuelve la
 // sincronización remota muy pesada (el mismo tipo de problema de rendimiento ya visto en la app).
 const MAX_DIMENSION = 1280;
-function resizeImage(file: File): Promise<string> {
+export function resizeImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
@@ -158,6 +160,7 @@ function CompareSlider({ before, after, heightClass, zoomed }: { before?: string
 export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesChange, onAfterImagesChange }: BeforeAfterSliderProps) {
   const [lightboxSlot, setLightboxSlot] = useState<number | null>(null);
   const [zoomed, setZoomed] = useState(false);
+  const [bridgeOpen, setBridgeOpen] = useState(false);
 
   const before = [0, 1, 2, 3].map(i => beforeImages[i] || '');
   const after = [0, 1, 2, 3].map(i => afterImages[i] || '');
@@ -208,14 +211,24 @@ export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesCha
 
   return (
     <div className="space-y-4">
-      <div className="bg-slate-500/5 p-4 rounded-2xl border border-slate-200/20">
-        <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-          <SlidersHorizontal className="w-4 h-4 text-amber-500" />
-          Galería Comparativa "Antes y Después"
-        </h4>
-        <p className="text-[11px] text-slate-500 dark:text-luxe-300">
-          Sube hasta {MAX_COMPARISON_SLOTS} fotos por lado (frente, laterales y un área específica) y desliza cada tarjeta para evaluar objetivamente la evolución clínica. Toca <Maximize2 className="w-3 h-3 inline -mt-0.5" /> para ampliar y comparar en detalle.
-        </p>
+      <div className="bg-slate-500/5 p-4 rounded-2xl border border-slate-200/20 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-amber-500" />
+            Galería Comparativa "Antes y Después"
+          </h4>
+          <p className="text-[11px] text-slate-500 dark:text-luxe-300">
+            Sube hasta {MAX_COMPARISON_SLOTS} fotos por lado (frente, laterales y un área específica) y desliza cada tarjeta para evaluar objetivamente la evolución clínica. Toca <Maximize2 className="w-3 h-3 inline -mt-0.5" /> para ampliar y comparar en detalle.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setBridgeOpen(true)}
+          className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition-all"
+          title="Enviar una foto desde el celular sin cables"
+        >
+          <Smartphone className="w-3.5 h-3.5" /> Subir desde el Celular
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -334,6 +347,161 @@ export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesCha
           )}
         </div>
       )}
+
+      {bridgeOpen && (
+        <PhotoBridgeModal
+          before={before}
+          after={after}
+          onReceive={(side, idx, dataUrl) => setSlotImage(side, idx, dataUrl)}
+          onClose={() => setBridgeOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Puente de fotos celular -> PC: evita depender de cable/AirDrop/WhatsApp para meter una foto
+// tomada con el celular a esta ficha. El especialista elige un slot vacío, se genera un token
+// aleatorio de un solo uso y un QR que abre la misma app en el celular (ver MobileUploadPage /
+// main.tsx) apuntando a ese token; esta ventana hace polling a Turso (el único almacenamiento que
+// comparten ambos dispositivos) hasta que la foto llega, y entonces la aplica sola al slot elegido.
+type BridgeDestination = { side: 'before' | 'after'; idx: number };
+
+function PhotoBridgeModal({
+  before,
+  after,
+  onReceive,
+  onClose
+}: {
+  before: string[];
+  after: string[];
+  onReceive: (side: 'before' | 'after', idx: number, dataUrl: string) => void;
+  onClose: () => void;
+}) {
+  const [destination, setDestination] = useState<BridgeDestination | null>(null);
+  const [token, setToken] = useState('');
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [received, setReceived] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    cleanupOldPhotoTransfers();
+  }, []);
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const startBridge = async (dest: BridgeDestination) => {
+    const newToken = crypto.randomUUID();
+    setDestination(dest);
+    setToken(newToken);
+    setReceived(false);
+
+    // El celular nunca ve el modal de la PC donde se eligió la casilla, así que esa etiqueta viaja
+    // en la propia URL del QR: quien sostiene el teléfono necesita ver "para cuál foto es esto"
+    // antes de disparar la cámara, para no mandar por error la foto de otro ángulo.
+    const slotLabel = encodeURIComponent(SLOT_LABELS[dest.idx]);
+    const sideLabel = dest.side === 'before' ? 'Antes' : 'Después';
+    const mobileUrl = `${window.location.origin}${import.meta.env.BASE_URL}?mobileUpload=${newToken}&slot=${slotLabel}&side=${sideLabel}`;
+    try {
+      const qr = await QRCode.toDataURL(mobileUrl, { width: 240, margin: 1 });
+      setQrDataUrl(qr);
+    } catch (err) {
+      console.error('No se pudo generar el código QR:', err);
+    }
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const imageData = await fetchPhotoTransfer(newToken);
+        if (imageData) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          onReceive(dest.side, dest.idx, imageData);
+          deletePhotoTransfer(newToken);
+          setReceived(true);
+          setTimeout(onClose, 1400);
+        }
+      } catch (err) {
+        console.error('Error al consultar el puente de fotos:', err);
+      }
+    }, 2500);
+  };
+
+  const handleCancel = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (token) deletePhotoTransfer(token);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4" onClick={handleCancel}>
+      <div
+        className="liquid-glass bg-white dark:bg-luxe-900 rounded-3xl p-6 max-w-sm w-full space-y-5 border border-slate-200/50 dark:border-white/5"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-outfit text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-amber-500" /> Subir desde el Celular
+          </h3>
+          <button type="button" onClick={handleCancel} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {!destination ? (
+          <div className="space-y-2">
+            <p className="text-[11px] text-slate-500 dark:text-luxe-300">¿En qué casilla quieres esta foto?</p>
+            <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+              {SLOT_LABELS.map((label, idx) => (
+                (['before', 'after'] as const).map(side => {
+                  const occupied = !!(side === 'before' ? before[idx] : after[idx]);
+                  return (
+                    <button
+                      key={`${idx}-${side}`}
+                      type="button"
+                      onClick={() => startBridge({ side, idx })}
+                      className="text-left px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 hover:border-amber-500 hover:bg-amber-500/5 transition-all"
+                    >
+                      <span className="block text-[10px] font-bold text-slate-700 dark:text-luxe-100">{label}</span>
+                      <span className="block text-[9px] text-slate-400 uppercase tracking-wider">
+                        {side === 'before' ? 'Antes' : 'Después'} {occupied ? '· reemplazar' : ''}
+                      </span>
+                    </button>
+                  );
+                })
+              ))}
+            </div>
+          </div>
+        ) : received ? (
+          <div className="py-6 flex flex-col items-center gap-2 text-center">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            <p className="text-xs font-bold text-slate-700 dark:text-luxe-100">¡Foto recibida!</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 text-center">
+            <p className="text-[11px] text-slate-500 dark:text-luxe-300">
+              Escanea este código con la cámara de tu celular (misma foto para <strong>{SLOT_LABELS[destination.idx]} · {destination.side === 'before' ? 'Antes' : 'Después'}</strong>).
+            </p>
+            {qrDataUrl ? (
+              <img src={qrDataUrl} alt="Código QR" className="rounded-xl border border-slate-200 dark:border-white/10" width={200} height={200} />
+            ) : (
+              <div className="w-[200px] h-[200px] flex items-center justify-center">
+                <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin" /> Esperando la foto...
+            </p>
+            <button
+              type="button"
+              onClick={() => setDestination(null)}
+              className="text-[10px] font-bold text-slate-500 dark:text-luxe-300 underline"
+            >
+              Elegir otra casilla
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -4800,7 +4800,7 @@ export default function App() {
         
         {/* TAB 1: GENERADOR CLINICO */}
         {activeTab === 'generator' && (
-          <div className="space-y-8">
+          <div className={`space-y-8 ${activeConsultationId ? 'pb-24' : ''}`}>
             <div className="liquid-glass rounded-[32px] p-8 md:p-10 relative overflow-hidden">
               <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-bronze-500/10 blur-[100px] pointer-events-none" />
 
@@ -4884,7 +4884,7 @@ export default function App() {
                     <div>
                       <h4 className="font-outfit text-sm font-bold text-slate-800 dark:text-white">Modo Edición Activo</h4>
                       <p className="text-[11px] text-slate-500 dark:text-luxe-300">
-                        Estás modificando la sesión ID <strong className="font-mono">{activeConsultationId}</strong>. Los cambios reemplazarán el registro anterior al guardar.
+                        Estás modificando la sesión de <strong>{`${patientForm.firstName} ${patientForm.lastName}`.trim() || 'este paciente'}</strong> <span className="font-mono">({activeConsultationId})</span>. Los cambios reemplazarán el registro anterior al guardar.
                       </p>
                     </div>
                   </div>
@@ -4901,7 +4901,7 @@ export default function App() {
                   </button>
                 </div>
               )}
-              <form onSubmit={handleSaveConsultation} className="space-y-6">
+              <form id="ficha-consulta-form" onSubmit={handleSaveConsultation} className="space-y-6">
                 {/* Seguimiento de Pacientes */}
                 <div className="bg-slate-50/50 dark:bg-white/5 p-5 rounded-2xl border border-slate-200/50 dark:border-white/5 space-y-4">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -7215,6 +7215,42 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Barra fija de Guardar/Cancelar: visible en todo momento (sin importar el scroll) mientras se
+          edita una consulta ya guardada, para que quede claro cómo confirmar o descartar la edición. */}
+      {activeTab === 'generator' && activeConsultationId && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-luxe-900/95 backdrop-blur-md border-t border-slate-200/50 dark:border-white/5 shadow-[0_-4px_20px_rgba(0,0,0,0.12)] animate-slide-up">
+          <div className="max-w-7xl mx-auto px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-luxe-200">
+              <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+              <span className="font-semibold">
+                Editando a <span className="text-amber-600 dark:text-amber-400">{`${patientForm.firstName} ${patientForm.lastName}`.trim() || 'paciente'}</span>
+                <span className="hidden sm:inline text-slate-400 dark:text-luxe-400 font-mono font-normal"> · {activeConsultationId}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveConsultationId('');
+                  resetPatientForm();
+                  showToastMsg('Edición cancelada.', 'success');
+                }}
+                className="flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-luxe-200 hover:bg-slate-100 dark:hover:bg-white/5 border border-slate-200 dark:border-white/10 transition-all"
+              >
+                Cancelar Edición
+              </button>
+              <button
+                type="submit"
+                form="ficha-consulta-form"
+                className="flex-1 sm:flex-none px-6 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-bronze-500 to-bronze-600 hover:brightness-110 shadow-md flex items-center justify-center gap-2 transition-all"
+              >
+                <Save className="w-3.5 h-3.5" /> Guardar Cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PDF Download Choice Modal */}
       {isPdfModalOpen && (

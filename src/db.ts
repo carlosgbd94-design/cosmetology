@@ -796,6 +796,67 @@ export async function restoreLegacyIndexedDBData(): Promise<void> {
   }
 }
 
+// --- Puente de fotos celular -> PC ---
+// Tabla efímera y SIN prefijo de licencia (a propósito): el celular que escanea el QR nunca inició
+// sesión en la app (no tiene el token de licencia en su localStorage), así que no puede resolver el
+// nombre de tabla multi-tenant. Un token aleatorio (UUID) por transferencia es suficiente aislamiento
+// para un relevo de un solo uso que se borra apenas se recoge (o solo, tras una hora).
+const PHOTO_TRANSFER_TABLE = 'photo_transfers';
+
+export async function ensurePhotoTransferTable(): Promise<void> {
+  try {
+    await executeQuery(`
+      CREATE TABLE IF NOT EXISTS ${PHOTO_TRANSFER_TABLE} (
+        token TEXT PRIMARY KEY,
+        image_data TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  } catch (e) {
+    console.warn('No se pudo asegurar la tabla de puente de fotos:', e);
+  }
+}
+
+export async function submitPhotoTransfer(token: string, imageDataUrl: string): Promise<void> {
+  await ensurePhotoTransferTable();
+  await executeQuery(
+    `INSERT INTO ${PHOTO_TRANSFER_TABLE} (token, image_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+     ON CONFLICT(token) DO UPDATE SET image_data = excluded.image_data, created_at = CURRENT_TIMESTAMP`,
+    [token, imageDataUrl]
+  );
+}
+
+export async function fetchPhotoTransfer(token: string): Promise<string | null> {
+  try {
+    const res = await executeQuery(`SELECT image_data FROM ${PHOTO_TRANSFER_TABLE} WHERE token = ?`, [token]);
+    if (!res.rows.length) return null;
+    return (res.rows[0] as any).image_data || null;
+  } catch (e) {
+    // La tabla no existe hasta que el celular envía la primera foto (submitPhotoTransfer la crea);
+    // mientras tanto cada sondeo desde la PC fallaría con "no such table" — es un estado normal de
+    // espera, no un error real, así que se trata igual que "todavía no ha llegado nada".
+    return null;
+  }
+}
+
+export async function deletePhotoTransfer(token: string): Promise<void> {
+  try {
+    await executeQuery(`DELETE FROM ${PHOTO_TRANSFER_TABLE} WHERE token = ?`, [token]);
+  } catch (e) {
+    // Silencioso: la limpieza es best-effort, no debe romper el flujo de recepción de la foto.
+  }
+}
+
+// Purga transferencias huérfanas (el especialista canceló o nunca volvió a la PC) para que la tabla
+// no crezca indefinidamente con fotos sin reclamar.
+export async function cleanupOldPhotoTransfers(): Promise<void> {
+  try {
+    await executeQuery(`DELETE FROM ${PHOTO_TRANSFER_TABLE} WHERE created_at < datetime('now', '-2 hours')`);
+  } catch (e) {
+    // Ignorar: la tabla podría no existir todavía si nadie ha usado el puente de fotos.
+  }
+}
+
 // Construye el mismo JSON de respaldo completo que usa el Centro de Respaldo manual (BackupModal),
 // centralizado aquí para que también lo use el respaldo automático programado sin duplicar la lista
 // de tablas en dos lugares que se puedan desincronizar.
