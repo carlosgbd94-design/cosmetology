@@ -284,7 +284,10 @@ export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesCha
         })}
       </div>
 
-      {lightboxSlot !== null && (
+      {lightboxSlot !== null && createPortal(
+        // Portal directo a document.body: mismo motivo que el modal del puente de fotos y el
+        // teclado de firma — sin esto, el visor quedaría confinado dentro de la tarjeta
+        // ".liquid-glass" (transform/will-change) en vez de cubrir la pantalla completa.
         <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col" onClick={closeLightbox}>
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 shrink-0" onClick={e => e.stopPropagation()}>
             <span className="text-white text-xs font-bold uppercase tracking-widest">{SLOT_LABELS[lightboxSlot]}</span>
@@ -346,7 +349,8 @@ export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesCha
               ))}
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
 
       {bridgeOpen && (
