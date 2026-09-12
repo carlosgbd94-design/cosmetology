@@ -37,6 +37,7 @@ export interface Product {
   stockQuantity?: number; // Cantidad física en inventario
   costPrice?: number;     // Costo de adquisición por unidad
   reorderPoint?: number;  // Nivel de reorden / stock mínimo
+  updatedAt?: string;     // ISO timestamp de la última edición (usado para no perder cambios locales al sincronizar)
 }
 
 export interface ConsultationStep {

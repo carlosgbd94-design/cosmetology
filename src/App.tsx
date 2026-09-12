@@ -440,6 +440,32 @@ function SmartCatalogSelector({ stepName, defaultProductName, selectedProductId,
   );
 }
 
+// Mapa Facial Clínico Interactivo: usa la foto de referencia real del cliente (public/mapa_facial_
+// referencia.png, 912x1146) como fondo. Estas zonas fueron trazadas a mano por el usuario sobre esa
+// misma foto con una herramienta dedicada, calcando exactamente los contornos punteados de la imagen.
+const FACIAL_ZONES: Record<string, { label: string; d: string }> = {
+  sienDerecha: { label: 'Sien derecha', d: 'M 394.2,467.1 C 394.2,467.1 374.2,450.0 374.2,450.0 C 374.2,450.0 350.0,431.5 350.0,431.5 C 350.0,431.5 330.0,415.8 330.0,415.8 C 330.0,415.8 311.5,401.6 311.5,401.6 C 311.5,401.6 287.3,381.6 287.3,381.6 C 287.3,381.6 271.6,367.4 271.6,367.4 C 271.6,367.4 253.1,353.1 253.1,353.1 C 253.1,353.1 240.3,340.3 240.3,340.3 C 240.3,340.3 226.0,326.0 226.0,326.0 C 226.0,326.0 213.2,308.9 213.2,308.9 C 213.2,308.9 207.5,293.3 207.5,293.3 C 207.5,293.3 206.1,281.9 206.1,281.9 C 206.1,281.9 206.1,269.0 206.1,269.0 C 206.1,269.0 208.9,256.2 208.9,256.2 C 208.9,256.2 211.8,243.4 211.8,243.4 C 211.8,243.4 210.3,237.7 210.3,237.7 C 210.3,237.7 206.1,230.6 206.1,230.6 C 206.1,230.6 198.9,229.1 198.9,229.1 C 198.9,229.1 193.2,229.1 193.2,229.1 C 193.2,229.1 186.1,232.0 186.1,232.0 C 186.1,232.0 180.4,234.8 180.4,234.8 C 180.4,234.8 176.1,237.7 176.1,237.7 C 176.1,237.7 170.4,242.0 170.4,242.0 C 170.4,242.0 166.2,246.2 166.2,246.2 C 166.2,246.2 161.9,253.4 161.9,253.4 C 161.9,253.4 156.2,260.5 156.2,260.5 C 156.2,260.5 153.3,267.6 153.3,267.6 C 153.3,267.6 149.1,274.7 149.1,274.7 C 149.1,274.7 143.4,286.1 143.4,286.1 C 143.4,286.1 139.1,300.4 139.1,300.4 C 139.1,300.4 133.4,314.6 133.4,314.6 C 133.4,314.6 127.7,328.9 127.7,328.9 C 127.7,328.9 124.8,341.7 124.8,341.7 C 124.8,341.7 123.4,353.1 123.4,353.1 C 123.4,353.1 122.0,367.4 122.0,367.4 C 122.0,367.4 122.0,377.3 122.0,377.3 C 122.0,377.3 123.4,384.5 123.4,384.5 C 123.4,384.5 129.1,387.3 129.1,387.3 C 129.1,387.3 134.8,385.9 134.8,385.9 C 134.8,385.9 141.9,381.6 141.9,381.6 C 141.9,381.6 151.9,383.0 151.9,383.0 C 151.9,383.0 164.7,383.0 164.7,383.0 C 164.7,383.0 176.1,384.5 176.1,384.5 C 176.1,384.5 187.5,385.9 187.5,385.9 C 187.5,385.9 201.8,387.3 201.8,387.3 C 201.8,387.3 213.2,390.2 213.2,390.2 C 213.2,390.2 224.6,391.6 224.6,391.6 C 224.6,391.6 238.8,395.9 238.8,395.9 C 238.8,395.9 253.1,398.7 253.1,398.7 C 253.1,398.7 267.3,403.0 267.3,403.0 C 267.3,403.0 278.7,407.3 278.7,407.3 C 278.7,407.3 293.0,414.4 293.0,414.4 C 293.0,414.4 304.4,421.5 304.4,421.5 C 304.4,421.5 315.8,427.2 315.8,427.2 C 315.8,427.2 325.8,432.9 325.8,432.9 C 325.8,432.9 337.2,438.6 337.2,438.6 C 337.2,438.6 347.1,447.2 347.1,447.2 C 347.1,447.2 360.0,455.7 360.0,455.7 C 360.0,455.7 368.5,461.4 368.5,461.4 C 368.5,461.4 378.5,468.5 378.5,468.5 C 378.5,468.5 387.0,472.8 387.0,472.8 C 387.0,472.8 392.7,475.7 392.7,475.7 C 392.7,475.7 395.6,472.8 395.6,472.8 C 395.6,472.8 394.2,468.5 394.2,468.5 C 394.2,468.5 394.2,467.1 394.2,467.1 C 394.2,467.1 394.2,467.1 394.2,467.1 Z' },
+  frente: { label: 'Frente', d: 'M 431.2,238.2 C 397.5,236.7 347.4,232.2 318.6,229.6 C 289.9,227.0 274.5,219.6 258.8,222.5 C 243.1,225.3 229.8,234.4 224.6,246.7 C 219.4,259.1 218.6,278.3 227.4,296.6 C 236.2,314.9 260.0,339.3 277.3,356.4 C 294.6,373.5 311.5,384.9 331.5,399.2 C 351.4,413.4 379.4,432.2 397.0,441.9 C 414.6,451.7 419.6,460.7 436.9,457.6 C 454.2,454.5 481.6,436.9 501.0,423.4 C 520.5,409.9 537.8,392.3 553.8,376.4 C 569.7,360.5 585.1,343.4 596.5,327.9 C 607.9,312.5 618.1,297.5 622.2,283.8 C 626.2,270.0 625.7,254.3 620.7,245.3 C 615.7,236.3 608.9,230.8 592.2,229.6 C 575.6,228.4 547.8,236.7 521.0,238.2 C 494.1,239.6 464.9,239.6 431.2,238.2 Z' },
+  puenteDeNariz: { label: 'Puente de nariz', d: 'M 435.5,482.1 C 426.7,483.1 414.1,490.0 407.0,496.4 C 399.9,502.8 395.6,511.8 392.7,520.6 C 389.9,529.4 388.7,540.3 389.9,549.1 C 391.1,557.9 395.3,566.2 399.9,573.3 C 404.4,580.4 409.6,587.8 417.0,591.8 C 424.3,595.9 435.7,598.5 444.0,597.5 C 452.3,596.6 461.1,590.9 466.8,586.1 C 472.5,581.4 475.4,577.1 478.2,569.0 C 481.1,561.0 484.2,547.2 483.9,537.7 C 483.7,528.2 480.8,519.9 476.8,512.0 C 472.8,504.2 466.6,495.7 459.7,490.7 C 452.8,485.7 444.3,481.2 435.5,482.1 Z' },
+  sienIzquierda: { label: 'Sien izquierda', d: 'M 640.7,228.2 C 633.6,229.4 637.6,235.3 637.8,248.1 C 638.1,261.0 645.2,288.7 642.1,305.1 C 639.0,321.5 630.7,332.2 619.3,346.5 C 607.9,360.7 597.2,370.4 573.7,390.6 C 550.2,410.8 492.0,454.0 478.2,467.6 C 464.5,481.1 474.7,480.2 491.1,471.9 C 507.4,463.5 542.6,432.4 576.6,417.7 C 610.5,403.0 667.5,390.0 694.8,383.5 C 722.1,377.0 732.8,385.4 740.4,378.7 C 748.0,371.9 744.2,357.2 740.4,343.0 C 736.6,328.9 727.6,310.7 717.6,293.7 C 707.7,276.7 693.4,251.9 680.6,241.0 C 667.8,230.1 647.8,227.0 640.7,228.2 Z' },
+  lateralDerecho: { label: 'Lateral derecho', d: 'M 92.1,483.3 C 90.6,511.9 83.0,611.2 90.6,639.7 C 98.2,668.2 130.1,651.9 137.7,654.3 C 145.3,656.6 135.5,656.1 136.2,654.0 C 136.9,651.8 145.3,650.7 141.9,641.4 C 138.6,632.2 121.7,608.4 116.3,598.4 C 110.8,588.4 110.6,588.4 109.2,581.3 C 107.7,574.2 106.8,564.6 107.7,555.7 C 108.7,546.7 112.5,537.4 114.9,527.4 C 117.2,517.5 121.5,505.1 122.0,496.1 C 122.5,487.1 121.5,478.0 117.7,473.3 C 113.9,468.5 103.5,465.9 99.2,467.6 C 94.9,469.2 93.5,454.6 92.1,483.3 Z' },
+  lateralIzquierdo: { label: 'Lateral izquierdo', d: 'M 781.8,495.5 C 780.6,467.5 782.9,472.2 778.9,469.9 C 774.9,467.5 761.6,474.9 757.5,481.3 C 753.5,487.7 753.7,495.8 754.7,508.3 C 755.6,520.9 761.3,543.3 763.2,556.8 C 765.1,570.3 768.2,579.8 766.1,589.6 C 763.9,599.3 755.9,605.7 750.4,615.2 C 744.9,624.7 735.9,639.4 733.3,646.6 C 730.7,653.7 732.1,655.1 734.7,658.0 C 737.3,660.8 740.4,667.0 749.0,663.7 C 757.5,660.3 780.6,666.0 786.0,638.0 C 791.5,610.0 782.9,523.5 781.8,495.5 Z' },
+  cejaIzquierda: { label: 'Ceja izquierda', d: 'M 499.6,494.9 C 502.0,490.9 527.2,459.6 549.5,445.1 C 571.8,430.6 605.3,415.1 633.6,408.0 C 661.8,400.9 698.6,398.8 719.1,402.3 C 739.5,405.9 751.1,418.2 756.1,429.4 C 761.1,440.6 760.4,467.2 749.0,469.3 C 737.6,471.4 709.8,447.2 687.7,442.2 C 665.6,437.2 641.9,434.9 616.5,439.4 C 591.0,443.9 554.7,460.0 535.2,469.3 C 515.8,478.6 497.2,499.0 499.6,494.9 Z' },
+  cejaDerecha: { label: 'Ceja derecha', d: 'M 377.1,494.1 C 376.1,490.8 348.3,459.9 330.0,447.1 C 311.7,434.2 288.7,424.7 267.3,417.1 C 246.0,409.5 222.0,403.4 201.8,401.5 C 181.6,399.6 160.7,400.0 146.2,405.7 C 131.7,411.4 117.5,424.7 114.9,435.7 C 112.2,446.6 124.1,468.0 130.5,471.3 C 136.9,474.6 140.3,461.1 153.3,455.6 C 166.4,450.2 187.1,440.2 208.9,438.5 C 230.8,436.9 263.3,440.9 284.4,445.6 C 305.6,450.4 320.3,458.9 335.7,467.0 C 351.2,475.1 378.0,497.4 377.1,494.1 Z' },
+  zonaDeOjerasDerecha: { label: 'Zona de ojeras derecha', d: 'M 230.3,467.0 C 204.6,468.0 174.5,476.5 156.2,489.8 C 137.9,503.1 122.2,523.1 120.6,546.8 C 118.9,570.6 128.9,610.9 146.2,632.3 C 163.5,653.7 196.3,670.8 224.6,675.1 C 252.8,679.3 290.8,670.8 315.8,658.0 C 340.7,645.1 366.1,620.2 374.2,598.1 C 382.3,576.0 374.9,544.4 364.2,525.4 C 353.5,506.4 332.4,493.9 310.1,484.1 C 287.8,474.4 255.9,466.1 230.3,467.0 Z' },
+  zonaDeOjerasIzquierda: { label: 'Zona de ojeras izquierda', d: 'M 622.2,467.0 C 597.9,469.9 562.5,480.8 542.4,492.7 C 522.2,504.5 508.2,519.3 501.0,538.3 C 493.9,557.3 490.1,587.0 499.6,606.7 C 509.1,626.4 533.6,645.4 558.0,656.5 C 582.5,667.7 619.8,676.5 646.4,673.6 C 673.0,670.8 700.8,656.5 717.6,639.4 C 734.5,622.3 743.8,591.9 747.6,571.0 C 751.4,550.1 750.4,530.0 740.4,514.0 C 730.5,498.1 707.4,483.4 687.7,475.6 C 668.0,467.7 646.4,464.2 622.2,467.0 Z' },
+  pomuloDerecho: { label: 'Pómulo derecho', d: 'M 358.5,646.6 C 369.0,640.4 371.4,635.9 375.6,638.0 C 379.9,640.2 385.6,649.9 384.2,659.4 C 382.8,668.9 376.1,683.4 367.1,695.0 C 358.1,706.7 349.5,717.1 330.0,729.2 C 310.6,741.3 276.1,760.1 250.2,767.7 C 224.3,775.3 193.9,778.6 174.7,774.8 C 155.5,771.0 144.5,757.0 134.8,744.9 C 125.1,732.8 117.7,714.7 116.3,702.1 C 114.9,689.6 119.4,675.5 126.3,669.4 C 133.1,663.2 144.1,662.7 157.6,665.1 C 171.1,667.5 190.9,680.1 207.5,683.6 C 224.1,687.2 239.8,687.9 257.4,686.5 C 274.9,685.0 296.1,681.7 312.9,675.1 C 329.8,668.4 348.1,652.7 358.5,646.6 Z' },
+  pomuloIzquierdo: { label: 'Pómulo izquierdo', d: 'M 509.6,638.0 C 499.8,635.6 496.3,646.3 495.3,653.7 C 494.4,661.1 498.2,672.7 503.9,682.2 C 509.6,691.7 514.3,698.6 529.5,710.7 C 544.7,722.8 571.3,743.7 595.1,754.9 C 618.8,766.0 650.2,776.0 672.0,777.7 C 693.9,779.3 711.5,775.3 726.2,764.8 C 740.9,754.4 755.2,730.4 760.4,715.0 C 765.6,699.5 764.4,680.3 757.5,672.2 C 750.6,664.1 735.9,664.1 719.1,666.5 C 702.2,668.9 676.5,683.6 656.4,686.5 C 636.2,689.3 615.0,686.7 597.9,683.6 C 580.8,680.5 568.5,675.5 553.8,667.9 C 539.0,660.3 519.3,640.4 509.6,638.0 Z' },
+  nariz: { label: 'Nariz', d: 'M 438.3,620.9 C 430.3,621.4 421.9,626.9 412.7,638.0 C 403.4,649.2 390.8,670.3 382.8,687.9 C 374.7,705.5 364.5,733.0 364.2,743.5 C 364.0,753.9 372.8,752.0 381.3,750.6 C 389.9,749.2 402.2,737.8 415.5,734.9 C 428.8,732.1 446.2,730.2 461.1,733.5 C 476.1,736.8 496.0,753.2 505.3,754.9 C 514.6,756.5 518.8,755.6 516.7,743.5 C 514.6,731.4 501.7,700.2 492.5,682.2 C 483.2,664.1 470.2,645.4 461.1,635.2 C 452.1,625.0 446.4,620.4 438.3,620.9 Z' },
+  arcoDeCupido: { label: 'Arco de cupido', d: 'M 434.1,810.4 C 412.7,810.4 389.9,815.0 372.8,819.0 C 355.7,823.0 343.3,827.3 331.5,834.7 C 319.6,842.0 308.7,853.2 301.5,863.2 C 294.4,873.1 289.7,886.0 288.7,894.5 C 287.8,903.1 291.8,911.4 295.8,914.5 C 299.9,917.6 302.5,918.7 312.9,913.0 C 323.4,907.3 344.5,890.0 358.5,880.3 C 372.5,870.5 384.7,857.9 397.0,854.6 C 409.4,851.3 421.0,860.6 432.6,860.3 C 444.3,860.1 455.7,851.3 466.8,853.2 C 478.0,855.1 487.3,863.4 499.6,871.7 C 512.0,880.0 528.8,895.7 540.9,903.1 C 553.0,910.4 565.9,916.8 572.3,915.9 C 578.7,914.9 579.9,905.7 579.4,897.4 C 578.9,889.1 575.8,876.0 569.4,866.0 C 563.0,856.0 552.3,845.4 540.9,837.5 C 529.5,829.7 518.8,823.5 501.0,819.0 C 483.2,814.5 455.4,810.4 434.1,810.4 Z' },
+  surcoNasoGenianoDerecho: { label: 'Surco naso geniano derecho', d: 'M 340.0,773.4 C 336.7,767.9 331.7,762.2 324.3,760.6 C 317.0,758.9 305.6,759.9 295.8,763.4 C 286.1,767.0 273.5,773.6 265.9,781.9 C 258.3,790.3 254.3,802.1 250.2,813.3 C 246.2,824.5 243.6,836.8 241.7,848.9 C 239.8,861.0 239.1,874.3 238.8,886.0 C 238.6,897.6 236.5,912.6 240.3,918.7 C 244.1,924.9 256.4,928.7 261.6,923.0 C 266.9,917.3 267.1,896.4 271.6,884.5 C 276.1,872.7 280.9,862.9 288.7,851.8 C 296.5,840.6 309.4,827.3 318.6,817.6 C 327.9,807.8 340.7,800.7 344.3,793.3 C 347.8,786.0 343.3,778.9 340.0,773.4 Z' },
+  surcoNasoGenianoIzquierdo: { label: 'Surco naso geniano izquierdo', d: 'M 529.5,763.4 C 534.0,758.4 542.8,757.2 549.5,756.3 C 556.1,755.3 562.5,755.6 569.4,757.7 C 576.3,759.9 584.4,763.9 590.8,769.1 C 597.2,774.3 603.2,781.2 607.9,789.1 C 612.7,796.9 616.2,806.6 619.3,816.1 C 622.4,825.6 624.8,835.9 626.4,846.1 C 628.1,856.3 628.6,868.6 629.3,877.4 C 630.0,886.2 631.2,891.7 630.7,898.8 C 630.2,905.9 630.2,916.6 626.4,920.2 C 622.6,923.7 611.7,923.5 607.9,920.2 C 604.1,916.8 606.0,908.3 603.6,900.2 C 601.3,892.1 598.9,882.2 593.7,871.7 C 588.4,861.3 578.5,846.5 572.3,837.5 C 566.1,828.5 563.0,823.7 556.6,817.6 C 550.2,811.4 539.5,805.7 533.8,800.5 C 528.1,795.2 523.1,792.4 522.4,786.2 C 521.7,780.0 525.0,768.4 529.5,763.4 Z' },
+  barbillaMenton: { label: 'Barbilla/Mentón', d: 'M 438.3,1004.2 C 424.3,1004.5 405.8,1006.4 392.7,1009.9 C 379.7,1013.5 369.0,1018.5 360.0,1025.6 C 350.9,1032.7 341.9,1043.7 338.6,1052.7 C 335.3,1061.7 336.2,1072.4 340.0,1079.8 C 343.8,1087.1 351.6,1092.1 361.4,1096.9 C 371.1,1101.6 385.6,1105.7 398.4,1108.3 C 411.3,1110.9 425.3,1112.5 438.3,1112.5 C 451.4,1112.5 465.2,1110.6 476.8,1108.3 C 488.4,1105.9 498.9,1102.1 508.2,1098.3 C 517.4,1094.5 526.7,1091.4 532.4,1085.5 C 538.1,1079.5 542.1,1070.0 542.4,1062.7 C 542.6,1055.3 538.6,1047.9 533.8,1041.3 C 529.1,1034.6 523.4,1028.2 513.9,1022.8 C 504.4,1017.3 489.4,1011.6 476.8,1008.5 C 464.2,1005.4 452.3,1004.0 438.3,1004.2 Z' },
+  mandibulaDerecha: { label: 'Mandíbula derecha', d: 'M 228.9,826.1 C 227.9,816.6 225.8,811.6 221.7,806.2 C 217.7,800.7 212.5,796.9 204.6,793.3 C 196.8,789.8 184.9,784.6 174.7,784.8 C 164.5,785.0 149.3,789.3 143.4,794.8 C 137.4,800.2 139.3,808.1 139.1,817.6 C 138.8,827.1 138.6,836.6 141.9,851.8 C 145.3,867.0 150.5,890.7 159.0,908.8 C 167.6,926.8 179.9,944.4 193.2,960.1 C 206.5,975.7 233.4,1002.8 238.8,1002.8 C 244.3,1002.8 228.6,975.7 226.0,960.1 C 223.4,944.4 222.9,924.9 223.2,908.8 C 223.4,892.6 226.5,876.9 227.4,863.2 C 228.4,849.4 229.8,835.6 228.9,826.1 Z' },
+  mandibulaIzquierda: { label: 'Mandíbula izquierda', d: 'M 637.8,836.1 C 637.6,824.7 638.8,818.8 642.1,811.9 C 645.4,805.0 651.4,798.6 657.8,794.8 C 664.2,791.0 671.6,789.8 680.6,789.1 C 689.6,788.4 703.9,788.4 711.9,790.5 C 720.0,792.6 726.4,793.6 729.0,801.9 C 731.6,810.2 729.3,828.0 727.6,840.4 C 725.9,852.7 722.6,864.4 719.1,876.0 C 715.5,887.6 710.5,900.0 706.2,910.2 C 702.0,920.4 698.9,928.0 693.4,937.3 C 687.9,946.5 681.1,956.7 673.5,965.8 C 665.9,974.8 654.7,985.0 647.8,991.4 C 640.9,997.8 633.1,1009.9 632.1,1004.2 C 631.2,998.5 640.4,971.9 642.1,957.2 C 643.8,942.5 641.9,928.7 642.1,915.9 C 642.3,903.1 644.2,893.6 643.5,880.3 C 642.8,867.0 638.1,847.5 637.8,836.1 Z' },
+  contornoDeMandibula: { label: 'Contorno de mandíbula', d: 'M 441.2,988.6 C 425.3,989.0 409.6,989.5 394.2,985.7 C 378.7,981.9 360.7,971.9 348.6,965.8 C 336.4,959.6 331.5,952.9 321.5,948.7 C 311.5,944.4 298.0,939.6 288.7,940.1 C 279.4,940.6 272.6,946.3 265.9,951.5 C 259.3,956.7 251.9,963.6 248.8,971.5 C 245.7,979.3 245.7,989.3 247.4,998.5 C 249.0,1007.8 253.6,1018.3 258.8,1027.0 C 264.0,1035.8 271.6,1044.4 278.7,1051.3 C 285.9,1058.2 293.0,1063.1 301.5,1068.4 C 310.1,1073.6 325.8,1083.8 330.0,1082.6 C 334.3,1081.4 326.2,1068.6 327.2,1061.2 C 328.1,1053.9 330.5,1045.8 335.7,1038.4 C 341.0,1031.1 348.1,1023.2 358.5,1017.1 C 369.0,1010.9 385.1,1004.2 398.4,1001.4 C 411.7,998.5 425.0,999.7 438.3,1000.0 C 451.6,1000.2 466.4,1000.7 478.2,1002.8 C 490.1,1005.0 499.8,1008.5 509.6,1012.8 C 519.3,1017.1 530.0,1021.6 536.7,1028.5 C 543.3,1035.4 547.6,1045.3 549.5,1054.1 C 551.4,1062.9 543.1,1080.5 548.1,1081.2 C 553.0,1081.9 571.8,1065.3 579.4,1058.4 C 587.0,1051.5 588.0,1045.8 593.7,1039.9 C 599.4,1033.9 608.6,1030.6 613.6,1022.8 C 618.6,1014.9 622.4,1001.4 623.6,992.8 C 624.8,984.3 623.1,977.6 620.7,971.5 C 618.4,965.3 613.4,960.3 609.3,955.8 C 605.3,951.3 602.2,946.8 596.5,944.4 C 590.8,942.0 581.5,941.3 575.1,941.5 C 568.7,941.8 564.7,943.7 558.0,945.8 C 551.4,948.0 541.9,950.8 535.2,954.4 C 528.6,957.9 525.7,962.4 518.1,967.2 C 510.5,971.9 502.5,979.3 489.6,982.9 C 476.8,986.4 457.1,988.1 441.2,988.6 Z' },
+};
+
 export default function App() {
   // Authentication & License States (Cloudflare Workers Integrated)
   const [isLogged, setIsLogged] = useState(false);
@@ -560,14 +586,12 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState<string>('Todos');
   const [showDigitalClientModal, setShowDigitalClientModal] = useState<boolean>(false);
 
-  // Facial interactive canvas state
-  const [activeFacialZones, setActiveFacialZones] = useState<Record<string, boolean>>({
-    forehead: false, nose: false, leftCheek: false, rightCheek: false, chin: false,
-    leftEye: false, rightEye: false, lips: false, neck: false
-  });
+  // Facial interactive map state (Mapa Facial Clínico Interactivo)
+  const [activeFacialZones, setActiveFacialZones] = useState<Record<string, boolean>>(
+    Object.fromEntries(Object.keys(FACIAL_ZONES).map(k => [k, false]))
+  );
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // State PDF choice modal
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
@@ -1059,9 +1083,20 @@ export default function App() {
           // Pull remoto -> local. Debe traer TODAS las columnas editables del catálogo (antes se
           // omitían product_type, stock_quantity, cost_price y reorder_point, así que cada arranque
           // con conexión borraba esos campos en Dexie porque `put` reemplaza el registro completo).
-          const resProds = await executeQuery(`SELECT id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point FROM ${tblProducts}`);
+          //
+          // Antes de sobrescribir, se compara updated_at contra el registro local: si el push de una
+          // sesión anterior falló silenciosamente (red inestable), el remoto queda con datos viejos y,
+          // sin esta comparación, este pull los volvía a pisar sobre la edición local más reciente —
+          // exactamente el bug reportado de "los cambios del catálogo no se mantienen entre sesiones".
+          const resProds = await executeQuery(`SELECT id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point, updated_at FROM ${tblProducts}`);
           if (resProds && resProds.rows) {
             for (const r of resProds.rows) {
+              const localRecord = await db.products.get(r.id);
+              const remoteUpdatedAt = r.updated_at ? new Date(r.updated_at).getTime() : 0;
+              const localUpdatedAt = localRecord?.updatedAt ? new Date(localRecord.updatedAt).getTime() : 0;
+              if (localRecord && localUpdatedAt > remoteUpdatedAt) {
+                continue; // Lo local es más reciente que lo que hay en el remoto: no lo pisamos.
+              }
               await db.products.put({
                 id: r.id,
                 sku: r.sku,
@@ -1075,7 +1110,8 @@ export default function App() {
                 skinBiotypes: r.skin_biotypes || '[]',
                 stockQuantity: r.stock_quantity !== null && r.stock_quantity !== undefined ? Number(r.stock_quantity) : undefined,
                 costPrice: r.cost_price !== null && r.cost_price !== undefined ? Number(r.cost_price) : undefined,
-                reorderPoint: r.reorder_point !== null && r.reorder_point !== undefined ? Number(r.reorder_point) : undefined
+                reorderPoint: r.reorder_point !== null && r.reorder_point !== undefined ? Number(r.reorder_point) : undefined,
+                updatedAt: r.updated_at || undefined
               });
             }
           }
@@ -1403,290 +1439,59 @@ export default function App() {
   // -----------------------------------------  // Ref to target clinical notes textarea directly for autofocus
   const notesTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // INTERACTIVE FACIAL CANVAS CANVAS
+  // MAPA FACIAL CLÍNICO INTERACTIVO (SVG sobre la foto de referencia)
   // ----------------------------------------------------
-  // Ref to cache preloaded backdrop image
-  const backdropImageRef = useRef<HTMLImageElement | null>(null);
   const [isBackdropLoaded, setIsBackdropLoaded] = useState(false);
 
-  useEffect(() => {
-    const img = new Image();
-    img.src = `${import.meta.env.BASE_URL}face_backdrop.png?v=2`;
-    img.onload = () => {
-      backdropImageRef.current = img;
-      setIsBackdropLoaded(true);
-    };
-    img.onerror = () => {
-      console.error("Failed to load face backdrop image.");
-    };
-  }, []);
+  // Toggles a facial zone on/off, syncing the clinical notes bullet. Shared by clicks on the SVG
+  // shapes and by the always-visible legend list next to the map (so zone names stay selectable
+  // even where a tiny shape is hard to tap precisely, e.g. on mobile).
+  const toggleFacialZone = (clickedKey: string, clickedLabel: string) => {
+    setActiveFacialZones(prev => {
+      const nextState = { ...prev, [clickedKey]: !prev[clickedKey] };
+      const isActivating = nextState[clickedKey];
 
-  useEffect(() => {
-    if (!canvasRef.current || activeTab !== 'generator' || !isLogged) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+      setPatientForm(prevForm => {
+        let updatedNotes = prevForm.clinicalNotes;
+        const zoneBullet = `- [Zona: ${clickedLabel}] `;
 
-    drawFacialSilhouette(ctx, canvas.width, canvas.height);
-  }, [activeFacialZones, hoveredZone, mousePos, activeTab, isLogged, theme, isBackdropLoaded]);
-
-  const drawFacialSilhouette = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-    ctx.clearRect(0, 0, width, height);
-
-    const cx = width / 2;
-    const cy = height / 2;
-    const scaleX = width / 250;
-    const scaleY = height / 250;
-
-    const isDark = theme === 'dark';
-
-    // 1. Draw preloaded premium 3D realistic face backdrop image
-    if (backdropImageRef.current && isBackdropLoaded) {
-      ctx.save();
-      // Apply rounded clip matching container style
-      ctx.beginPath();
-      ctx.arc(cx, cy, 110 * scaleX, 0, Math.PI * 2);
-      ctx.clip();
-      
-      // Draw background image
-      ctx.drawImage(backdropImageRef.current, cx - 110 * scaleX, cy - 110 * scaleY, 220 * scaleX, 220 * scaleY);
-      
-      // Apply a subtle dark/light contrast mask overlay matching selected theme
-      ctx.fillStyle = isDark ? 'rgba(10, 10, 13, 0.25)' : 'rgba(250, 249, 246, 0.1)';
-      ctx.fillRect(cx - 110 * scaleX, cy - 110 * scaleY, 220 * scaleX, 220 * scaleY);
-      ctx.restore();
-    } else {
-      // Elegant loading text state if image is buffering
-      ctx.save();
-      ctx.fillStyle = isDark ? '#FAF9F6' : '#222225';
-      ctx.font = '10px Outfit, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText("CARGANDO MAPA FACIAL 3D...", cx, cy);
-      ctx.restore();
-      return;
-    }
-
-    // 2. Interactive Zones Definitions (Coordinates aligned precisely to the graphic backdrop features)
-    const zones: Record<string, { label: string; coords: [number, number, number] }> = {
-      forehead: { label: 'Frente', coords: [cx, cy - 50 * scaleY, 28 * scaleX] },
-      nose: { label: 'Nariz', coords: [cx, cy - 2 * scaleY, 18 * scaleX] },
-      chin: { label: 'Mentón', coords: [cx, cy + 50 * scaleY, 20 * scaleX] },
-      rightCheek: { label: 'Mejilla Der', coords: [cx + 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
-      leftCheek: { label: 'Mejilla Izq', coords: [cx - 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
-      rightEye: { label: 'Ojo Der', coords: [cx + 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
-      leftEye: { label: 'Ojo Izq', coords: [cx - 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
-      lips: { label: 'Labios', coords: [cx, cy + 26 * scaleY, 18 * scaleX] },
-      neck: { label: 'Cuello', coords: [cx, cy + 82 * scaleY, 24 * scaleX] }
-    };
-
-    // 3. Render High Fidelity Interactive Golden Overlays
-    Object.entries(zones).forEach(([key, val]) => {
-      const isActive = activeFacialZones[key];
-      const isHovered = hoveredZone === key;
-
-      ctx.beginPath();
-      ctx.arc(val.coords[0], val.coords[1], val.coords[2], 0, Math.PI * 2);
-
-      if (isActive) {
-        // High fidelity golden amber glow gradient
-        const glowGrad = ctx.createRadialGradient(val.coords[0], val.coords[1], 2, val.coords[0], val.coords[1], val.coords[2]);
-        glowGrad.addColorStop(0, 'rgba(212, 175, 55, 0.55)');
-        glowGrad.addColorStop(0.7, 'rgba(212, 175, 55, 0.35)');
-        glowGrad.addColorStop(1, 'rgba(212, 175, 55, 0.05)');
-        ctx.fillStyle = glowGrad;
-        ctx.strokeStyle = '#D4AF37';
-        ctx.lineWidth = 2.5;
-      } else if (isHovered) {
-        ctx.fillStyle = 'rgba(212, 175, 55, 0.15)';
-        ctx.strokeStyle = 'rgba(212, 175, 55, 0.6)';
-        ctx.lineWidth = 1.5;
-      } else {
-        ctx.fillStyle = 'rgba(0,0,0,0)';
-        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(181, 144, 43, 0.06)';
-        ctx.lineWidth = 1;
-      }
-
-      ctx.fill();
-      ctx.stroke();
-
-      // Elegant subtle clinical reticle indicator instead of big text labels
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(val.coords[0], val.coords[1], 4 * scaleX, 0, Math.PI * 2);
-      if (isActive) {
-        ctx.fillStyle = '#D4AF37';
-        ctx.strokeStyle = '#FAF9F6';
-        ctx.lineWidth = 1.5;
-      } else if (isHovered) {
-        ctx.fillStyle = 'rgba(212, 175, 55, 0.9)';
-        ctx.strokeStyle = '#D4AF37';
-        ctx.lineWidth = 1;
-      } else {
-        ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(181, 144, 43, 0.25)';
-        ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.35)' : 'rgba(181, 144, 43, 0.45)';
-        ctx.lineWidth = 0.8;
-      }
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    });
-
-    // 4. Elegant floating tooltip for hovered zone
-    if (hoveredZone && zones[hoveredZone]) {
-      const zone = zones[hoveredZone];
-      const isZoneActive = activeFacialZones[hoveredZone];
-      ctx.save();
-      
-      const text = `${zone.label.toUpperCase()} ${isZoneActive ? '(ACTIVO - CLIC PARA QUITAR)' : '(CLIC PARA SELECCIONAR)'}`;
-      ctx.font = 'bold 9px Sora, system-ui, sans-serif';
-      const textWidth = ctx.measureText(text).width;
-      
-      const rectW = textWidth + 16;
-      const rectH = 20;
-      // Position tooltip near mouse cursor
-      const rx = Math.max(10, Math.min(width - rectW - 10, mousePos.x - rectW / 2));
-      const ry = Math.max(10, Math.min(height - rectH - 10, mousePos.y - 30));
-      
-      // Draw rounded rectangle background (glassmorphism look)
-      ctx.beginPath();
-      if (ctx.roundRect) {
-        ctx.roundRect(rx, ry, rectW, rectH, 6);
-      } else {
-        ctx.rect(rx, ry, rectW, rectH);
-      }
-      ctx.fillStyle = 'rgba(18, 18, 21, 0.9)';
-      ctx.strokeStyle = 'rgba(212, 175, 55, 0.8)';
-      ctx.lineWidth = 1;
-      ctx.fill();
-      ctx.stroke();
-      
-      // Draw text
-      ctx.fillStyle = '#FAF9F6';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, rx + rectW / 2, ry + rectH / 2);
-      ctx.restore();
-    }
-  };
-
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvasRef.current.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvasRef.current.height / rect.height);
-
-    const cx = canvasRef.current.width / 2;
-    const cy = canvasRef.current.height / 2;
-    const scaleX = canvasRef.current.width / 250;
-    const scaleY = canvasRef.current.height / 250;
-
-    const zones: Record<string, { label: string; coords: [number, number, number] }> = {
-      forehead: { label: 'Frente', coords: [cx, cy - 50 * scaleY, 28 * scaleX] },
-      nose: { label: 'Nariz', coords: [cx, cy - 2 * scaleY, 18 * scaleX] },
-      chin: { label: 'Mentón', coords: [cx, cy + 50 * scaleY, 20 * scaleX] },
-      rightCheek: { label: 'Mejilla Der', coords: [cx + 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
-      leftCheek: { label: 'Mejilla Izq', coords: [cx - 40 * scaleX, cy + 12 * scaleY, 25 * scaleX] },
-      rightEye: { label: 'Ojo Der', coords: [cx + 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
-      leftEye: { label: 'Ojo Izq', coords: [cx - 25 * scaleX, cy - 23 * scaleY, 15 * scaleX] },
-      lips: { label: 'Labios', coords: [cx, cy + 26 * scaleY, 18 * scaleX] },
-      neck: { label: 'Cuello', coords: [cx, cy + 82 * scaleY, 24 * scaleX] }
-    };
-
-    let clickedKey: string | null = null;
-    let clickedLabel = '';
-    for (const [key, val] of Object.entries(zones)) {
-      if (Math.hypot(x - val.coords[0], y - val.coords[1]) < val.coords[2]) {
-        clickedKey = key;
-        clickedLabel = val.label;
-        break;
-      }
-    }
-
-    if (clickedKey) {
-      setActiveFacialZones(prev => {
-        const nextState = { ...prev, [clickedKey!]: !prev[clickedKey!] };
-        const isActivating = nextState[clickedKey!];
-        
-        setPatientForm(prevForm => {
-          let updatedNotes = prevForm.clinicalNotes;
-          const zoneBullet = `- [Zona: ${clickedLabel}] `;
-          
-          if (isActivating) {
-            // Append bullet if it doesn't exist yet
-            if (!updatedNotes.includes(zoneBullet)) {
-              updatedNotes = updatedNotes.trim();
-              if (updatedNotes.length > 0) {
-                updatedNotes += `\n${zoneBullet}`;
-              } else {
-                updatedNotes = zoneBullet;
-              }
+        if (isActivating) {
+          // Append bullet if it doesn't exist yet
+          if (!updatedNotes.includes(zoneBullet)) {
+            updatedNotes = updatedNotes.trim();
+            if (updatedNotes.length > 0) {
+              updatedNotes += `\n${zoneBullet}`;
+            } else {
+              updatedNotes = zoneBullet;
             }
-          } else {
-            // Remove bullet line if de-selecting
-            updatedNotes = updatedNotes
-              .split('\n')
-              .filter(line => !line.startsWith(zoneBullet))
-              .join('\n');
           }
+        } else {
+          // Remove bullet line if de-selecting
+          updatedNotes = updatedNotes
+            .split('\n')
+            .filter(line => !line.startsWith(zoneBullet))
+            .join('\n');
+        }
 
-          // Dynamic DOM autofocus with cursor at end of the notes
-          setTimeout(() => {
-            if (notesTextareaRef.current) {
-              notesTextareaRef.current.focus();
-              const textLen = notesTextareaRef.current.value.length;
-              notesTextareaRef.current.setSelectionRange(textLen, textLen);
-            }
-          }, 50);
+        // Dynamic DOM autofocus with cursor at end of the notes
+        setTimeout(() => {
+          if (notesTextareaRef.current) {
+            notesTextareaRef.current.focus();
+            const textLen = notesTextareaRef.current.value.length;
+            notesTextareaRef.current.setSelectionRange(textLen, textLen);
+          }
+        }, 50);
 
-          return {
-            ...prevForm,
-            clinicalNotes: updatedNotes
-          };
-        });
-
-        return nextState;
+        return {
+          ...prevForm,
+          clinicalNotes: updatedNotes
+        };
       });
-      showToastMsg(`Zona ${clickedLabel} seleccionada`, 'success');
-    }
+
+      return nextState;
+    });
+    showToastMsg(`Zona ${clickedLabel} seleccionada`, 'success');
   };
-
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvasRef.current.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvasRef.current.height / rect.height);
-
-    const cx = canvasRef.current.width / 2;
-    const cy = canvasRef.current.height / 2;
-    const scaleX = canvasRef.current.width / 250;
-    const scaleY = canvasRef.current.height / 250;
-
-    const zones: Record<string, [number, number, number]> = {
-      forehead: [cx, cy - 50 * scaleY, 28 * scaleX],
-      nose: [cx, cy - 2 * scaleY, 18 * scaleX],
-      chin: [cx, cy + 50 * scaleY, 20 * scaleX],
-      rightCheek: [cx + 40 * scaleX, cy + 12 * scaleY, 25 * scaleX],
-      leftCheek: [cx - 40 * scaleX, cy + 12 * scaleY, 25 * scaleX],
-      rightEye: [cx + 25 * scaleX, cy - 23 * scaleY, 15 * scaleX],
-      leftEye: [cx - 25 * scaleX, cy - 23 * scaleY, 15 * scaleX],
-      lips: [cx, cy + 26 * scaleY, 18 * scaleX],
-      neck: [cx, cy + 82 * scaleY, 24 * scaleX]
-    };
-
-    let foundZone: string | null = null;
-    for (const [key, val] of Object.entries(zones)) {
-      if (Math.hypot(x - val[0], y - val[1]) < val[2]) {
-        foundZone = key;
-        break;
-      }
-    }
-
-    setMousePos({ x, y });
-    if (foundZone !== hoveredZone) {
-      setHoveredZone(foundZone);
-    }
-  };
-
 
   // ----------------------------------------------------
   // PROCEDURAL STEPS BUILDER & COMPATIBILITY
@@ -2678,10 +2483,7 @@ export default function App() {
     setSignatureValid(false);
     setCurrentSteps([]);
     setPrescriptionsList([]);
-    setActiveFacialZones({
-      forehead: false, nose: false, leftCheek: false, rightCheek: false, chin: false,
-      leftEye: false, rightEye: false, lips: false, neck: false
-    });
+    setActiveFacialZones(Object.fromEntries(Object.keys(FACIAL_ZONES).map(k => [k, false])));
   };
 
   // ----------------------------------------------------
@@ -5184,16 +4986,84 @@ export default function App() {
                 </div>
 
                 {/* Facial Canvas Map */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Notas Clínicas SOAP / Zonas Afectadas</label>
-                    <textarea ref={notesTextareaRef} value={patientForm.clinicalNotes} onChange={e => setPatientForm(prev => ({ ...prev, clinicalNotes: e.target.value }))} rows={8} placeholder="Diagnóstico de cabina y observaciones clínicas..." required className="smart-input w-full p-4 rounded-xl text-sm resize-none" />
-                  </div>
-                  
-                  <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Mapa Facial Clínico Interactivo</label>
-                    <div className="liquid-glass-light rounded-[24px] p-4 flex items-center justify-center border border-slate-200/50 dark:border-white/5 min-h-[220px]">
-                      <canvas ref={canvasRef} width={250} height={250} onClick={handleCanvasClick} onMouseMove={handleCanvasMouseMove} className="cursor-pointer max-w-full max-h-full" />
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Notas Clínicas SOAP / Zonas Afectadas</label>
+                  <textarea ref={notesTextareaRef} value={patientForm.clinicalNotes} onChange={e => setPatientForm(prev => ({ ...prev, clinicalNotes: e.target.value }))} rows={6} placeholder="Diagnóstico de cabina y observaciones clínicas..." required className="smart-input w-full p-4 rounded-xl text-sm resize-none" />
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Mapa Facial Clínico Interactivo</label>
+                  <div className="liquid-glass-light rounded-[24px] p-4 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4 border border-slate-200/50 dark:border-white/5 min-h-[220px]">
+                    <div className="flex items-center justify-center">
+                      <div
+                        className="relative w-full max-w-[260px] rounded-2xl overflow-hidden border border-slate-200/60 dark:border-white/10 bg-slate-100 dark:bg-white/5"
+                        style={{ aspectRatio: '912 / 1146' }}
+                        onMouseMove={e => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+                        }}
+                        onMouseLeave={() => setHoveredZone(null)}
+                      >
+                        <img
+                          src={`${import.meta.env.BASE_URL}mapa_facial_referencia.png?v=1`}
+                          alt="Mapa facial de referencia"
+                          onLoad={() => setIsBackdropLoaded(true)}
+                          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isBackdropLoaded ? 'opacity-100' : 'opacity-0'}`}
+                        />
+                        {!isBackdropLoaded && (
+                          <div className="absolute inset-0 flex items-center justify-center text-center px-4 text-[9px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest">
+                            Cargando mapa facial...
+                          </div>
+                        )}
+                        <svg viewBox="0 0 912 1146" className="absolute inset-0 w-full h-full">
+                          {Object.entries(FACIAL_ZONES).map(([key, zone]) => {
+                            const isActive = activeFacialZones[key];
+                            const isHovered = hoveredZone === key;
+                            return (
+                              <path
+                                key={key}
+                                d={zone.d}
+                                onClick={() => toggleFacialZone(key, zone.label)}
+                                onMouseEnter={() => setHoveredZone(key)}
+                                onMouseLeave={() => setHoveredZone(prev => (prev === key ? null : prev))}
+                                className="cursor-pointer transition-colors"
+                                fill={isActive ? 'rgba(212,175,55,0.16)' : isHovered ? 'rgba(212,175,55,0.08)' : 'rgba(212,175,55,0.01)'}
+                                stroke={isActive ? '#D4AF37' : isHovered ? 'rgba(212,175,55,0.85)' : 'rgba(212,175,55,0.35)'}
+                                strokeWidth={isActive ? 6.5 : 3.2}
+                              >
+                                <title>{zone.label}</title>
+                              </path>
+                            );
+                          })}
+                        </svg>
+                        {hoveredZone && FACIAL_ZONES[hoveredZone] && (
+                          <div
+                            className="absolute z-10 pointer-events-none px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wide text-white bg-black/85 border border-amber-400/70 whitespace-nowrap"
+                            style={{ left: mousePos.x, top: Math.max(mousePos.y - 28, 4), transform: 'translateX(-50%)' }}
+                          >
+                            {FACIAL_ZONES[hoveredZone].label}{activeFacialZones[hoveredZone] ? ' (ACTIVO)' : ''}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 content-start max-h-[280px] overflow-y-auto pr-1">
+                      {Object.entries(FACIAL_ZONES).map(([key, zone]) => {
+                        const isActive = activeFacialZones[key];
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => toggleFacialZone(key, zone.label)}
+                            onMouseEnter={() => setHoveredZone(key)}
+                            onMouseLeave={() => setHoveredZone(null)}
+                            title={zone.label}
+                            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-[10px] font-semibold border transition-colors ${isActive ? 'bg-amber-500/15 border-amber-500 text-amber-800 dark:text-amber-300' : 'bg-slate-50/50 dark:bg-white/5 border-slate-200/50 dark:border-white/5 text-slate-600 dark:text-luxe-300 hover:bg-amber-500/10 hover:border-amber-500/40'}`}
+                          >
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-amber-500' : 'bg-slate-300 dark:bg-white/20'}`} />
+                            <span className="truncate">{zone.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

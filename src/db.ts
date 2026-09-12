@@ -167,8 +167,8 @@ export async function executeBatch(statements: { sql: string; args?: any[] }[]):
 // propia lista de columnas ligeramente distinta — la importación masiva, por ejemplo, nunca escribía
 // product_type. Local primero (para que la app funcione sin conexión), remoto es best-effort.
 const PRODUCT_UPSERT_SQL_TABLE = (tbl: string) => `
-  INSERT INTO ${tbl} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO ${tbl} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
     sku = excluded.sku,
     name = excluded.name,
@@ -181,8 +181,23 @@ const PRODUCT_UPSERT_SQL_TABLE = (tbl: string) => `
     skin_biotypes = excluded.skin_biotypes,
     stock_quantity = excluded.stock_quantity,
     cost_price = excluded.cost_price,
-    reorder_point = excluded.reorder_point
+    reorder_point = excluded.reorder_point,
+    updated_at = excluded.updated_at
 `;
+
+// updated_at se estampa aquí (una sola vez, no en cada llamador) para que el mismo valor viaje
+// idéntico al registro local (Dexie) y al remoto (Turso): así bootstrapSystem puede comparar
+// "¿quién es más nuevo?" en vez de asumir siempre que el remoto gana, que era lo que borraba
+// ediciones locales (tipo/formato, precio, stock) cuando el push remoto de una sesión anterior
+// había fallado silenciosamente y el pull de la sesión siguiente traía el dato remoto viejo.
+// Solo estampa si el producto no trae ya un updatedAt: una edición real (formulario, importación)
+// nunca lo trae, así que se estampa con el momento del cambio. Un simple re-empuje de sincronización
+// (bootstrap reintentando subir lo que ya hay en Dexie) sí lo trae, y debe conservarlo tal cual —
+// si lo reestampáramos con "ahora" en cada arranque, perderíamos la fecha real de la última edición
+// y la comparación del pull ya no podría distinguir "esto es más nuevo" de "esto solo se reenvió".
+function stampProduct(product: Product): Product {
+  return product.updatedAt ? product : { ...product, updatedAt: new Date().toISOString() };
+}
 
 function productUpsertArgs(product: Product): any[] {
   return [
@@ -198,17 +213,19 @@ function productUpsertArgs(product: Product): any[] {
     product.skinBiotypes || '[]',
     product.stockQuantity ?? null,
     product.costPrice ?? null,
-    product.reorderPoint ?? null
+    product.reorderPoint ?? null,
+    product.updatedAt || new Date().toISOString()
   ];
 }
 
 export async function saveProduct(product: Product): Promise<void> {
-  await db.products.put(product);
+  const stamped = stampProduct(product);
+  await db.products.put(stamped);
 
   if (!navigator.onLine) return;
   try {
     const tblProducts = getTableName('products');
-    await executeQuery(PRODUCT_UPSERT_SQL_TABLE(tblProducts), productUpsertArgs(product));
+    await executeQuery(PRODUCT_UPSERT_SQL_TABLE(tblProducts), productUpsertArgs(stamped));
   } catch (remoteErr) {
     console.warn('Fallo temporal al guardar producto en Turso, guardado local completado:', remoteErr);
   }
@@ -217,14 +234,15 @@ export async function saveProduct(product: Product): Promise<void> {
 // Variante en lote para importaciones masivas: un solo request agrupado en vez de N idas y vueltas
 // de red secuenciales (el mismo problema de rendimiento que ya se corrigió en la sincronización).
 export async function saveProducts(products: Product[]): Promise<void> {
-  for (const p of products) {
+  const stamped = products.map(stampProduct);
+  for (const p of stamped) {
     await db.products.put(p);
   }
 
-  if (!navigator.onLine || products.length === 0) return;
+  if (!navigator.onLine || stamped.length === 0) return;
   try {
     const tblProducts = getTableName('products');
-    await executeBatch(products.map(p => ({ sql: PRODUCT_UPSERT_SQL_TABLE(tblProducts), args: productUpsertArgs(p) })));
+    await executeBatch(stamped.map(p => ({ sql: PRODUCT_UPSERT_SQL_TABLE(tblProducts), args: productUpsertArgs(p) })));
   } catch (remoteErr) {
     console.warn('Fallo temporal al guardar productos en Turso, guardado local completado:', remoteErr);
   }
@@ -625,6 +643,7 @@ async function seedTablesImpl(): Promise<void> {
         { sql: `ALTER TABLE ${tblProducts} ADD COLUMN stock_quantity INTEGER DEFAULT 10` },
         { sql: `ALTER TABLE ${tblProducts} ADD COLUMN cost_price REAL DEFAULT 0` },
         { sql: `ALTER TABLE ${tblProducts} ADD COLUMN reorder_point INTEGER DEFAULT 3` },
+        { sql: `ALTER TABLE ${tblProducts} ADD COLUMN updated_at TEXT` },
         { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN before_image_url TEXT` },
         { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN after_image_url TEXT` },
         { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN consent_accepted INTEGER DEFAULT 0` },
