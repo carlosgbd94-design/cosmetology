@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { decryptData, sha256 } from './crypto';
@@ -25,6 +25,22 @@ import { isTouchPrimaryDevice, getOrCreateDeviceId } from './deviceUtils';
 // useEffects de autoguardado/restauración cerca de resetPatientForm). Persiste solo en este
 // dispositivo/navegador; no viaja a Turso.
 const FICHA_DRAFT_KEY = 'dermatique_ficha_draft_v1';
+
+// Clave de localStorage para los tipos de producto/formato agregados a mano desde el formulario de
+// catálogo ("+ Agregar 'X'"). Se guardan aquí de inmediato (independiente de si el producto que los
+// usó se llegó a guardar, editar o borrar) y se sincronizan best-effort a Turso vía
+// fetchCustomProductTypes/saveCustomProductType para que aparezcan también en otros dispositivos.
+const CUSTOM_PRODUCT_TYPES_KEY = 'dermatique_custom_product_types_v1';
+
+function loadCustomProductTypesFromStorage(): string[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRODUCT_TYPES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string' && t.trim().length > 0) : [];
+  } catch (e) {
+    return [];
+  }
+}
 
 const FASE_CATEGORY_MAPPING: Record<string, string[]> = {
   "Limpieza": ["Limpiador"],
@@ -125,13 +141,14 @@ interface SuggestFieldProps {
   emptyLabel?: string;
   addNewLabel?: string;
   inputClassName?: string;
+  onAddNew?: (val: string) => void;
 }
 
 // Combobox genérico reutilizable: texto libre + desplegable filtrado con lo ya capturado en la
 // base + opción de "agregar nuevo". Generalizado a partir del selector de Tipo/Formato de
 // producto (único caso original) para no duplicar esta misma lógica de dropdown en cada campo
 // de texto libre que se repite entre fichas (marca, protocolo, alergias, condiciones médicas...).
-function SuggestField({ label, value, onChange, options, placeholder, required, hint, emptyLabel, addNewLabel, inputClassName }: SuggestFieldProps) {
+function SuggestField({ label, value, onChange, options, placeholder, required, hint, emptyLabel, addNewLabel, inputClassName, onAddNew }: SuggestFieldProps) {
   const [search, setSearch] = useState(value || '');
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -227,6 +244,7 @@ function SuggestField({ label, value, onChange, options, placeholder, required, 
                 onChange(newVal);
                 setSearch(newVal);
                 setIsOpen(false);
+                onAddNew?.(newVal);
               }}
               className="p-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold text-xs cursor-pointer flex items-center gap-2 transition-colors border-t border-amber-500/30"
             >
@@ -723,6 +741,26 @@ export default function App() {
   const brandContainerRef = useRef<HTMLDivElement | null>(null);
   const presContainerRef = useRef<HTMLDivElement | null>(null);
 
+  const [customProductTypes, setCustomProductTypes] = useState<string[]>(() => loadCustomProductTypesFromStorage());
+
+  // Persiste un tipo de producto/formato nuevo de inmediato (localStorage + Turso best-effort), sin
+  // esperar a que el usuario termine de llenar y guardar el resto del formulario de producto.
+  const handleAddCustomProductType = useCallback((type: string) => {
+    const trimmed = type.trim();
+    if (!trimmed) return;
+    setCustomProductTypes(prev => {
+      if (prev.some(t => t.toLowerCase() === trimmed.toLowerCase()) || DEFAULT_PRODUCT_TYPES.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+        return prev;
+      }
+      const next = [...prev, trimmed];
+      try {
+        localStorage.setItem(CUSTOM_PRODUCT_TYPES_KEY, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+    saveCustomProductType(trimmed);
+  }, []);
+
   const allCapturedProductTypes = useMemo(() => {
     const typeSet = new Set<string>(DEFAULT_PRODUCT_TYPES);
     products.forEach(p => {
@@ -731,8 +769,9 @@ export default function App() {
         typeSet.add(t.trim());
       }
     });
+    customProductTypes.forEach(t => typeSet.add(t));
     return Array.from(typeSet).sort();
-  }, [products]);
+  }, [products, customProductTypes]);
 
   const allCapturedBrands = useMemo(() => {
     const brandSet = new Set<string>();
@@ -1237,6 +1276,25 @@ export default function App() {
     // Load local products
     const pList = await db.products.toArray();
     setProducts(pList);
+
+    // Fusionar tipos de producto/formato agregados desde otros dispositivos (Turso) con los ya
+    // guardados en este navegador, sin descartar ninguno de los dos.
+    if (navigator.onLine) {
+      try {
+        const remoteTypes = await fetchCustomProductTypes();
+        if (remoteTypes.length > 0) {
+          setCustomProductTypes(prev => {
+            const merged = new Set(prev);
+            remoteTypes.forEach(t => merged.add(t));
+            const next = Array.from(merged);
+            try {
+              localStorage.setItem(CUSTOM_PRODUCT_TYPES_KEY, JSON.stringify(next));
+            } catch (e) {}
+            return next;
+          });
+        }
+      } catch (e) {}
+    }
 
     // Load ingredients robustly supporting both JSON and text formats
     const resolvedIngredients: { name: string; action: string }[] = [];
@@ -2688,15 +2746,17 @@ export default function App() {
     setIsProductFormOpen(true);
     setIsEditProduct(true);
     
+    // parseStringList en vez de JSON.parse crudo: si activeIngredients/physiologicalActions no es
+    // JSON válido (dato legado o corrupto), JSON.parse lanzaba y el catch vacío dejaba parsedActives
+    // en []. Al reeditar y volver a guardar ese producto, handleSaveProduct tomaba esa lista vacía
+    // y sobrescribía los activos/acciones reales con "[]", perdiéndolos permanentemente.
     let parsedActives: { name: string; action: string }[] = [];
-    try {
-      const actives = JSON.parse(p.activeIngredients) as string[];
-      const actions = JSON.parse(p.physiologicalActions) as string[];
-      actives.forEach((act, idx) => {
-        parsedActives.push({ name: act, action: actions[idx] || '' });
-      });
-    } catch(e) {}
-    
+    const actives = parseStringList(p.activeIngredients);
+    const actions = parseStringList(p.physiologicalActions);
+    actives.forEach((act, idx) => {
+      parsedActives.push({ name: act, action: actions[idx] || '' });
+    });
+
     setProductForm({
       id: p.id,
       sku: p.sku,
@@ -2760,13 +2820,19 @@ export default function App() {
         }
       });
 
-      const updated: Product = { ...p, activeIngredients: JSON.stringify(nextActives), physiologicalActions: JSON.stringify(nextActions) };
+      // updatedAt se reestampa aquí a propósito (a diferencia de un simple `db.products.put`):
+      // bootstrapSystem compara updatedAt local vs. remoto para decidir si un pull puede pisar el
+      // registro local. Sin este reestampado, un rename/eliminación de activo hecho aquí quedaba con
+      // el updatedAt viejo del producto, así que si el UPDATE remoto de abajo fallaba (offline, red
+      // inestable), el siguiente arranque veía "misma fecha" en local y remoto y el pull sobreescribía
+      // el cambio recién hecho con los activos/acciones remotos desactualizados.
+      const updated: Product = { ...p, activeIngredients: JSON.stringify(nextActives), physiologicalActions: JSON.stringify(nextActions), updatedAt: new Date().toISOString() };
       await db.products.put(updated);
       if (navigator.onLine) {
         try {
           await executeQuery(
-            `UPDATE ${tblProducts} SET active_ingredients = ?, physiological_actions = ? WHERE id = ?`,
-            [updated.activeIngredients, updated.physiologicalActions, updated.id]
+            `UPDATE ${tblProducts} SET active_ingredients = ?, physiological_actions = ?, updated_at = ? WHERE id = ?`,
+            [updated.activeIngredients, updated.physiologicalActions, updated.updatedAt, updated.id]
           );
         } catch (e) {
           console.warn('Fallo temporal al sincronizar activo actualizado en Turso para el producto', p.id, e);
@@ -6184,6 +6250,7 @@ export default function App() {
                       hint="Desplegable & Autocompletado"
                       emptyLabel="Tipos / Formatos Registrados"
                       addNewLabel="Agregar"
+                      onAddNew={handleAddCustomProductType}
                     />
 
                     {/* Position 2: Nombre Comercial */}

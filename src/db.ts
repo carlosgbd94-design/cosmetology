@@ -218,6 +218,33 @@ function productUpsertArgs(product: Product): any[] {
   ];
 }
 
+// Catálogo de "Tipo de Producto / Formato": antes un tipo nuevo escrito en el formulario solo
+// vivía dentro del producto que lo usaba (se derivaba de `products` en memoria), así que si ese
+// producto se borraba, se editaba a otro tipo, o el usuario cancelaba el formulario sin guardar,
+// el tipo "agregado" desaparecía del desplegable como si nunca hubiera existido. Esta tabla lo
+// guarda como entidad propia, independiente de qué productos existan.
+export async function fetchCustomProductTypes(): Promise<string[]> {
+  if (!navigator.onLine) return [];
+  try {
+    const tbl = getTableName('product_types');
+    const res = await executeQuery(`SELECT name FROM ${tbl} ORDER BY name`);
+    return (res.rows || []).map((r: any) => String(r.name)).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function saveCustomProductType(name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed || !navigator.onLine) return;
+  try {
+    const tbl = getTableName('product_types');
+    await executeQuery(`INSERT OR IGNORE INTO ${tbl} (name) VALUES (?)`, [trimmed]);
+  } catch (e) {
+    console.warn('Fallo temporal al guardar tipo de producto en Turso, guardado local completado:', e);
+  }
+}
+
 export async function saveProduct(product: Product): Promise<void> {
   const stamped = stampProduct(product);
   await db.products.put(stamped);
@@ -450,6 +477,7 @@ async function seedTablesImpl(): Promise<void> {
     const tblConsultations = getTableName('consultations');
     const tblSteps = getTableName('consultation_steps');
     const tblPrescriptions = getTableName('prescriptions');
+    const tblProductTypes = getTableName('product_types');
 
     // 1. Setup tables (Isolated per License Key or Master) — un solo request en lote en vez de
     // 6 idas y vueltas de red secuenciales, para que la app no se quede colgada en "Sincronizando...".
@@ -538,6 +566,12 @@ async function seedTablesImpl(): Promise<void> {
           custom_brand TEXT,
           custom_active_ingredients TEXT,
           custom_actions TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+      ` },
+      { sql: `
+        CREATE TABLE IF NOT EXISTS ${tblProductTypes} (
+          name TEXT PRIMARY KEY,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
       ` }
