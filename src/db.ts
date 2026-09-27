@@ -245,33 +245,43 @@ export async function saveCustomProductType(name: string): Promise<void> {
   }
 }
 
-export async function saveProduct(product: Product): Promise<void> {
+// Devuelve si el producto quedó también sincronizado en Turso (true) o si por ahora solo vive en
+// Dexie -offline o error de red- (false). Antes esto era un `Promise<void>` que tragaba el error
+// remoto en silencio: la UI mostraba "guardado exitosamente" aunque el cambio nunca saliera de este
+// dispositivo, y si Dexie se perdía (caché borrada, otro dispositivo/navegador) antes de que algo
+// reintentara ese push, el catálogo remoto se quedaba con el valor viejo — el reporte recurrente de
+// "los cambios del catálogo no se guardan". El valor de retorno deja que la UI avise cuándo pasó esto.
+export async function saveProduct(product: Product): Promise<boolean> {
   const stamped = stampProduct(product);
   await db.products.put(stamped);
 
-  if (!navigator.onLine) return;
+  if (!navigator.onLine) return false;
   try {
     const tblProducts = getTableName('products');
     await executeQuery(PRODUCT_UPSERT_SQL_TABLE(tblProducts), productUpsertArgs(stamped));
+    return true;
   } catch (remoteErr) {
     console.warn('Fallo temporal al guardar producto en Turso, guardado local completado:', remoteErr);
+    return false;
   }
 }
 
 // Variante en lote para importaciones masivas: un solo request agrupado en vez de N idas y vueltas
 // de red secuenciales (el mismo problema de rendimiento que ya se corrigió en la sincronización).
-export async function saveProducts(products: Product[]): Promise<void> {
+export async function saveProducts(products: Product[]): Promise<boolean> {
   const stamped = products.map(stampProduct);
   for (const p of stamped) {
     await db.products.put(p);
   }
 
-  if (!navigator.onLine || stamped.length === 0) return;
+  if (!navigator.onLine || stamped.length === 0) return false;
   try {
     const tblProducts = getTableName('products');
     await executeBatch(stamped.map(p => ({ sql: PRODUCT_UPSERT_SQL_TABLE(tblProducts), args: productUpsertArgs(p) })));
+    return true;
   } catch (remoteErr) {
     console.warn('Fallo temporal al guardar productos en Turso, guardado local completado:', remoteErr);
+    return false;
   }
 }
 

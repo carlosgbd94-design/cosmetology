@@ -1038,18 +1038,29 @@ export default function App() {
     }
   }, [isLogged]);
 
-  // Sync state between network status
+  // Sync state between network status. Reconectar solo actualizaba la etiqueta ("Local" -> "En
+  // línea") pero nunca volvía a intentar subir lo editado mientras estuvo offline: si el
+  // especialista guardaba un producto (u otro dato) con wifi caído/inestable, saveProduct lo
+  // dejaba solo en Dexie (local) para siempre, porque el único lugar que reintenta ese push
+  // (bootstrapSystem) solo corre al iniciar sesión o reactivar la licencia. En la práctica, esto
+  // es exactamente el reporte recurrente de "el catálogo no guarda los cambios": el usuario los ve
+  // guardados en su dispositivo (Dexie), pero nunca llegan a Turso, así que otra sesión/dispositivo
+  // (o el mismo tras limpiar caché) los ve revertidos. Al reconectar, se reintenta el bootstrap
+  // completo (empuja lo local pendiente y luego hala remoto) para que la reconexión realmente
+  // resincronice, no solo cambie el texto del indicador.
   useEffect(() => {
-    const handleStatus = () => {
-      setSyncStatus(navigator.onLine ? 'online' : 'local');
+    const handleOffline = () => setSyncStatus('local');
+    const handleOnline = () => {
+      setSyncStatus('online');
+      if (isLogged) bootstrapSystem();
     };
-    window.addEventListener('online', handleStatus);
-    window.addEventListener('offline', handleStatus);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     return () => {
-      window.removeEventListener('online', handleStatus);
-      window.removeEventListener('offline', handleStatus);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [isLogged]);
 
   // Listener para cerrar listas desplegables al presionar Escape o hacer clic fuera
   useEffect(() => {
@@ -2902,15 +2913,25 @@ export default function App() {
       reorderPoint: productForm.reorderPoint.trim() ? parseInt(productForm.reorderPoint, 10) : undefined
     };
 
+    let syncedRemotely = false;
     try {
-      await saveProduct(newProd);
+      syncedRemotely = await saveProduct(newProd);
     } catch (localErr) {
       console.error("Error al guardar producto localmente:", localErr);
       showToastMsg('Error al guardar el producto localmente.', 'error');
       return;
     }
 
-    showToastMsg('Producto guardado exitosamente en catálogo.', 'success');
+    // Si no se pudo sincronizar (sin conexión o error remoto), el cambio SÍ quedó guardado en este
+    // dispositivo, pero avisamos para que no se confíen en que ya está en la nube: de lo contrario
+    // el especialista cree que terminó, y si este navegador se limpia o usan otro dispositivo antes
+    // de reconectar, el cambio desaparece sin que nadie lo note (el reporte recurrente de "el
+    // catálogo no guarda los cambios").
+    if (syncedRemotely) {
+      showToastMsg('Producto guardado y sincronizado en el catálogo.', 'success');
+    } else {
+      showToastMsg('Producto guardado en este dispositivo. Sin conexión con el servidor: se sincronizará automáticamente al reconectar.', 'info');
+    }
     setIsProductFormOpen(false);
     setFormIngredientInput('');
     setFormIngredientAction('');
@@ -4518,8 +4539,13 @@ export default function App() {
     const toImport = uploadPreview.filter(p => !uploadPreviewExcludedIds[p.id]);
     if (toImport.length === 0) return;
     try {
-      await saveProducts(toImport);
-      showToastMsg(`${toImport.length} productos importados y sincronizados con éxito.`, 'success');
+      const syncedRemotely = await saveProducts(toImport);
+      showToastMsg(
+        syncedRemotely
+          ? `${toImport.length} productos importados y sincronizados con éxito.`
+          : `${toImport.length} productos importados en este dispositivo. Sin conexión con el servidor: se sincronizarán al reconectar.`,
+        syncedRemotely ? 'success' : 'info'
+      );
       setUploadPreview([]);
       setUploadPreviewExcludedIds({});
       loadMasterCatalogs();
