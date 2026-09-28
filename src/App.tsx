@@ -1320,7 +1320,13 @@ export default function App() {
 
       actives.forEach((act, idx) => {
         const actName = act.trim();
-        const actAction = (actions[idx] || actions[0] || '').trim();
+        // Antes caía a actions[0] cuando el producto tenía menos acciones que activos (común en
+        // catálogo importado: una sola descripción general para varios ingredientes). Eso le pegaba
+        // la acción del PRIMER ingrediente a todos los demás del mismo producto en este autocompletado
+        // global, así que buscar un activo (p. ej. "Saponaria") sugería la acción de otro ingrediente
+        // no relacionado en vez de la que el usuario realmente ligó — parecía que la edición se había
+        // perdido. Sin match exacto por índice, mejor dejarlo vacío que inventar una acción incorrecta.
+        const actAction = (actions[idx] || '').trim();
         if (!actName) return;
 
         const existingIdx = resolvedIngredients.findIndex(ri => ri.name.toLowerCase() === actName.toLowerCase());
