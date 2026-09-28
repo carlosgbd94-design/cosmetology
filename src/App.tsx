@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType, syncProductsWithRemote } from './db';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { decryptData, sha256 } from './crypto';
@@ -1114,57 +1114,10 @@ export default function App() {
           const tblPrescriptions = getTableName('prescriptions');
 
           // 1. Sync products
-          // Empuja primero los productos locales (upsert, en lotes) antes de halar el remoto: así,
-          // si una edición previa (Tipo de Producto/Formato, Precio Público, Costo de Adquisición)
-          // se guardó localmente pero el push a Turso falló en su momento (offline o error de red),
-          // este reintento la sube antes de que el pull de abajo pueda pisarla con el valor remoto
-          // desactualizado.
-          const localProdsBeforePull = await db.products.toArray();
-          const pushChunkSize = 50;
-          for (let i = 0; i < localProdsBeforePull.length; i += pushChunkSize) {
-            const chunk = localProdsBeforePull.slice(i, i + pushChunkSize);
-            try {
-              await saveProducts(chunk);
-            } catch (batchErr) {
-              console.warn('Fallo al sincronizar lote de productos locales hacia remoto:', batchErr);
-            }
-          }
-
-          // Pull remoto -> local. Debe traer TODAS las columnas editables del catálogo (antes se
-          // omitían product_type, stock_quantity, cost_price y reorder_point, así que cada arranque
-          // con conexión borraba esos campos en Dexie porque `put` reemplaza el registro completo).
-          //
-          // Antes de sobrescribir, se compara updated_at contra el registro local: si el push de una
-          // sesión anterior falló silenciosamente (red inestable), el remoto queda con datos viejos y,
-          // sin esta comparación, este pull los volvía a pisar sobre la edición local más reciente —
-          // exactamente el bug reportado de "los cambios del catálogo no se mantienen entre sesiones".
-          const resProds = await executeQuery(`SELECT id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point, updated_at FROM ${tblProducts}`);
-          if (resProds && resProds.rows) {
-            for (const r of resProds.rows) {
-              const localRecord = await db.products.get(r.id);
-              const remoteUpdatedAt = r.updated_at ? new Date(r.updated_at).getTime() : 0;
-              const localUpdatedAt = localRecord?.updatedAt ? new Date(localRecord.updatedAt).getTime() : 0;
-              if (localRecord && localUpdatedAt > remoteUpdatedAt) {
-                continue; // Lo local es más reciente que lo que hay en el remoto: no lo pisamos.
-              }
-              await db.products.put({
-                id: r.id,
-                sku: r.sku,
-                name: r.name,
-                brandLine: r.brand_line,
-                productType: r.product_type || undefined,
-                activeIngredients: r.active_ingredients,
-                physiologicalActions: r.physiological_actions,
-                retailPrice: Number(r.retail_price),
-                isProfessionalUse: Number(r.is_professional_use),
-                skinBiotypes: r.skin_biotypes || '[]',
-                stockQuantity: r.stock_quantity !== null && r.stock_quantity !== undefined ? Number(r.stock_quantity) : undefined,
-                costPrice: r.cost_price !== null && r.cost_price !== undefined ? Number(r.cost_price) : undefined,
-                reorderPoint: r.reorder_point !== null && r.reorder_point !== undefined ? Number(r.reorder_point) : undefined,
-                updatedAt: r.updated_at || undefined
-              });
-            }
-          }
+          // Sincroniza el catálogo comparando fechas (gana el más reciente en ambos sentidos). Ver
+          // syncProductsWithRemote en db.ts: antes se empujaba TODO lo local al servidor sin comparar,
+          // y una copia vieja en otro navegador/dispositivo pisaba las ediciones ya hechas.
+          await syncProductsWithRemote();
 
           // 2. Sync patients
           const resPatients = await executeQuery(`SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at, deleted_at FROM ${tblPatients}`);

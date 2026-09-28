@@ -166,7 +166,11 @@ export async function executeBatch(statements: { sql: string; args?: any[] }[]):
 // duplicada en varios sitios de App.tsx (alta/edición manual, importación masiva), cada una con su
 // propia lista de columnas ligeramente distinta — la importación masiva, por ejemplo, nunca escribía
 // product_type. Local primero (para que la app funcione sin conexión), remoto es best-effort.
-const PRODUCT_UPSERT_SQL_TABLE = (tbl: string) => `
+// `onlyIfNewer`: para empujes de sincronización en segundo plano. El UPDATE solo se aplica si lo que
+// se envía es MÁS NUEVO que lo que ya hay en el servidor, así una copia vieja nunca pisa una edición
+// más reciente hecha desde otro dispositivo/navegador. Las ediciones explícitas del usuario
+// (formulario, importación) usan el upsert incondicional: lo que acaba de guardar debe ganar.
+const PRODUCT_UPSERT_SQL_TABLE = (tbl: string, onlyIfNewer = false) => `
   INSERT INTO ${tbl} (id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point, updated_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   ON CONFLICT(id) DO UPDATE SET
@@ -183,6 +187,7 @@ const PRODUCT_UPSERT_SQL_TABLE = (tbl: string) => `
     cost_price = excluded.cost_price,
     reorder_point = excluded.reorder_point,
     updated_at = excluded.updated_at
+  ${onlyIfNewer ? `WHERE excluded.updated_at > COALESCE(${tbl}.updated_at, '')` : ''}
 `;
 
 // updated_at se estampa aquí (una sola vez, no en cada llamador) para que el mismo valor viaje
@@ -282,6 +287,82 @@ export async function saveProducts(products: Product[]): Promise<boolean> {
   } catch (remoteErr) {
     console.warn('Fallo temporal al guardar productos en Turso, guardado local completado:', remoteErr);
     return false;
+  }
+}
+
+function timestampOf(value?: string | null): number {
+  if (!value) return 0;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+// Sincronización bidireccional del catálogo al iniciar la app: gana SIEMPRE el más reciente
+// (por updatedAt / updated_at), en ambos sentidos.
+//
+// Antes, bootstrapSystem primero EMPUJABA todo el catálogo local al servidor con un upsert
+// incondicional -y estampando "ahora" a los productos sin fecha- y solo después halaba el remoto.
+// Con dos navegadores/dispositivos (o cualquier copia local vieja) eso destruía las ediciones:
+// el equipo con la copia vieja, al abrir la app, sobrescribía en el servidor el SKU, nombre, tipo,
+// activos, etc. ya editados desde el otro, dejándolos con la fecha más nueva; el equipo que sí había
+// editado los recibía de vuelta en su siguiente arranque. Resultado: "editas, cierras el navegador,
+// vuelves a entrar y regresan los parámetros originales" (solo en productos ya existentes; los
+// nuevos no tienen una copia vieja que los pise).
+//
+// Ahora: solo se sube un producto local si (a) no existe en el servidor (creado sin conexión) o
+// (b) tiene un updatedAt real MÁS NUEVO que el del servidor. Un producto sin updatedAt propio
+// nunca se considera "más nuevo": se queda con lo que diga el servidor.
+export async function syncProductsWithRemote(): Promise<void> {
+  const tblProducts = getTableName('products');
+  const remote = await executeQuery(
+    `SELECT id, sku, name, brand_line, product_type, active_ingredients, physiological_actions, retail_price, is_professional_use, skin_biotypes, stock_quantity, cost_price, reorder_point, updated_at FROM ${tblProducts}`
+  );
+  const remoteRows: any[] = remote.rows || [];
+  const remoteById = new Map<string, any>(remoteRows.map(r => [r.id, r]));
+  const localProducts = await db.products.toArray();
+  const localById = new Map<string, Product>(localProducts.map(p => [p.id, p]));
+
+  const toPush: Product[] = [];
+  for (const p of localProducts) {
+    const r = remoteById.get(p.id);
+    if (!r) {
+      toPush.push(stampProduct(p));
+    } else if (timestampOf(p.updatedAt) > timestampOf(r.updated_at)) {
+      toPush.push(p);
+    }
+  }
+
+  const chunkSize = 50;
+  for (let i = 0; i < toPush.length; i += chunkSize) {
+    const chunk = toPush.slice(i, i + chunkSize);
+    try {
+      await executeBatch(chunk.map(p => ({ sql: PRODUCT_UPSERT_SQL_TABLE(tblProducts, true), args: productUpsertArgs(p) })));
+      for (const p of chunk) {
+        if (p.updatedAt && localById.get(p.id)?.updatedAt !== p.updatedAt) await db.products.put(p);
+      }
+    } catch (batchErr) {
+      console.warn('Fallo al subir cambios pendientes del catálogo; se reintentará en la próxima sincronización:', batchErr);
+    }
+  }
+
+  for (const r of remoteRows) {
+    const local = localById.get(r.id);
+    if (local && timestampOf(local.updatedAt) > timestampOf(r.updated_at)) continue; // lo local es más nuevo
+    await db.products.put({
+      id: r.id,
+      sku: r.sku,
+      name: r.name,
+      brandLine: r.brand_line,
+      productType: r.product_type || undefined,
+      activeIngredients: r.active_ingredients,
+      physiologicalActions: r.physiological_actions,
+      retailPrice: Number(r.retail_price),
+      isProfessionalUse: Number(r.is_professional_use),
+      skinBiotypes: r.skin_biotypes || '[]',
+      stockQuantity: r.stock_quantity !== null && r.stock_quantity !== undefined ? Number(r.stock_quantity) : undefined,
+      costPrice: r.cost_price !== null && r.cost_price !== undefined ? Number(r.cost_price) : undefined,
+      reorderPoint: r.reorder_point !== null && r.reorder_point !== undefined ? Number(r.reorder_point) : undefined,
+      updatedAt: r.updated_at || undefined
+    });
   }
 }
 
@@ -808,7 +889,17 @@ async function seedTablesImpl(): Promise<void> {
 }
 
 // Automatic recovery of legacy user products and data from previous IndexedDB databases
+//
+// Es una migración de UNA sola vez y NUNCA pisa datos actuales. Antes corría en cada arranque y
+// hacía `put` incondicional: cualquier base legada que siguiera en el navegador volvía a meter sus
+// productos viejos encima de los actuales (mismo id) en cada apertura, revirtiendo ediciones.
+const LEGACY_RESTORE_FLAG = 'dermatique_legacy_restore_done_v1';
+
 export async function restoreLegacyIndexedDBData(): Promise<void> {
+  try {
+    if (localStorage.getItem(LEGACY_RESTORE_FLAG)) return;
+  } catch (e) {}
+
   const legacyDBNames = [
     'DermatiqueClinicalDB_v6',
     'DermatiqueClinicalDB_v5',
@@ -831,6 +922,7 @@ export async function restoreLegacyIndexedDBData(): Promise<void> {
         if (oldDb.tables.some(t => t.name === 'products')) {
           const oldProducts = await oldDb.table('products').toArray();
           for (const prod of oldProducts) {
+            if (await db.products.get(prod.id)) continue; // nunca pisar un producto actual
             await db.products.put(prod);
             if (navigator.onLine) {
               try {
@@ -848,6 +940,7 @@ export async function restoreLegacyIndexedDBData(): Promise<void> {
         if (oldDb.tables.some(t => t.name === 'patients')) {
           const oldPatients = await oldDb.table('patients').toArray();
           for (const pat of oldPatients) {
+            if (await db.patients.get(pat.id)) continue;
             await db.patients.put(pat);
           }
         }
@@ -857,6 +950,9 @@ export async function restoreLegacyIndexedDBData(): Promise<void> {
       console.warn(`Attempt to restore from legacy DB ${dbName} skipped:`, e);
     }
   }
+  try {
+    localStorage.setItem(LEGACY_RESTORE_FLAG, String(Date.now()));
+  } catch (e) {}
 }
 
 // --- Puente de fotos celular -> PC ---
