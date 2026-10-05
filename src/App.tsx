@@ -26,6 +26,26 @@ import { isTouchPrimaryDevice, getOrCreateDeviceId } from './deviceUtils';
 // dispositivo/navegador; no viaja a Turso.
 const FICHA_DRAFT_KEY = 'dermatique_ficha_draft_v1';
 
+// ISO -> 'YYYY-MM-DD' en hora local (lo que espera <input type="date">).
+const toLocalDateInput = (iso?: string): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Fecha elegida en el formulario -> ISO a guardar. Si no se cambió el día de una consulta
+// existente se conserva su ISO original (con su hora); si se cambió, se usa esa fecha con la hora
+// actual para mantener el orden cronológico dentro del día. Vacío = ahora.
+const resolveVisitDate = (picked: string, originalIso?: string): string => {
+  if (!picked) return originalIso || new Date().toISOString();
+  if (originalIso && toLocalDateInput(originalIso) === picked) return originalIso;
+  const [y, m, d] = picked.split('-').map(Number);
+  if (!y || !m || !d) return originalIso || new Date().toISOString();
+  const now = new Date();
+  return new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds()).toISOString();
+};
+
 // Clave de localStorage para los tipos de producto/formato agregados a mano desde el formulario de
 // catálogo ("+ Agregar 'X'"). Se guardan aquí de inmediato (independiente de si el producto que los
 // usó se llegó a guardar, editar o borrar) y se sincronizan best-effort a Turso vía
@@ -540,7 +560,9 @@ export default function App() {
     consentAccepted: false,
     beforeImageUrl: '',
     afterImageUrl: '',
-    signatureData: ''
+    signatureData: '',
+    // Fecha de la sesión (YYYY-MM-DD, hora local). Vacía = hoy al guardar una consulta nueva.
+    visitDate: ''
   });
 
   // Autoguardado local de la Ficha en curso (ver useEffects más abajo, cerca de resetPatientForm):
@@ -2009,7 +2031,7 @@ export default function App() {
         id: consultationId,
         patientId,
         providerId: 'clinica_dermatique',
-        visitDate: new Date().toISOString(),
+        visitDate: resolveVisitDate(patientForm.visitDate, records.find(r => r.id === consultationId)?.visitDate),
         skinBiotype: patientForm.skinBiotype || 'Mixta',
         fitzpatrickScale: patientForm.fitzpatrickScale,
         skinConditions: patientForm.skinConditions,
@@ -2148,6 +2170,7 @@ export default function App() {
       medicalConditions: latestConsultation ? (latestConsultation.medicalConditions || '') : '',
       clinicalNotes: '',
       state: 'Borrador',
+      visitDate: '',
       surgicalHistory: anam ? (anam.surgicalHistory || '') : '',
       allergiesCosmetics: anam ? (anam.allergiesCosmetics || '[]') : '[]',
       currentMedications: anam ? (anam.currentMedications || '[]') : '[]',
@@ -2506,7 +2529,8 @@ export default function App() {
       consentAccepted: false,
       beforeImageUrl: '',
       afterImageUrl: '',
-      signatureData: ''
+      signatureData: '',
+      visitDate: ''
     });
     setSignatureValid(false);
     setCurrentSteps([]);
@@ -2618,7 +2642,8 @@ export default function App() {
       consentAccepted: c.consentAccepted || false,
       beforeImageUrl: c.beforeImageUrl || '',
       afterImageUrl: c.afterImageUrl || '',
-      signatureData: c.signatureData || ''
+      signatureData: c.signatureData || '',
+      visitDate: toLocalDateInput(c.visitDate)
     });
     setSignatureValid(!!c.signatureData);
 
@@ -4810,7 +4835,7 @@ export default function App() {
                 </div>
 
                 {/* Paciente */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Primer Nombre</label>
                     <input type="text" value={patientForm.firstName} onChange={e => setPatientForm(prev => ({ ...prev, firstName: e.target.value }))} required placeholder="Nombre..." className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
@@ -4822,6 +4847,10 @@ export default function App() {
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Fecha de Nacimiento</label>
                     <input type="date" value={patientForm.dateOfBirth} onChange={e => setPatientForm(prev => ({ ...prev, dateOfBirth: e.target.value }))} className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Fecha de Sesión</label>
+                    <input type="date" value={patientForm.visitDate} max="9999-12-31" onChange={e => setPatientForm(prev => ({ ...prev, visitDate: e.target.value }))} className="smart-input w-full px-4 py-3 rounded-xl text-sm" />
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-luxe-400 uppercase tracking-widest ml-1">Teléfono</label>
