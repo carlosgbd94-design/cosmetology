@@ -250,6 +250,72 @@ export async function saveCustomProductType(name: string): Promise<void> {
   }
 }
 
+// El SKU es UNIQUE en Turso pero Dexie solo lo indexa, así que localmente se podían crear duplicados
+// y el empuje remoto fallaba con "UNIQUE constraint failed: products.sku" (el producto quedaba solo
+// en este dispositivo y nunca se sincronizaba). Ahora se detecta ANTES de guardar.
+export class DuplicateSkuError extends Error {
+  sku: string;
+  conflictName: string;
+  constructor(sku: string, conflictName: string) {
+    super(`El SKU "${sku}" ya está en uso por el producto "${conflictName}".`);
+    this.name = 'DuplicateSkuError';
+    this.sku = sku;
+    this.conflictName = conflictName;
+  }
+}
+
+async function fetchRemoteSkuMap(): Promise<Map<string, { id: string; name: string }>> {
+  const map = new Map<string, { id: string; name: string }>();
+  if (!navigator.onLine) return map;
+  try {
+    const res = await executeQuery(`SELECT id, sku, name FROM ${getTableName('products')}`);
+    for (const r of res.rows || []) map.set(String(r.sku), { id: String(r.id), name: String(r.name) });
+  } catch (e) {
+    // Sin servidor no hay forma de validar contra remoto; se valida solo contra lo local.
+  }
+  return map;
+}
+
+async function findSkuConflict(product: Pick<Product, 'id' | 'sku'>): Promise<string | null> {
+  const local = await db.products.where('sku').equals(product.sku).filter(p => p.id !== product.id).first();
+  if (local) return local.name;
+  if (!navigator.onLine) return null;
+  try {
+    const res = await executeQuery(
+      `SELECT name FROM ${getTableName('products')} WHERE sku = ? AND id <> ? LIMIT 1`,
+      [product.sku, product.id]
+    );
+    return res.rows?.[0] ? String(res.rows[0].name) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function suffixedSku(base: string, taken: (sku: string) => boolean): string {
+  let n = 2;
+  while (taken(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
+}
+
+// SKU autogenerado que garantiza no chocar con ninguno existente (local o remoto).
+export async function generateUniqueSku(): Promise<string> {
+  const remote = await fetchRemoteSkuMap();
+  for (let i = 0; i < 50; i++) {
+    const sku = `SKU-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+    if (!remote.has(sku) && !(await db.products.where('sku').equals(sku).first())) return sku;
+  }
+  return `SKU-${Date.now()}`;
+}
+
+// El id también debe ser único: un upsert por id con un id repetido SOBRESCRIBE otro producto.
+export async function generateUniqueProductId(): Promise<string> {
+  for (let i = 0; i < 50; i++) {
+    const id = `PROD-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+    if (!(await db.products.get(id))) return id;
+  }
+  return `PROD-${Date.now()}`;
+}
+
 // Devuelve si el producto quedó también sincronizado en Turso (true) o si por ahora solo vive en
 // Dexie -offline o error de red- (false). Antes esto era un `Promise<void>` que tragaba el error
 // remoto en silencio: la UI mostraba "guardado exitosamente" aunque el cambio nunca saliera de este
@@ -257,6 +323,9 @@ export async function saveCustomProductType(name: string): Promise<void> {
 // reintentara ese push, el catálogo remoto se quedaba con el valor viejo — el reporte recurrente de
 // "los cambios del catálogo no se guardan". El valor de retorno deja que la UI avise cuándo pasó esto.
 export async function saveProduct(product: Product): Promise<boolean> {
+  const conflictName = await findSkuConflict(product);
+  if (conflictName) throw new DuplicateSkuError(product.sku, conflictName);
+
   const stamped = stampProduct(product);
   await db.products.put(stamped);
 
@@ -274,7 +343,21 @@ export async function saveProduct(product: Product): Promise<boolean> {
 // Variante en lote para importaciones masivas: un solo request agrupado en vez de N idas y vueltas
 // de red secuenciales (el mismo problema de rendimiento que ya se corrigió en la sincronización).
 export async function saveProducts(products: Product[]): Promise<boolean> {
-  const stamped = products.map(stampProduct);
+  // Las importaciones traen SKUs repetidos entre sí o ya existentes (p. ej. "SKU-3" de una carga
+  // anterior): en vez de fallar o pisar, se les agrega un sufijo para que todos entren.
+  const takenBy = new Map<string, string>();
+  for (const [sku, r] of await fetchRemoteSkuMap()) takenBy.set(sku, r.id);
+  for (const lp of await db.products.toArray()) takenBy.set(lp.sku, lp.id);
+  const uniqueProducts = products.map(p => {
+    let sku = p.sku;
+    const owner = takenBy.get(sku);
+    if (owner !== undefined && owner !== p.id) {
+      sku = suffixedSku(p.sku, c => takenBy.has(c));
+    }
+    takenBy.set(sku, p.id);
+    return sku === p.sku ? p : { ...p, sku };
+  });
+  const stamped = uniqueProducts.map(stampProduct);
   for (const p of stamped) {
     await db.products.put(p);
   }
@@ -329,6 +412,22 @@ export async function syncProductsWithRemote(): Promise<void> {
     } else if (timestampOf(p.updatedAt) > timestampOf(r.updated_at)) {
       toPush.push(p);
     }
+  }
+
+  // Un SKU local que ya pertenece a OTRO producto en el servidor haría fallar el empuje (UNIQUE) y
+  // bloquearía para siempre la sincronización de ese producto: se le agrega un sufijo y se corrige
+  // también la copia local.
+  const takenBy = new Map<string, string>(remoteRows.map(r => [String(r.sku), String(r.id)]));
+  for (let i = 0; i < toPush.length; i++) {
+    const p = toPush[i];
+    const owner = takenBy.get(p.sku);
+    if (owner !== undefined && owner !== p.id) {
+      const fixed = { ...p, sku: suffixedSku(p.sku, c => takenBy.has(c)) };
+      await db.products.put(fixed);
+      toPush[i] = fixed;
+      localById.set(fixed.id, fixed);
+    }
+    takenBy.set(toPush[i].sku, p.id);
   }
 
   const chunkSize = 50;

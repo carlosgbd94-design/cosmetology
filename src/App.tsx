@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType, syncProductsWithRemote } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, DuplicateSkuError, generateUniqueSku, generateUniqueProductId, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType, syncProductsWithRemote } from './db';
+import { markSettingChanged, syncSettings, onSettingsApplied, overrideSettingKey } from './syncedSettings';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
 import { decryptData, sha256 } from './crypto';
@@ -724,9 +725,14 @@ export default function App() {
       return {};
     }
   });
-  useEffect(() => {
-    try { localStorage.setItem('dermatique_routine_selections', JSON.stringify(routineStepSelections)); } catch(e) {}
-  }, [routineStepSelections]);
+  const selectRoutineStepProduct = (selectionKey: string, productId: string) => {
+    setRoutineStepSelections(prev => {
+      const next = { ...prev, [selectionKey]: productId };
+      try { localStorage.setItem('dermatique_routine_selections', JSON.stringify(next)); } catch(e) {}
+      return next;
+    });
+    markSettingChanged('routine_selections');
+  };
 
   interface CustomRoutine {
     name: string;
@@ -776,7 +782,28 @@ export default function App() {
       try { localStorage.setItem('dermatique_routine_overrides', JSON.stringify(next)); } catch(e) {}
       return next;
     });
+    markSettingChanged(overrideSettingKey(key));
   };
+
+  // Cuando la sincronización con Turso trae ediciones hechas en otro dispositivo, se recargan
+  // los estados desde localStorage (donde la sincronización las dejó).
+  useEffect(() => {
+    return onSettingsApplied(() => {
+      const read = (k: string, fallback: any) => {
+        try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
+      };
+      const overrides = read('dermatique_routine_overrides', {});
+      setRoutineOverrides(overrides);
+      setCustomRoutines(read('dermatique_custom_routines', []));
+      setRoutineStepSelections(read('dermatique_routine_selections', {}));
+      setSelectedCustomRoutine(null);
+      if (selectedRoutineTx && ESTABLISHED_ROUTINES[selectedRoutineTx]) {
+        const base = selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche;
+        setEditableRoutineSteps(JSON.parse(JSON.stringify(overrides[`${selectedRoutineTx}_${selectedRoutineTime}`] || base)));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRoutineTx, selectedRoutineTime]);
 
   useEffect(() => {
     if (selectedRoutineTx && ESTABLISHED_ROUTINES[selectedRoutineTx]) {
@@ -1199,6 +1226,10 @@ export default function App() {
           // syncProductsWithRemote en db.ts: antes se empujaba TODO lo local al servidor sin comparar,
           // y una copia vieja en otro navegador/dispositivo pisaba las ediciones ya hechas.
           await syncProductsWithRemote();
+
+          // 1b. Sync ediciones de rutinas/protocolos (rutinas del catálogo editadas, personalizadas,
+          // productos elegidos por fase). Aislado: un fallo aquí no debe frenar el resto del arranque.
+          await syncSettings();
 
           // 2. Sync patients
           const resPatients = await executeQuery(`SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at, deleted_at FROM ${tblPatients}`);
@@ -2937,8 +2968,8 @@ export default function App() {
     const actions = currentIngredients.map(i => i.action);
     const pType = productForm.productType || inferProductType(productForm.name, productForm.brandLine);
 
-    const generatedSku = productForm.sku.trim() || `SKU-${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
-    const generatedId = productForm.id || `PROD-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+    const generatedSku = productForm.sku.trim() || await generateUniqueSku();
+    const generatedId = productForm.id || await generateUniqueProductId();
 
     const newProd: Product = {
       id: generatedId,
@@ -2960,6 +2991,10 @@ export default function App() {
     try {
       syncedRemotely = await saveProduct(newProd);
     } catch (localErr) {
+      if (localErr instanceof DuplicateSkuError) {
+        showToastMsg(`${localErr.message} Usa otro SKU o edita ese producto.`, 'error');
+        return;
+      }
       console.error("Error al guardar producto localmente:", localErr);
       showToastMsg('Error al guardar el producto localmente.', 'error');
       return;
@@ -4361,6 +4396,7 @@ export default function App() {
     const updated = [...customRoutines, newRoutine];
     setCustomRoutines(updated);
     localStorage.setItem('dermatique_custom_routines', JSON.stringify(updated));
+    markSettingChanged('custom_routines');
     setShowSaveRoutineModal(false);
     showToastMsg(`Rutina "${trimmedName}" guardada como predeterminada.`, 'success');
   };
@@ -4370,6 +4406,7 @@ export default function App() {
     const updated = customRoutines.filter(r => r.name !== name);
     setCustomRoutines(updated);
     localStorage.setItem('dermatique_custom_routines', JSON.stringify(updated));
+    markSettingChanged('custom_routines');
     
     if (selectedCustomRoutine?.name === name) {
       setSelectedCustomRoutine(null);
@@ -6256,12 +6293,7 @@ export default function App() {
                                 products={products}
                                 matches={matches}
                                 biotype={patientForm.skinBiotype}
-                                onSelect={(newProdId) => {
-                                  setRoutineStepSelections(prev => ({
-                                    ...prev,
-                                    [selectionKey]: newProdId
-                                  }));
-                                }}
+                                onSelect={(newProdId) => selectRoutineStepProduct(selectionKey, newProdId)}
                               />
                             </div>
                           </div>
