@@ -504,6 +504,33 @@ const FACIAL_ZONES: Record<string, { label: string; d: string }> = {
   contornoDeMandibula: { label: 'Contorno de mandíbula', d: 'M 441.2,988.6 C 425.3,989.0 409.6,989.5 394.2,985.7 C 378.7,981.9 360.7,971.9 348.6,965.8 C 336.4,959.6 331.5,952.9 321.5,948.7 C 311.5,944.4 298.0,939.6 288.7,940.1 C 279.4,940.6 272.6,946.3 265.9,951.5 C 259.3,956.7 251.9,963.6 248.8,971.5 C 245.7,979.3 245.7,989.3 247.4,998.5 C 249.0,1007.8 253.6,1018.3 258.8,1027.0 C 264.0,1035.8 271.6,1044.4 278.7,1051.3 C 285.9,1058.2 293.0,1063.1 301.5,1068.4 C 310.1,1073.6 325.8,1083.8 330.0,1082.6 C 334.3,1081.4 326.2,1068.6 327.2,1061.2 C 328.1,1053.9 330.5,1045.8 335.7,1038.4 C 341.0,1031.1 348.1,1023.2 358.5,1017.1 C 369.0,1010.9 385.1,1004.2 398.4,1001.4 C 411.7,998.5 425.0,999.7 438.3,1000.0 C 451.6,1000.2 466.4,1000.7 478.2,1002.8 C 490.1,1005.0 499.8,1008.5 509.6,1012.8 C 519.3,1017.1 530.0,1021.6 536.7,1028.5 C 543.3,1035.4 547.6,1045.3 549.5,1054.1 C 551.4,1062.9 543.1,1080.5 548.1,1081.2 C 553.0,1081.9 571.8,1065.3 579.4,1058.4 C 587.0,1051.5 588.0,1045.8 593.7,1039.9 C 599.4,1033.9 608.6,1030.6 613.6,1022.8 C 618.6,1014.9 622.4,1001.4 623.6,992.8 C 624.8,984.3 623.1,977.6 620.7,971.5 C 618.4,965.3 613.4,960.3 609.3,955.8 C 605.3,951.3 602.2,946.8 596.5,944.4 C 590.8,942.0 581.5,941.3 575.1,941.5 C 568.7,941.8 564.7,943.7 558.0,945.8 C 551.4,948.0 541.9,950.8 535.2,954.4 C 528.6,957.9 525.7,962.4 518.1,967.2 C 510.5,971.9 502.5,979.3 489.6,982.9 C 476.8,986.4 457.1,988.1 441.2,988.6 Z' },
 };
 
+// Input con texto local: permite escribir espacios (el valor guardado se recorta, el mostrado no).
+function CustomBiosInput({ value, onCommit }: { value: string; onCommit: (val: string) => void }) {
+  const [text, setText] = useState(value);
+  const lastCommitted = useRef(value);
+  useEffect(() => {
+    if (value !== lastCommitted.current) {
+      lastCommitted.current = value;
+      setText(value);
+    }
+  }, [value]);
+  return (
+    <input
+      type="text"
+      value={text}
+      onChange={e => {
+        const val = e.target.value;
+        setText(val);
+        const normalized = val.split(',').map(s => s.trim()).filter(Boolean).join(', ');
+        lastCommitted.current = normalized;
+        onCommit(val);
+      }}
+      placeholder="Ej: Rosácea Grasa, Sensible reactiva..."
+      className="smart-input w-full text-xs"
+    />
+  );
+}
+
 export default function App() {
   // Authentication & License States (Cloudflare Workers Integrated)
   const [isLogged, setIsLogged] = useState(false);
@@ -6404,18 +6431,14 @@ export default function App() {
                         return (
                           <div className="flex flex-col gap-1 mt-1">
                             <label className="text-[9px] font-semibold text-slate-400 dark:text-luxe-400">Biotipo / Indicación Adicional Personalizada (Manual):</label>
-                            <input
-                              type="text"
+                            <CustomBiosInput
                               value={customBios}
-                              onChange={e => {
-                                const val = e.target.value;
+                              onCommit={val => {
                                 const customArray = val.split(',').map(s => s.trim()).filter(Boolean);
                                 const selectedPresets = currentBios.filter(b => presets.includes(b));
                                 const nextBios = Array.from(new Set([...selectedPresets, ...customArray]));
                                 setProductForm(prev => ({ ...prev, skinBiotypes: JSON.stringify(nextBios) }));
                               }}
-                              placeholder="Ej: Rosácea Grasa, Sensible reactiva..."
-                              className="smart-input w-full text-xs"
                             />
                           </div>
                         );
