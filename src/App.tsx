@@ -1170,6 +1170,21 @@ export default function App() {
     };
   }, [isLogged]);
 
+  // Si la app se queda abierta en un dispositivo mientras se edita desde otro, al volver a esta
+  // pestaña/ventana se traen los cambios más recientes (sin tener que recargar la página).
+  useEffect(() => {
+    if (!isLogged) return;
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') void syncSettings();
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    window.addEventListener('focus', refreshOnReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+      window.removeEventListener('focus', refreshOnReturn);
+    };
+  }, [isLogged]);
+
   // Listener para cerrar listas desplegables al presionar Escape o hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
