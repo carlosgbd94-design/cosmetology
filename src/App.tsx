@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, DuplicateSkuError, generateUniqueSku, generateUniqueProductId, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType, syncProductsWithRemote } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, localDataBelongsToActiveLicense, saveAnamnesis, findPatientWithEmailHash, newId, setPatientDeleted, setConsultationDeleted, recordTombstone, syncTombstones, DuplicateSkuError, generateUniqueSku, generateUniqueProductId, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType, syncProductsWithRemote } from './db';
+import { syncClinicalWithRemote } from './clinicalSync';
 import { markSettingChanged, syncSettings, onSettingsApplied, overrideSettingKey } from './syncedSettings';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
 import { validateStateTransition } from './stateMachine';
@@ -1227,7 +1228,11 @@ export default function App() {
       await restoreLegacyIndexedDBData();
 
       // Sync remote products to local Dexie on start (without clearing local products)
-      if (navigator.onLine) {
+      const ownsLocalData = localDataBelongsToActiveLicense();
+      if (!ownsLocalData) {
+        showToastMsg('Este navegador contiene datos de otra licencia. Para proteger la información de ambas, no se sincronizó nada. Contacta a soporte.', 'error');
+      }
+      if (navigator.onLine && ownsLocalData) {
         try {
           const tblProducts = getTableName('products');
           const tblPatients = getTableName('patients');
@@ -1235,6 +1240,10 @@ export default function App() {
           const tblConsultations = getTableName('consultations');
           const tblSteps = getTableName('consultation_steps');
           const tblPrescriptions = getTableName('prescriptions');
+
+          // 0. Eliminaciones definitivas (lápidas): se aplican primero para que ningún dispositivo
+          // con una copia vieja vuelva a subir o descargar un registro ya eliminado.
+          await syncTombstones();
 
           // 1. Sync products
           // Sincroniza el catálogo comparando fechas (gana el más reciente en ambos sentidos). Ver
@@ -1246,110 +1255,9 @@ export default function App() {
           // productos elegidos por fase). Aislado: un fallo aquí no debe frenar el resto del arranque.
           await syncSettings();
 
-          // 2. Sync patients
-          const resPatients = await executeQuery(`SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at, deleted_at FROM ${tblPatients}`);
-          if (resPatients && resPatients.rows) {
-            for (const r of resPatients.rows) {
-              const decryptedFirstName = await decryptData(r.first_name_encrypted);
-              const decryptedLastName = await decryptData(r.last_name_encrypted);
-              const decryptedPhone = await decryptData(r.phone_encrypted);
-              await db.patients.put({
-                id: r.id,
-                firstNameEncrypted: decryptedFirstName,
-                lastNameEncrypted: decryptedLastName,
-                dateOfBirth: r.date_of_birth,
-                emailHashed: r.email_hashed,
-                phoneEncrypted: decryptedPhone,
-                createdAt: r.created_at,
-                updatedAt: r.updated_at,
-                deletedAt: r.deleted_at || undefined
-              });
-            }
-          }
-
-          // 3. Sync anamnesis
-          const resAnamnesis = await executeQuery(`SELECT id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at FROM ${tblAnamnesis}`);
-          if (resAnamnesis && resAnamnesis.rows) {
-            for (const r of resAnamnesis.rows) {
-              await db.anamnesis.put({
-                id: r.id,
-                patientId: r.patient_id,
-                medicalDiagnosis: r.medical_diagnosis || undefined,
-                surgicalHistory: r.surgical_history || undefined,
-                allergiesCosmetics: r.allergies_cosmetics,
-                currentMedications: r.current_medications,
-                lifestyleMetrics: r.lifestyle_metrics,
-                updatedAt: r.updated_at
-              });
-            }
-          }
-
-          // 4. Sync consultations
-          const resConsults = await executeQuery(`SELECT id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, recommendations, allergies, medical_conditions, consent_accepted, before_image_url, after_image_url, signature_data, deleted_at FROM ${tblConsultations}`);
-          if (resConsults && resConsults.rows) {
-            for (const r of resConsults.rows) {
-              await db.consultations.put({
-                id: r.id,
-                patientId: r.patient_id,
-                providerId: r.provider_id,
-                visitDate: r.visit_date,
-                skinBiotype: r.skin_biotype,
-                fitzpatrickScale: Number(r.fitzpatrick_scale),
-                skinConditions: r.skin_conditions,
-                medicalDiagnosis: r.medical_diagnosis || undefined,
-                clinicalNotes: r.clinical_notes,
-                state: r.state as any,
-                recommendations: r.recommendations || undefined,
-                allergies: r.allergies || '',
-                medicalConditions: r.medical_conditions || '',
-                consentAccepted: Number(r.consent_accepted) === 1,
-                beforeImageUrl: r.before_image_url || undefined,
-                afterImageUrl: r.after_image_url || undefined,
-                signatureData: r.signature_data || undefined,
-                deletedAt: r.deleted_at || undefined
-              });
-            }
-          }
-
-          // 5. Sync consultation steps
-          const resSteps = await executeQuery(`SELECT id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings FROM ${tblSteps}`);
-          if (resSteps && resSteps.rows) {
-            for (const r of resSteps.rows) {
-              await db.consultation_steps.put({
-                id: r.id,
-                consultationId: r.consultation_id,
-                stepOrder: Number(r.step_order),
-                stepName: r.step_name,
-                productId: r.product_id || undefined,
-                customProductName: r.custom_product_name || undefined,
-                customBrand: r.custom_brand || undefined,
-                customActiveIngredients: r.custom_active_ingredients || undefined,
-                customActions: r.custom_actions || undefined,
-                applicationDescription: r.application_description || undefined,
-                aparatologySettings: r.aparatology_settings || undefined
-              });
-            }
-          }
-
-          // 6. Sync prescriptions
-          const resPrescriptions = await executeQuery(`SELECT id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions FROM ${tblPrescriptions}`);
-          if (resPrescriptions && resPrescriptions.rows) {
-            for (const r of resPrescriptions.rows) {
-              await db.prescriptions.put({
-                id: r.id,
-                consultationId: r.consultation_id,
-                productId: r.product_id || undefined,
-                timeOfDay: r.time_of_day as any,
-                dosageInstructions: r.dosage_instructions,
-                applicationFrequency: r.application_frequency,
-                stepName: r.step_name || undefined,
-                customProductName: r.custom_product_name || undefined,
-                customBrand: r.custom_brand || undefined,
-                customActiveIngredients: r.custom_active_ingredients || undefined,
-                customActions: r.custom_actions || undefined
-              });
-            }
-          }
+          // 2. Sync datos clínicos (pacientes, anamnesis, consultas, pasos, prescripciones): gana la
+          // copia más reciente en ambos sentidos y lo pendiente local se sube. Ver clinicalSync.ts.
+          await syncClinicalWithRemote();
         } catch (err) {
           console.error("Error syncing remote clinical databases:", err);
         }
@@ -1735,7 +1643,7 @@ export default function App() {
       showToastMsg('Paso actualizado en el protocolo.', 'success');
     } else {
       const newStep: ConsultationStep = {
-        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+        id: newId('ID'),
         consultationId: patientForm.id || 'TEMP',
         stepOrder: currentSteps.length + 1,
         stepName: stepInput.stepName === 'Otro' ? (stepInput.customStepName || 'Otro') : stepInput.stepName,
@@ -1920,7 +1828,7 @@ export default function App() {
     }
 
     const newList: Prescription[] = suggested.map(s => ({
-      id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+      id: newId('ID'),
       consultationId: patientForm.id || 'TEMP',
       productId: s.productId,
       timeOfDay: s.timeOfDay || 'Dia',
@@ -1965,7 +1873,7 @@ export default function App() {
       showToastMsg('Recomendación de apoyo actualizada.', 'success');
     } else {
       const newPres: Prescription = {
-        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+        id: newId('ID'),
         consultationId: patientForm.id || 'TEMP',
         productId: presInput.productId || undefined,
         timeOfDay: presInput.timeOfDay,
@@ -2080,30 +1988,17 @@ export default function App() {
     }
 
     try {
-      const patientId = selectedPatientId || `P-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      const patientId = selectedPatientId || newId('P');
       const emailH = await sha256(patientForm.email || `${patientForm.firstName}.${patientForm.lastName}.${patientId}@clinical.local`);
 
-      const consultationId = activeConsultationId || `C-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      const consultationId = activeConsultationId || newId(`C-${new Date().getFullYear()}`);
 
-      // Register anamnesis on remote if online (patient itself is saved via savePatient below)
-      if (navigator.onLine) {
-        try {
-          const tblAnamnesis = getTableName('anamnesis');
-          await executeQuery(
-            `INSERT INTO ${tblAnamnesis} (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-             ON CONFLICT(id) DO UPDATE SET
-               medical_diagnosis = excluded.medical_diagnosis,
-               surgical_history = excluded.surgical_history,
-               allergies_cosmetics = excluded.allergies_cosmetics,
-               current_medications = excluded.current_medications,
-               lifestyle_metrics = excluded.lifestyle_metrics,
-               updated_at = CURRENT_TIMESTAMP`,
-            [`A-${patientId}`, patientId, patientForm.medicalDiagnosis || null, patientForm.surgicalHistory || null, patientForm.allergiesCosmetics, patientForm.currentMedications, patientForm.lifestyleMetrics]
-          );
-        } catch (remoteErr) {
-          console.warn("Fallo al registrar anamnesis en Turso, se continuará localmente:", remoteErr);
-        }
+      // El correo es único: si otro paciente (incluso en la papelera) ya lo usa, el guardado remoto
+      // fallaba y este paciente quedaba solo en este dispositivo sin que nadie lo notara.
+      const sameEmail = await findPatientWithEmailHash(emailH, patientId);
+      if (sameEmail) {
+        showToastMsg(`Ya existe un paciente con ese correo (${sameEmail.firstNameEncrypted} ${sameEmail.lastNameEncrypted})${sameEmail.deletedAt ? ', que está en la papelera' : ''}. Selecciónalo de la lista o usa otro correo.`, 'error');
+        return;
       }
 
       // Local Dexie Save for patient (savePatient también intenta el guardado remoto internamente)
@@ -2117,7 +2012,7 @@ export default function App() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
-      await savePatient(localPatient);
+      const patientSynced = await savePatient(localPatient);
 
       const localAnamnesis: Anamnesis = {
         id: `A-${patientId}`,
@@ -2129,7 +2024,7 @@ export default function App() {
         lifestyleMetrics: patientForm.lifestyleMetrics,
         updatedAt: new Date().toISOString()
       };
-      await db.anamnesis.put(localAnamnesis);
+      const anamnesisSynced = await saveAnamnesis(localAnamnesis);
 
       // Create consultation entry
       const finalConsultation: Consultation = {
@@ -2158,7 +2053,11 @@ export default function App() {
       // Trigger ACID atomicity remote & local
       try {
         await saveConsultationTransaction(finalConsultation, finalSteps, finalPrescriptions);
-        showToastMsg('Expediente clínico guardado y sincronizado.', 'success');
+        if (patientSynced && anamnesisSynced && navigator.onLine) {
+          showToastMsg('Expediente clínico guardado y sincronizado.', 'success');
+        } else {
+          showToastMsg('Expediente guardado en este dispositivo. Se sincronizará automáticamente al conectar.', 'info');
+        }
       } catch (remoteErr) {
         console.warn('Fallo al sincronizar consulta con Turso, guardado local completado:', remoteErr);
         showToastMsg('Expediente guardado en local (Modo Offline). Se sincronizará al conectar.', 'info');
@@ -2317,13 +2216,13 @@ export default function App() {
 
     const freshSteps = steps.map(s => ({
       ...s,
-      id: `STEP-${Math.floor(Math.random() * 1000000)}`,
+      id: newId('STEP'),
       consultationId: ''
     }));
 
     const freshPrescriptions = prescriptions.map(p => ({
       ...p,
-      id: `PRES-${Math.floor(Math.random() * 1000000)}`,
+      id: newId('PRES'),
       consultationId: ''
     }));
 
@@ -2338,19 +2237,7 @@ export default function App() {
       return;
     }
     try {
-      const nowIso = new Date().toISOString();
-      const consultation = records.find(r => r.id === consultationId);
-      if (consultation) {
-        await db.consultations.put({ ...consultation, deletedAt: nowIso });
-      }
-
-      try {
-        const tblConsultations = getTableName('consultations');
-        await executeQuery(`UPDATE ${tblConsultations} SET deleted_at = ? WHERE id = ?`, [nowIso, consultationId]);
-      } catch (err) {
-        console.warn('Fallo al enviar la visita a la papelera en Turso, se reintentará en la sincronización:', err);
-      }
-
+      await setConsultationDeleted(consultationId, true);
       showToastMsg('Visita movida a la papelera.', 'success');
 
       if (activeConsultationId === consultationId) {
@@ -2370,19 +2257,7 @@ export default function App() {
       return;
     }
     try {
-      const nowIso = new Date().toISOString();
-      const patient = patients.find(p => p.id === patientId);
-      if (patient) {
-        await db.patients.put({ ...patient, deletedAt: nowIso });
-      }
-
-      try {
-        const tblPatients = getTableName('patients');
-        await executeQuery(`UPDATE ${tblPatients} SET deleted_at = ? WHERE id = ?`, [nowIso, patientId]);
-      } catch (err) {
-        console.warn('Fallo al enviar el paciente a la papelera en Turso, se reintentará en la sincronización:', err);
-      }
-
+      await setPatientDeleted(patientId, true);
       showToastMsg('Paciente movido a la papelera.', 'success');
 
       if (selectedPatientId === patientId) {
@@ -2399,17 +2274,7 @@ export default function App() {
 
   const handleRestoreConsultation = async (consultationId: string) => {
     try {
-      const consultation = await db.consultations.get(consultationId);
-      if (consultation) {
-        const { deletedAt, ...rest } = consultation;
-        await db.consultations.put(rest as Consultation);
-      }
-      try {
-        const tblConsultations = getTableName('consultations');
-        await executeQuery(`UPDATE ${tblConsultations} SET deleted_at = NULL WHERE id = ?`, [consultationId]);
-      } catch (err) {
-        console.warn('Fallo al restaurar la visita en Turso:', err);
-      }
+      await setConsultationDeleted(consultationId, false);
       showToastMsg('Visita restaurada.', 'success');
       await loadMasterCatalogs();
     } catch (e) {
@@ -2420,17 +2285,7 @@ export default function App() {
 
   const handleRestorePatient = async (patientId: string) => {
     try {
-      const patient = await db.patients.get(patientId);
-      if (patient) {
-        const { deletedAt, ...rest } = patient;
-        await db.patients.put(rest as Patient);
-      }
-      try {
-        const tblPatients = getTableName('patients');
-        await executeQuery(`UPDATE ${tblPatients} SET deleted_at = NULL WHERE id = ?`, [patientId]);
-      } catch (err) {
-        console.warn('Fallo al restaurar el paciente en Turso:', err);
-      }
+      await setPatientDeleted(patientId, false);
       showToastMsg('Paciente restaurado.', 'success');
       await loadMasterCatalogs();
     } catch (e) {
@@ -2449,16 +2304,9 @@ export default function App() {
       await db.consultation_steps.where('consultationId').equals(consultationId).delete();
       await db.consultations.delete(consultationId);
 
-      try {
-        const tblConsultations = getTableName('consultations');
-        const tblSteps = getTableName('consultation_steps');
-        const tblPrescriptions = getTableName('prescriptions');
-        await executeQuery(`DELETE FROM ${tblPrescriptions} WHERE consultation_id = ?`, [consultationId]);
-        await executeQuery(`DELETE FROM ${tblSteps} WHERE consultation_id = ?`, [consultationId]);
-        await executeQuery(`DELETE FROM ${tblConsultations} WHERE id = ?`, [consultationId]);
-      } catch (err) {
-        console.warn('Fallo al eliminar de Turso:', err);
-      }
+      // La lápida evita que otro dispositivo (o este, si ahora no hay conexión) reviva la visita.
+      recordTombstone('consultation', consultationId);
+      try { await syncTombstones(); } catch (err) { console.warn('Fallo al eliminar de Turso, se reintentará:', err); }
 
       showToastMsg('Visita eliminada permanentemente.', 'success');
       await loadMasterCatalogs();
@@ -2479,27 +2327,13 @@ export default function App() {
         await db.prescriptions.where('consultationId').equals(c.id).delete();
         await db.consultation_steps.where('consultationId').equals(c.id).delete();
         await db.consultations.delete(c.id);
+        recordTombstone('consultation', c.id);
       }
       await db.anamnesis.where('patientId').equals(patientId).delete();
       await db.patients.delete(patientId);
+      recordTombstone('patient', patientId);
 
-      try {
-        const tblConsultations = getTableName('consultations');
-        const tblSteps = getTableName('consultation_steps');
-        const tblPrescriptions = getTableName('prescriptions');
-        const tblAnamnesis = getTableName('anamnesis');
-        const tblPatients = getTableName('patients');
-
-        for (const c of consultationsToDelete) {
-          await executeQuery(`DELETE FROM ${tblPrescriptions} WHERE consultation_id = ?`, [c.id]);
-          await executeQuery(`DELETE FROM ${tblSteps} WHERE consultation_id = ?`, [c.id]);
-          await executeQuery(`DELETE FROM ${tblConsultations} WHERE id = ?`, [c.id]);
-        }
-        await executeQuery(`DELETE FROM ${tblAnamnesis} WHERE patient_id = ?`, [patientId]);
-        await executeQuery(`DELETE FROM ${tblPatients} WHERE id = ?`, [patientId]);
-      } catch (err) {
-        console.warn('Fallo al eliminar del servidor Turso:', err);
-      }
+      try { await syncTombstones(); } catch (err) { console.warn('Fallo al eliminar de Turso, se reintentará:', err); }
 
       showToastMsg('Expediente del paciente eliminado permanentemente.', 'success');
       await loadMasterCatalogs();
@@ -2878,11 +2712,10 @@ export default function App() {
   const handleDeleteProduct = async (id: string) => {
     if (!window.confirm('¿Está seguro de eliminar este producto del catálogo?')) return;
     try {
-      if (navigator.onLine) {
-        const tblProducts = getTableName('products');
-        await executeQuery(`DELETE FROM ${tblProducts} WHERE id = ?`, [id]);
-      }
       await db.products.delete(id);
+      // Lápida: sin conexión (o con otro dispositivo con copia vieja) el producto reaparecía al sincronizar.
+      recordTombstone('product', id);
+      try { await syncTombstones(); } catch (err) { console.warn('Fallo al eliminar de Turso, se reintentará:', err); }
       showToastMsg('Producto eliminado del catálogo.', 'success');
       loadMasterCatalogs();
     } catch (e) {
@@ -4353,7 +4186,7 @@ export default function App() {
       }
 
       return {
-        id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+        id: newId('ID'),
         consultationId: patientForm.id || 'TEMP',
         productId: pId,
         timeOfDay: selectedRoutineTime === 'Dia' ? 'Dia' : 'Noche',
@@ -4437,7 +4270,7 @@ export default function App() {
     if (!selectedCustomRoutine) return;
 
     const newPrescriptions: Prescription[] = selectedCustomRoutine.prescriptions.map(p => ({
-      id: Math.random().toString(36).substring(2, 9).toUpperCase(),
+      id: newId('ID'),
       consultationId: patientForm.id || 'TEMP',
       productId: p.productId,
       timeOfDay: p.timeOfDay,
@@ -4513,7 +4346,7 @@ export default function App() {
           if (!cleanedName) cleanedName = `Producto PDF ${index + 1}`;
 
           parsedProducts.push({
-            id: `PDF-${index}-${Math.floor(Math.random() * 1000)}`,
+            id: newId('PDF'),
             sku,
             name: cleanedName,
             brandLine: brand,
@@ -4532,7 +4365,7 @@ export default function App() {
         const shortLines = lines.filter(l => l.trim().length > 10 && l.trim().length < 80).slice(0, 10);
         shortLines.forEach((l, idx) => {
           parsedProducts.push({
-            id: `PDF-KEY-${idx}-${Math.floor(Math.random() * 1000)}`,
+            id: newId('PDF'),
             sku: `SKU-PDF-${idx}`,
             name: l.trim(),
             brandLine: 'Genérico',
@@ -4614,7 +4447,7 @@ export default function App() {
         const splitList = (raw: any) => raw ? String(raw).split(',').map((s: string) => s.trim()).filter(Boolean) : [];
 
         return {
-          id: `EXCEL-${idx}-${Math.floor(Math.random() * 1000)}`,
+          id: newId('EXCEL'),
           sku,
           name,
           brandLine,

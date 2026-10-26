@@ -90,5 +90,6 @@ export interface Consultation {
   afterImageUrl?: string;    // Fotografía Después
   consentAccepted?: boolean; // Consentimiento otorgado (verbal o en papel), confirmado por el especialista
   signatureData?: string; // PNG dataURL de la firma táctil del paciente (dispositivos touch/iPad)
+  updatedAt?: string; // ISO de la última edición (sincronización: gana la copia más reciente)
   deletedAt?: string; // Fecha de borrado suave (papelera); ausente/vacío = activa
 }

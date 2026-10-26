@@ -81,6 +81,25 @@ export function getActiveLicensePrefix(): string {
   return `usr_${cleanId}_`;
 }
 
+// Los datos locales (Dexie) NO están separados por licencia, pero las tablas remotas sí. Ahora que la
+// sincronización también SUBE lo que hay en local, si en este navegador se activara otra licencia, los
+// pacientes y el catálogo de la anterior se copiarían a las tablas de la nueva (fuga entre clientes).
+// Se registra de qué licencia son los datos locales; si cambia, no se sincroniza.
+const DATA_OWNER_KEY = 'dermatique_local_data_owner';
+export function localDataBelongsToActiveLicense(): boolean {
+  const current = getActiveLicensePrefix() || 'master';
+  try {
+    const owner = localStorage.getItem(DATA_OWNER_KEY);
+    if (!owner) {
+      localStorage.setItem(DATA_OWNER_KEY, current);
+      return true;
+    }
+    return owner === current;
+  } catch (e) {
+    return true;
+  }
+}
+
 export function getTableName(baseName: string): string {
   const prefix = getActiveLicensePrefix();
   return prefix ? `${prefix}${baseName}` : baseName;
@@ -373,9 +392,12 @@ export async function saveProducts(products: Product[]): Promise<boolean> {
   }
 }
 
-function timestampOf(value?: string | null): number {
+// Turso guarda CURRENT_TIMESTAMP como "AAAA-MM-DD HH:MM:SS" (UTC, sin zona); el cliente usa ISO.
+// Se normalizan ambos para poder comparar "¿cuál es más nuevo?".
+export function parseTimestamp(value?: string | null): number {
   if (!value) return 0;
-  const t = new Date(value).getTime();
+  const v = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) ? value.replace(' ', 'T') + 'Z' : value;
+  const t = new Date(v).getTime();
   return Number.isNaN(t) ? 0 : t;
 }
 
@@ -409,7 +431,7 @@ export async function syncProductsWithRemote(): Promise<void> {
     const r = remoteById.get(p.id);
     if (!r) {
       toPush.push(stampProduct(p));
-    } else if (timestampOf(p.updatedAt) > timestampOf(r.updated_at)) {
+    } else if (parseTimestamp(p.updatedAt) > parseTimestamp(r.updated_at)) {
       toPush.push(p);
     }
   }
@@ -445,7 +467,7 @@ export async function syncProductsWithRemote(): Promise<void> {
 
   for (const r of remoteRows) {
     const local = localById.get(r.id);
-    if (local && timestampOf(local.updatedAt) > timestampOf(r.updated_at)) continue; // lo local es más nuevo
+    if (local && parseTimestamp(local.updatedAt) > parseTimestamp(r.updated_at)) continue; // lo local es más nuevo
     await db.products.put({
       id: r.id,
       sku: r.sku,
@@ -465,173 +487,406 @@ export async function syncProductsWithRemote(): Promise<void> {
   }
 }
 
-// Guarda un paciente local y remotamente en un solo lugar (misma razón que saveProduct: evita que
-// cada punto de guardado tenga su propia lista de columnas, ligeramente distinta y propensa a bugs).
-export async function savePatient(patient: Patient): Promise<void> {
-  await db.patients.put(patient);
+// ---------------------------------------------------------------------------------------------
+// Datos clínicos (pacientes, anamnesis, consultas, pasos y prescripciones)
+// ---------------------------------------------------------------------------------------------
 
-  if (!navigator.onLine) return;
+// Id único y no adivinable para registros nuevos. Antes los pacientes usaban "P-####" y las consultas
+// "C-AAAA-####" con 4 dígitos al azar: con unos cientos de registros, dos podían coincidir y el
+// guardado (un upsert por id) SOBRESCRIBÍA en silencio el expediente de OTRO paciente/consulta.
+export function newId(prefix: string): string {
+  const c: any = (globalThis as any).crypto;
+  const uuid: string = c && typeof c.randomUUID === 'function'
+    ? c.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}${Math.random().toString(36).slice(2, 12)}`;
+  return `${prefix}-${uuid}`;
+}
+
+// Ejecuta varias sentencias de forma ATÓMICA en Turso: o se aplican todas o no se aplica ninguna.
+// El esquema anterior (BEGIN ... COMMIT dentro de un pipeline normal) no lo garantizaba: si una
+// sentencia fallaba, las demás -incluido el COMMIT- se ejecutaban igual y quedaba un guardado a medias.
+// Aquí cada paso depende de que el anterior haya salido bien y, si algo falla, se hace ROLLBACK.
+export async function executeAtomic(statements: { sql: string; args?: any[] }[]): Promise<void> {
+  const steps: any[] = [{ stmt: { sql: 'BEGIN' } }];
+  for (const st of statements) {
+    steps.push({
+      stmt: { sql: st.sql, args: (st.args || []).map(encodeValue) },
+      condition: { type: 'ok', step: steps.length - 1 }
+    });
+  }
+  const lastStatement = steps.length - 1;
+  steps.push({ stmt: { sql: 'COMMIT' }, condition: { type: 'ok', step: lastStatement } });
+  const commitIdx = steps.length - 1;
+  steps.push({ stmt: { sql: 'ROLLBACK' }, condition: { type: 'not', cond: { type: 'ok', step: commitIdx } } });
+
+  const response = await fetch(`${TURSO_URL}/v2/pipeline`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${TURSO_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests: [{ type: 'batch', batch: { steps } }, { type: 'close' }] })
+  });
+  if (!response.ok) {
+    throw new Error(`Turso HTTP Atomic Error: ${response.status} - ${await response.text()}`);
+  }
+  const data = await response.json();
+  const res = data.results[0];
+  if (res.type === 'error') throw new Error(res.error.message);
+
+  const stepErrors: any[] = res.response?.result?.step_errors || [];
+  const firstError = stepErrors.find((e, i) => e && i >= 1 && i <= lastStatement) || stepErrors[commitIdx];
+  if (firstError) throw new Error(firstError.message);
+  const stepResults: any[] = res.response?.result?.step_results || [];
+  if (!stepResults[commitIdx]) throw new Error('La transacción remota no se confirmó (se revirtió).');
+}
+
+// --- Pacientes -------------------------------------------------------------------------------
+
+export async function pushPatientRemote(patient: Patient): Promise<boolean> {
+  if (!navigator.onLine) return false;
   try {
     const tblPatients = getTableName('patients');
     const firstNameEnc = await encryptData(patient.firstNameEncrypted);
     const lastNameEnc = await encryptData(patient.lastNameEncrypted);
     const phoneEnc = await encryptData(patient.phoneEncrypted);
     await executeQuery(
-      `INSERT INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `INSERT INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          first_name_encrypted = excluded.first_name_encrypted,
          last_name_encrypted = excluded.last_name_encrypted,
          date_of_birth = excluded.date_of_birth,
          email_hashed = excluded.email_hashed,
          phone_encrypted = excluded.phone_encrypted,
-         updated_at = CURRENT_TIMESTAMP`,
-      [patient.id, firstNameEnc, lastNameEnc, patient.dateOfBirth, patient.emailHashed, phoneEnc]
+         updated_at = excluded.updated_at,
+         deleted_at = excluded.deleted_at`,
+      [patient.id, firstNameEnc, lastNameEnc, patient.dateOfBirth, patient.emailHashed, phoneEnc, patient.updatedAt, patient.deletedAt || null]
     );
+    return true;
   } catch (remoteErr) {
     console.warn('Fallo temporal al guardar paciente en Turso, guardado local completado:', remoteErr);
+    return false;
   }
 }
 
-// Transactional Clinical Save (ACID atomic remote + local)
+// Guarda un paciente local y remotamente. Devuelve true si también quedó en Turso. La fecha de edición
+// se estampa aquí y viaja idéntica al servidor, para que la sincronización pueda saber qué copia es
+// la más reciente (antes se ignoraba y el servidor siempre pisaba lo local).
+export async function savePatient(patient: Patient): Promise<boolean> {
+  const stamped: Patient = { ...patient, updatedAt: new Date().toISOString() };
+  await db.patients.put(stamped);
+  return pushPatientRemote(stamped);
+}
+
+// Otro paciente (activo o en papelera) que ya usa este correo. El correo es único en Turso: si se
+// repetía, el paciente quedaba solo en este dispositivo y nunca se sincronizaba.
+export async function findPatientWithEmailHash(emailHashed: string, exceptId: string): Promise<Patient | undefined> {
+  return db.patients.where('emailHashed').equals(emailHashed).filter(p => p.id !== exceptId).first();
+}
+
+export async function pushAnamnesisRemote(a: Anamnesis): Promise<boolean> {
+  if (!navigator.onLine) return false;
+  try {
+    const tblAnamnesis = getTableName('anamnesis');
+    await executeQuery(
+      `INSERT INTO ${tblAnamnesis} (id, patient_id, medical_diagnosis, surgical_history, allergies_cosmetics, current_medications, lifestyle_metrics, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         medical_diagnosis = excluded.medical_diagnosis,
+         surgical_history = excluded.surgical_history,
+         allergies_cosmetics = excluded.allergies_cosmetics,
+         current_medications = excluded.current_medications,
+         lifestyle_metrics = excluded.lifestyle_metrics,
+         updated_at = excluded.updated_at`,
+      [a.id, a.patientId, a.medicalDiagnosis || null, a.surgicalHistory || null, a.allergiesCosmetics, a.currentMedications, a.lifestyleMetrics, a.updatedAt]
+    );
+    return true;
+  } catch (remoteErr) {
+    console.warn('Fallo temporal al guardar anamnesis en Turso, guardado local completado:', remoteErr);
+    return false;
+  }
+}
+
+export async function saveAnamnesis(anamnesis: Anamnesis): Promise<boolean> {
+  const stamped: Anamnesis = { ...anamnesis, updatedAt: new Date().toISOString() };
+  await db.anamnesis.put(stamped);
+  return pushAnamnesisRemote(stamped);
+}
+
+// --- Consultas -------------------------------------------------------------------------------
+
+// Sube una consulta completa (fila + pasos + prescripciones) de forma atómica, conservando su fecha
+// de edición. Reemplaza por completo pasos y prescripciones remotos de esa consulta.
+export async function pushConsultationRemote(
+  consultation: Consultation,
+  steps: ConsultationStep[],
+  prescriptions: Prescription[]
+): Promise<void> {
+  const tblConsultations = getTableName('consultations');
+  const tblSteps = getTableName('consultation_steps');
+  const tblPrescriptions = getTableName('prescriptions');
+  const stmts: { sql: string; args: any[] }[] = [];
+
+  // UPSERT (no INSERT OR REPLACE): un REPLACE borra y reinserta la fila, así que cualquier
+  // columna no listada (como created_at) vuelve a su DEFAULT y se pierde la fecha original.
+  stmts.push({
+    sql: `INSERT INTO ${tblConsultations} (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations, consent_accepted, before_image_url, after_image_url, signature_data, updated_at, deleted_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            patient_id = excluded.patient_id,
+            provider_id = excluded.provider_id,
+            visit_date = excluded.visit_date,
+            skin_biotype = excluded.skin_biotype,
+            fitzpatrick_scale = excluded.fitzpatrick_scale,
+            skin_conditions = excluded.skin_conditions,
+            medical_diagnosis = excluded.medical_diagnosis,
+            clinical_notes = excluded.clinical_notes,
+            state = excluded.state,
+            allergies = excluded.allergies,
+            medical_conditions = excluded.medical_conditions,
+            recommendations = excluded.recommendations,
+            consent_accepted = excluded.consent_accepted,
+            before_image_url = excluded.before_image_url,
+            after_image_url = excluded.after_image_url,
+            signature_data = excluded.signature_data,
+            updated_at = excluded.updated_at,
+            deleted_at = excluded.deleted_at`,
+    args: [
+      consultation.id,
+      consultation.patientId,
+      consultation.providerId,
+      consultation.visitDate,
+      consultation.skinBiotype,
+      consultation.fitzpatrickScale,
+      consultation.skinConditions,
+      consultation.medicalDiagnosis || null,
+      consultation.clinicalNotes,
+      consultation.state,
+      consultation.allergies || null,
+      consultation.medicalConditions || null,
+      consultation.recommendations || null,
+      consultation.consentAccepted ? 1 : 0,
+      consultation.beforeImageUrl || null,
+      consultation.afterImageUrl || null,
+      consultation.signatureData || null,
+      consultation.updatedAt || new Date().toISOString(),
+      consultation.deletedAt || null
+    ]
+  });
+
+  stmts.push({ sql: `DELETE FROM ${tblSteps} WHERE consultation_id = ?`, args: [consultation.id] });
+  for (const step of steps) {
+    stmts.push({
+      sql: `INSERT INTO ${tblSteps} (id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        step.id,
+        consultation.id,
+        step.stepOrder,
+        step.stepName,
+        step.productId || null,
+        step.customProductName || null,
+        step.customBrand || null,
+        step.customActiveIngredients || null,
+        step.customActions || null,
+        step.applicationDescription || null,
+        step.aparatologySettings || null
+      ]
+    });
+  }
+
+  stmts.push({ sql: `DELETE FROM ${tblPrescriptions} WHERE consultation_id = ?`, args: [consultation.id] });
+  for (const pres of prescriptions) {
+    stmts.push({
+      sql: `INSERT INTO ${tblPrescriptions} (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        pres.id,
+        consultation.id,
+        pres.productId || null,
+        pres.timeOfDay,
+        pres.dosageInstructions,
+        pres.applicationFrequency,
+        pres.stepName || null,
+        pres.customProductName || null,
+        pres.customBrand || null,
+        pres.customActiveIngredients || null,
+        pres.customActions || null
+      ]
+    });
+  }
+
+  await executeAtomic(stmts);
+}
+
+// Guardado clínico: local atómico + remoto atómico. Si el remoto falla lanza el error (el guardado
+// local ya quedó hecho y la sincronización lo reintenta al reconectar/iniciar).
 export async function saveConsultationTransaction(
   consultation: Consultation,
   steps: ConsultationStep[],
   prescriptions: Prescription[]
 ): Promise<void> {
-  // 1. Save locally to Dexie (Atomic transactions locally)
+  const stamped: Consultation = { ...consultation, updatedAt: new Date().toISOString() };
+  const finalSteps: ConsultationStep[] = [];
+  const finalPrescriptions: Prescription[] = [];
   await db.transaction('rw', [db.consultations, db.consultation_steps, db.prescriptions], async () => {
-    await db.consultations.put(consultation);
-    await db.consultation_steps.where('consultationId').equals(consultation.id).delete();
+    await db.consultations.put(stamped);
+    await db.consultation_steps.where('consultationId').equals(stamped.id).delete();
     for (const step of steps) {
-      await db.consultation_steps.put(step);
+      // Un paso/prescripción con un id que ya pertenece a OTRA consulta (p. ej. un borrador restaurado
+      // que se guarda como visita nueva) le ROBABA la fila a esa consulta y hacía fallar la subida
+      // (clave duplicada). Se le asigna un id nuevo para conservar ambos.
+      const existing = await db.consultation_steps.get(step.id);
+      const safe = existing && existing.consultationId !== stamped.id ? { ...step, id: newId('STEP') } : step;
+      finalSteps.push(safe);
+      await db.consultation_steps.put(safe);
     }
-    await db.prescriptions.where('consultationId').equals(consultation.id).delete();
+    await db.prescriptions.where('consultationId').equals(stamped.id).delete();
     for (const pres of prescriptions) {
-      await db.prescriptions.put(pres);
+      const existing = await db.prescriptions.get(pres.id);
+      const safe = existing && existing.consultationId !== stamped.id ? { ...pres, id: newId('PRES') } : pres;
+      finalPrescriptions.push(safe);
+      await db.prescriptions.put(safe);
     }
   });
 
-  // 2. Save remotely to Turso in a pipeline transaction block
   if (navigator.onLine) {
-    const stmts: { sql: string; args: any[] }[] = [];
-    
-    const tblConsultations = getTableName('consultations');
-    const tblSteps = getTableName('consultation_steps');
-    const tblPrescriptions = getTableName('prescriptions');
+    await pushConsultationRemote(stamped, finalSteps, finalPrescriptions);
+  }
+}
 
-    // Explicit SQLite transaction block
-    stmts.push({ sql: "BEGIN TRANSACTION", args: [] });
+// --- Papelera (borrado suave) ----------------------------------------------------------------
+// Se estampa la fecha de edición para que la sincronización respete la decisión más reciente
+// (antes un borrado/restauración hecho sin conexión era revertido por la copia vieja del servidor).
 
-    // UPSERT (no INSERT OR REPLACE): un REPLACE borra y reinserta la fila, así que cualquier
-    // columna no listada (como created_at) vuelve a su DEFAULT y se pierde la fecha original de
-    // creación en cada edición. Con ON CONFLICT DO UPDATE, created_at nunca se toca en una edición.
-    stmts.push({
-      sql: `INSERT INTO ${tblConsultations} (id, patient_id, provider_id, visit_date, skin_biotype, fitzpatrick_scale, skin_conditions, medical_diagnosis, clinical_notes, state, allergies, medical_conditions, recommendations, consent_accepted, before_image_url, after_image_url, signature_data, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(id) DO UPDATE SET
-              patient_id = excluded.patient_id,
-              provider_id = excluded.provider_id,
-              visit_date = excluded.visit_date,
-              skin_biotype = excluded.skin_biotype,
-              fitzpatrick_scale = excluded.fitzpatrick_scale,
-              skin_conditions = excluded.skin_conditions,
-              medical_diagnosis = excluded.medical_diagnosis,
-              clinical_notes = excluded.clinical_notes,
-              state = excluded.state,
-              allergies = excluded.allergies,
-              medical_conditions = excluded.medical_conditions,
-              recommendations = excluded.recommendations,
-              consent_accepted = excluded.consent_accepted,
-              before_image_url = excluded.before_image_url,
-              after_image_url = excluded.after_image_url,
-              signature_data = excluded.signature_data,
-              updated_at = CURRENT_TIMESTAMP`,
-      args: [
-        consultation.id,
-        consultation.patientId,
-        consultation.providerId,
-        consultation.visitDate,
-        consultation.skinBiotype,
-        consultation.fitzpatrickScale,
-        consultation.skinConditions,
-        consultation.medicalDiagnosis || null,
-        consultation.clinicalNotes,
-        consultation.state,
-        consultation.allergies || null,
-        consultation.medicalConditions || null,
-        consultation.recommendations || null,
-        consultation.consentAccepted ? 1 : 0,
-        consultation.beforeImageUrl || null,
-        consultation.afterImageUrl || null,
-        consultation.signatureData || null
-      ]
-    });
+export async function setPatientDeleted(id: string, deleted: boolean): Promise<boolean> {
+  const p = await db.patients.get(id);
+  if (!p) return false;
+  const now = new Date().toISOString();
+  const { deletedAt: _old, ...rest } = p;
+  const updated: Patient = deleted ? { ...rest, deletedAt: now, updatedAt: now } : { ...rest, updatedAt: now };
+  await db.patients.put(updated);
+  if (!navigator.onLine) return false;
+  try {
+    await executeQuery(`UPDATE ${getTableName('patients')} SET deleted_at = ?, updated_at = ? WHERE id = ?`, [updated.deletedAt || null, now, id]);
+    return true;
+  } catch (e) {
+    console.warn('Fallo temporal al actualizar la papelera de pacientes en Turso:', e);
+    return false;
+  }
+}
 
-    stmts.push({
-      sql: `DELETE FROM ${tblSteps} WHERE consultation_id = ?`,
-      args: [consultation.id]
-    });
+export async function setConsultationDeleted(id: string, deleted: boolean): Promise<boolean> {
+  const c = await db.consultations.get(id);
+  if (!c) return false;
+  const now = new Date().toISOString();
+  const { deletedAt: _old, ...rest } = c;
+  const updated: Consultation = deleted ? { ...rest, deletedAt: now, updatedAt: now } : { ...rest, updatedAt: now };
+  await db.consultations.put(updated);
+  if (!navigator.onLine) return false;
+  try {
+    await executeQuery(`UPDATE ${getTableName('consultations')} SET deleted_at = ?, updated_at = ? WHERE id = ?`, [updated.deletedAt || null, now, id]);
+    return true;
+  } catch (e) {
+    console.warn('Fallo temporal al actualizar la papelera de visitas en Turso:', e);
+    return false;
+  }
+}
 
-    for (const step of steps) {
-      stmts.push({
-        sql: `INSERT INTO ${tblSteps} (id, consultation_id, step_order, step_name, product_id, custom_product_name, custom_brand, custom_active_ingredients, custom_actions, application_description, aparatology_settings)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          step.id,
-          step.consultationId,
-          step.stepOrder,
-          step.stepName,
-          step.productId || null,
-          step.customProductName || null,
-          step.customBrand || null,
-          step.customActiveIngredients || null,
-          step.customActions || null,
-          step.applicationDescription || null,
-          step.aparatologySettings || null
-        ]
-      });
-    }
+// --- Eliminación definitiva con "lápidas" ------------------------------------------------------
+// Borrar una fila en un dispositivo no basta: otro dispositivo (o este mismo, sin conexión en ese
+// momento) conserva su copia y, al sincronizar, la volvía a subir/descargar: el registro "resucitaba".
+// Cada eliminación definitiva deja una lápida (tipo + id) en Turso; todos los dispositivos la aplican.
 
-    stmts.push({
-      sql: `DELETE FROM ${tblPrescriptions} WHERE consultation_id = ?`,
-      args: [consultation.id]
-    });
+export type TombstoneKind = 'product' | 'patient' | 'consultation';
+const TOMBSTONES_LS = 'dermatique_tombstones';
 
-    for (const pres of prescriptions) {
-      stmts.push({
-        sql: `INSERT INTO ${tblPrescriptions} (id, consultation_id, product_id, time_of_day, dosage_instructions, application_frequency, step_name, custom_product_name, custom_brand, custom_active_ingredients, custom_actions)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          pres.id,
-          pres.consultationId,
-          pres.productId || null,
-          pres.timeOfDay,
-          pres.dosageInstructions,
-          pres.applicationFrequency,
-          pres.stepName || null,
-          pres.customProductName || null,
-          pres.customBrand || null,
-          pres.customActiveIngredients || null,
-          pres.customActions || null
-        ]
-      });
-    }
+type LocalTombstones = Record<string, { at: string; pushed: boolean }>;
+function loadTombstones(): LocalTombstones {
+  try { return JSON.parse(localStorage.getItem(TOMBSTONES_LS) || '{}') || {}; } catch (e) { return {}; }
+}
+function saveTombstones(t: LocalTombstones) {
+  try { localStorage.setItem(TOMBSTONES_LS, JSON.stringify(t)); } catch (e) { /* sin localStorage */ }
+}
 
-    stmts.push({ sql: "COMMIT", args: [] });
+export function recordTombstone(kind: TombstoneKind, id: string) {
+  const t = loadTombstones();
+  t[`${kind}:${id}`] = { at: new Date().toISOString(), pushed: false };
+  saveTombstones(t);
+}
 
+let tombstoneTableReady = false;
+async function ensureTombstoneTable(): Promise<string> {
+  const tbl = getTableName('tombstones');
+  if (!tombstoneTableReady) {
+    await executeQuery(`CREATE TABLE IF NOT EXISTS ${tbl} (kind TEXT NOT NULL, id TEXT NOT NULL, deleted_at TEXT NOT NULL, PRIMARY KEY (kind, id))`);
+    tombstoneTableReady = true;
+  }
+  return tbl;
+}
+
+async function deleteConsultationRemote(id: string) {
+  await executeAtomic([
+    { sql: `DELETE FROM ${getTableName('prescriptions')} WHERE consultation_id = ?`, args: [id] },
+    { sql: `DELETE FROM ${getTableName('consultation_steps')} WHERE consultation_id = ?`, args: [id] },
+    { sql: `DELETE FROM ${getTableName('consultations')} WHERE id = ?`, args: [id] }
+  ]);
+}
+
+async function applyRemoteDelete(kind: TombstoneKind, id: string) {
+  if (kind === 'product') {
+    await executeQuery(`DELETE FROM ${getTableName('products')} WHERE id = ?`, [id]);
+  } else if (kind === 'consultation') {
+    await deleteConsultationRemote(id);
+  } else {
+    const res = await executeQuery(`SELECT id FROM ${getTableName('consultations')} WHERE patient_id = ?`, [id]);
+    for (const r of res.rows || []) await deleteConsultationRemote(String(r.id));
+    await executeQuery(`DELETE FROM ${getTableName('anamnesis')} WHERE patient_id = ?`, [id]);
+    await executeQuery(`DELETE FROM ${getTableName('patients')} WHERE id = ?`, [id]);
+  }
+}
+
+async function applyLocalDelete(kind: TombstoneKind, id: string) {
+  if (kind === 'product') {
+    await db.products.delete(id);
+  } else if (kind === 'consultation') {
+    await db.prescriptions.where('consultationId').equals(id).delete();
+    await db.consultation_steps.where('consultationId').equals(id).delete();
+    await db.consultations.delete(id);
+  } else {
+    const cons = await db.consultations.where('patientId').equals(id).toArray();
+    for (const c of cons) await applyLocalDelete('consultation', c.id);
+    await db.anamnesis.where('patientId').equals(id).delete();
+    await db.patients.delete(id);
+  }
+}
+
+// Sube las eliminaciones pendientes de este dispositivo y aplica aquí las hechas en otros.
+export async function syncTombstones(): Promise<void> {
+  if (!navigator.onLine) return;
+  const tbl = await ensureTombstoneTable();
+  const local = loadTombstones();
+
+  for (const [key, info] of Object.entries(local)) {
+    if (info.pushed) continue;
+    const sep = key.indexOf(':');
+    const kind = key.slice(0, sep) as TombstoneKind;
+    const id = key.slice(sep + 1);
     try {
-      await executeBatch(stmts);
+      await applyRemoteDelete(kind, id);
+      await executeQuery(`INSERT OR REPLACE INTO ${tbl} (kind, id, deleted_at) VALUES (?, ?, ?)`, [kind, id, info.at]);
+      local[key] = { ...info, pushed: true };
     } catch (e) {
-      // Attempt rollback if pipeline fails
-      try {
-        await executeQuery("ROLLBACK");
-      } catch(re) {
-        console.error("Failed to rollback remote transaction:", re);
-      }
-      throw e;
+      console.warn('No se pudo subir una eliminación a Turso; se reintentará:', e);
     }
   }
+
+  const remote = await executeQuery(`SELECT kind, id, deleted_at FROM ${tbl}`);
+  for (const r of remote.rows || []) {
+    const key = `${r.kind}:${r.id}`;
+    if (local[key]?.pushed) continue;
+    await applyLocalDelete(r.kind as TombstoneKind, String(r.id));
+    local[key] = { at: String(r.deleted_at), pushed: true };
+  }
+  saveTombstones(local);
 }
 
 async function tableHasColumn(tableName: string, columnName: string): Promise<boolean> {
