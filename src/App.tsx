@@ -716,7 +716,17 @@ export default function App() {
   // APOYO EN CASA Widget states
   const [selectedRoutineTime, setSelectedRoutineTime] = useState<'Dia' | 'Noche'>('Dia');
   const [selectedRoutineTx, setSelectedRoutineTx] = useState<string>('Hidratante');
-  const [routineStepSelections, setRoutineStepSelections] = useState<Record<string, string>>({});
+  const [routineStepSelections, setRoutineStepSelections] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('dermatique_routine_selections');
+      return saved ? JSON.parse(saved) : {};
+    } catch(e) {
+      return {};
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('dermatique_routine_selections', JSON.stringify(routineStepSelections)); } catch(e) {}
+  }, [routineStepSelections]);
 
   interface CustomRoutine {
     name: string;
@@ -748,12 +758,34 @@ export default function App() {
   const [editableRoutineSteps, setEditableRoutineSteps] = useState<RoutineStepTemplate[]>([]);
   const [editingRoutineStepIdx, setEditingRoutineStepIdx] = useState<number | null>(null);
 
+  // Ediciones del usuario sobre las rutinas del catálogo, persistidas por rutina+horario.
+  const [routineOverrides, setRoutineOverrides] = useState<Record<string, RoutineStepTemplate[]>>(() => {
+    try {
+      const saved = localStorage.getItem('dermatique_routine_overrides');
+      return saved ? JSON.parse(saved) : {};
+    } catch(e) {
+      return {};
+    }
+  });
+  const routineOverrideKey = `${selectedRoutineTx}_${selectedRoutineTime}`;
+
+  const persistRoutineSteps = (key: string, steps: RoutineStepTemplate[] | null) => {
+    setRoutineOverrides(prev => {
+      const next = { ...prev };
+      if (steps) next[key] = steps; else delete next[key];
+      try { localStorage.setItem('dermatique_routine_overrides', JSON.stringify(next)); } catch(e) {}
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (selectedRoutineTx && ESTABLISHED_ROUTINES[selectedRoutineTx]) {
-      const steps = selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche;
+      const override = routineOverrides[routineOverrideKey];
+      const steps = override || (selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche);
       setEditableRoutineSteps(JSON.parse(JSON.stringify(steps)));
       setEditingRoutineStepIdx(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRoutineTx, selectedRoutineTime]);
 
   // ----------------------------------------------------
@@ -4181,9 +4213,23 @@ export default function App() {
     });
   }, [products]);
 
+  const commitEditableSteps = (next: RoutineStepTemplate[]) => {
+    setEditableRoutineSteps(next);
+    persistRoutineSteps(routineOverrideKey, next);
+  };
+
+  const handleResetCurrentRoutine = () => {
+    const base = ESTABLISHED_ROUTINES[selectedRoutineTx];
+    if (!base) return;
+    if (!window.confirm('¿Restablecer esta rutina a su versión original del catálogo? Se perderán tus ediciones.')) return;
+    setEditableRoutineSteps(JSON.parse(JSON.stringify(selectedRoutineTime === 'Dia' ? base.Dia : base.Noche)));
+    persistRoutineSteps(routineOverrideKey, null);
+    setEditingRoutineStepIdx(null);
+  };
+
   const handleAddStepToCurrentRoutine = () => {
-    setEditableRoutineSteps(prev => [
-      ...prev,
+    commitEditableSteps([
+      ...editableRoutineSteps,
       {
         stepName: 'Nueva Fase / Sección',
         keywords: ['suero', 'limpiador', 'crema'],
@@ -4198,15 +4244,13 @@ export default function App() {
   };
 
   const handleUpdateStepInRoutine = (index: number, field: keyof RoutineStepTemplate, value: string) => {
-    setEditableRoutineSteps(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], [field]: value };
-      return next;
-    });
+    const next = [...editableRoutineSteps];
+    next[index] = { ...next[index], [field]: value };
+    commitEditableSteps(next);
   };
 
   const handleRemoveStepFromCurrentRoutine = (index: number) => {
-    setEditableRoutineSteps(prev => prev.filter((_, i) => i !== index));
+    commitEditableSteps(editableRoutineSteps.filter((_, i) => i !== index));
   };
 
   const applySelectedRoutineToPatient = () => {
@@ -4215,7 +4259,7 @@ export default function App() {
       return;
     }
     
-    const steps = editableRoutineSteps.length > 0 
+    const steps = (editableRoutineSteps.length > 0 || routineOverrides[routineOverrideKey]) 
       ? editableRoutineSteps 
       : (ESTABLISHED_ROUTINES[selectedRoutineTx] ? (selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche) : []);
 
@@ -6067,6 +6111,15 @@ export default function App() {
                       </p>
                     </div>
 
+                    {routineOverrides[routineOverrideKey] && (
+                      <button
+                        type="button"
+                        onClick={handleResetCurrentRoutine}
+                        className="text-slate-500 hover:text-red-500 border border-slate-300/40 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 self-start md:self-auto"
+                      >
+                        Restablecer original
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={handleAddStepToCurrentRoutine}
@@ -6078,7 +6131,7 @@ export default function App() {
 
                   <div className="space-y-4 divide-y divide-slate-200/10">
                     {(() => {
-                      const steps = editableRoutineSteps.length > 0 
+                      const steps = (editableRoutineSteps.length > 0 || routineOverrides[routineOverrideKey]) 
                         ? editableRoutineSteps 
                         : (ESTABLISHED_ROUTINES[selectedRoutineTx] ? (selectedRoutineTime === 'Dia' ? ESTABLISHED_ROUTINES[selectedRoutineTx].Dia : ESTABLISHED_ROUTINES[selectedRoutineTx].Noche) : []);
 
