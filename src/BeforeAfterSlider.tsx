@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import QRCode from 'qrcode';
-import { SlidersHorizontal, Image as ImageIcon, Sparkles, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize2, Trash2, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
+import { SlidersHorizontal, Image as ImageIcon, Sparkles, X, Maximize2, Trash2, Smartphone, Loader2, CheckCircle2 } from 'lucide-react';
+import { EvidenceViewer, AnnStoreMap } from './ImageViewer';
 import { fetchPhotoTransfer, deletePhotoTransfer, cleanupOldPhotoTransfers } from './db';
 
 // Hasta 4 pares de fotos comparables: frente, ambos laterales y un área específica a discreción
@@ -79,12 +80,11 @@ export function resizeImage(file: File): Promise<string> {
 }
 
 // Slider comparativo deslizable, reutilizado tanto en la miniatura de cada slot como en el visor
-// a pantalla completa (solo cambia la altura y si el zoom está activo).
-function CompareSlider({ before, after, heightClass, zoomed }: { before?: string; after?: string; heightClass: string; zoomed?: boolean }) {
+// de cada slot.
+function CompareSlider({ before, after, heightClass }: { before?: string; after?: string; heightClass: string }) {
   const [sliderPos, setSliderPos] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const zoomClass = zoomed ? 'scale-[2]' : 'scale-100';
 
   const handleMove = (clientX: number) => {
     if (!containerRef.current) return;
@@ -112,7 +112,7 @@ function CompareSlider({ before, after, heightClass, zoomed }: { before?: string
         <img
           src={before || after}
           alt={before ? 'Antes' : 'Después'}
-          className={`absolute inset-0 w-full h-full object-cover transition-transform duration-300 ${zoomClass}`}
+          className={`absolute inset-0 w-full h-full object-cover`}
         />
         <span className="absolute bottom-2 left-2 bg-slate-900/80 text-amber-400 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow">
           Falta "{missing}"
@@ -133,7 +133,7 @@ function CompareSlider({ before, after, heightClass, zoomed }: { before?: string
       onTouchMove={e => { if (isDragging) handleMove(e.touches[0].clientX); }}
       className={`relative w-full ${heightClass} rounded-xl overflow-hidden select-none cursor-ew-resize border border-slate-200 dark:border-white/10 shadow-xl bg-black`}
     >
-      <img src={after} alt="Después" className={`absolute inset-0 w-full h-full object-cover pointer-events-none transition-transform duration-300 ${zoomClass}`} />
+      <img src={after} alt="Después" className={`absolute inset-0 w-full h-full object-cover pointer-events-none`} />
       <span className="absolute top-2 right-2 bg-amber-500/90 text-white text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-lg backdrop-blur-md">
         Después
       </span>
@@ -142,7 +142,7 @@ function CompareSlider({ before, after, heightClass, zoomed }: { before?: string
         <img
           src={before}
           alt="Antes"
-          className={`absolute inset-0 w-full h-full object-cover pointer-events-none transition-transform duration-300 ${zoomClass}`}
+          className={`absolute inset-0 w-full h-full object-cover pointer-events-none`}
         />
         <span className="absolute top-2 left-2 bg-slate-900/90 text-amber-400 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-lg backdrop-blur-md">
           Antes
@@ -160,7 +160,7 @@ function CompareSlider({ before, after, heightClass, zoomed }: { before?: string
 
 export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesChange, onAfterImagesChange }: BeforeAfterSliderProps) {
   const [lightboxSlot, setLightboxSlot] = useState<number | null>(null);
-  const [zoomed, setZoomed] = useState(false);
+  const [annStore, setAnnStore] = useState<AnnStoreMap>({});
   const [bridgeOpen, setBridgeOpen] = useState(false);
 
   const before = [0, 1, 2, 3].map(i => beforeImages[i] || '');
@@ -187,28 +187,8 @@ export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesCha
 
   const removeSlotImage = (side: 'before' | 'after', idx: number) => setSlotImage(side, idx, '');
 
-  const openLightbox = (idx: number) => { setZoomed(false); setLightboxSlot(idx); };
-  const closeLightbox = () => { setLightboxSlot(null); setZoomed(false); };
-
-  const stepLightbox = (dir: 1 | -1) => {
-    if (lightboxSlot === null || populatedSlots.length === 0) return;
-    const pos = populatedSlots.indexOf(lightboxSlot);
-    const nextPos = (pos + dir + populatedSlots.length) % populatedSlots.length;
-    setZoomed(false);
-    setLightboxSlot(populatedSlots[nextPos]);
-  };
-
-  useEffect(() => {
-    if (lightboxSlot === null) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeLightbox();
-      if (e.key === 'ArrowLeft') stepLightbox(-1);
-      if (e.key === 'ArrowRight') stepLightbox(1);
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightboxSlot, populatedSlots.join('|')]);
+  const openLightbox = (idx: number) => setLightboxSlot(idx);
+  const closeLightbox = () => setLightboxSlot(null);
 
   return (
     <div className="space-y-4">
@@ -219,7 +199,7 @@ export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesCha
             Galería Comparativa "Antes y Después"
           </h4>
           <p className="text-[11px] text-slate-500 dark:text-luxe-300">
-            Sube hasta {MAX_COMPARISON_SLOTS} fotos por lado (frente, laterales y un área específica) y desliza cada tarjeta para evaluar objetivamente la evolución clínica. Toca <Maximize2 className="w-3 h-3 inline -mt-0.5" /> para ampliar y comparar en detalle.
+            Sube hasta {MAX_COMPARISON_SLOTS} fotos por lado (frente, laterales y un área específica) y desliza cada tarjeta para evaluar objetivamente la evolución clínica. Toca <Maximize2 className="w-3 h-3 inline -mt-0.5" /> para abrir el visor profesional: zoom, desplazamiento, puntero láser, lupa y anotaciones.
           </p>
         </div>
         <button
@@ -284,73 +264,18 @@ export function BeforeAfterSlider({ beforeImages, afterImages, onBeforeImagesCha
         })}
       </div>
 
-      {lightboxSlot !== null && createPortal(
-        // Portal directo a document.body: mismo motivo que el modal del puente de fotos y el
-        // teclado de firma — sin esto, el visor quedaría confinado dentro de la tarjeta
-        // ".liquid-glass" (transform/will-change) en vez de cubrir la pantalla completa.
-        <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col" onClick={closeLightbox}>
-          <div className="flex items-center justify-between px-4 sm:px-6 py-4 shrink-0" onClick={e => e.stopPropagation()}>
-            <span className="text-white text-xs font-bold uppercase tracking-widest">{SLOT_LABELS[lightboxSlot]}</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setZoomed(z => !z)}
-                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-                title={zoomed ? 'Alejar' : 'Acercar'}
-              >
-                {zoomed ? <ZoomOut className="w-4 h-4" /> : <ZoomIn className="w-4 h-4" />}
-              </button>
-              <button
-                type="button"
-                onClick={closeLightbox}
-                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-                title="Cerrar"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 flex items-center justify-center gap-2 px-2 sm:px-6 pb-6 min-h-0" onClick={e => e.stopPropagation()}>
-            {populatedSlots.length > 1 && (
-              <button
-                type="button"
-                onClick={() => stepLightbox(-1)}
-                className="shrink-0 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-            )}
-
-            <div className="w-full h-full max-w-4xl">
-              <CompareSlider before={before[lightboxSlot]} after={after[lightboxSlot]} heightClass="h-full" zoomed={zoomed} />
-            </div>
-
-            {populatedSlots.length > 1 && (
-              <button
-                type="button"
-                onClick={() => stepLightbox(1)}
-                className="shrink-0 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-
-          {populatedSlots.length > 1 && (
-            <div className="flex items-center justify-center gap-2 pb-4 shrink-0" onClick={e => e.stopPropagation()}>
-              {populatedSlots.map(i => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => { setZoomed(false); setLightboxSlot(i); }}
-                  className={`w-2 h-2 rounded-full transition-colors ${i === lightboxSlot ? 'bg-amber-500' : 'bg-white/30'}`}
-                />
-              ))}
-            </div>
-          )}
-        </div>,
-        document.body
+      {lightboxSlot !== null && (
+        <EvidenceViewer
+          slot={lightboxSlot}
+          slotLabels={SLOT_LABELS}
+          populatedSlots={populatedSlots}
+          before={before}
+          after={after}
+          onSlotChange={setLightboxSlot}
+          onClose={closeLightbox}
+          store={annStore}
+          onStoreChange={setAnnStore}
+        />
       )}
 
       {bridgeOpen && (
