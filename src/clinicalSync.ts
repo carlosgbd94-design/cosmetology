@@ -32,7 +32,7 @@ export async function syncClinicalWithRemote(): Promise<void> {
 async function syncPatients() {
   const tbl = getTableName('patients');
   const res = await executeQuery(
-    `SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at, deleted_at FROM ${tbl}`
+    `SELECT id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, created_at, updated_at, deleted_at, folio FROM ${tbl}`
   );
   const remoteRows: any[] = res.rows || [];
   const local = new Map<string, Patient>((await db.patients.toArray()).map(p => [p.id, p]));
@@ -55,13 +55,16 @@ async function syncPatients() {
           phoneEncrypted: await decryptData(r.phone_encrypted),
           createdAt: r.created_at,
           updatedAt: r.updated_at,
-          deletedAt: r.deleted_at || undefined
+          deletedAt: r.deleted_at || undefined,
+          folio: r.folio || l?.folio || undefined
         });
       } catch (e) {
         console.warn(`No se pudo descifrar/guardar el paciente ${r.id}; se omite:`, e);
       }
     } else if (lTs > rTs) {
       toPush.push(l);
+    } else if (!l.folio && r.folio) {
+      await db.patients.put({ ...l, folio: r.folio });
     }
   }
   for (const [id, l] of local) if (!remoteIds.has(id)) toPush.push(l);

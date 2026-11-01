@@ -548,9 +548,10 @@ export async function pushPatientRemote(patient: Patient): Promise<boolean> {
     const lastNameEnc = await encryptData(patient.lastNameEncrypted);
     const phoneEnc = await encryptData(patient.phoneEncrypted);
     await executeQuery(
-      `INSERT INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, updated_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO ${tblPatients} (id, first_name_encrypted, last_name_encrypted, date_of_birth, email_hashed, phone_encrypted, updated_at, deleted_at, folio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
+         folio = excluded.folio,
          first_name_encrypted = excluded.first_name_encrypted,
          last_name_encrypted = excluded.last_name_encrypted,
          date_of_birth = excluded.date_of_birth,
@@ -558,13 +559,67 @@ export async function pushPatientRemote(patient: Patient): Promise<boolean> {
          phone_encrypted = excluded.phone_encrypted,
          updated_at = excluded.updated_at,
          deleted_at = excluded.deleted_at`,
-      [patient.id, firstNameEnc, lastNameEnc, patient.dateOfBirth, patient.emailHashed, phoneEnc, patient.updatedAt, patient.deletedAt || null]
+      [patient.id, firstNameEnc, lastNameEnc, patient.dateOfBirth, patient.emailHashed, phoneEnc, patient.updatedAt, patient.deletedAt || null, patient.folio || null]
     );
     return true;
   } catch (remoteErr) {
     console.warn('Fallo temporal al guardar paciente en Turso, guardado local completado:', remoteErr);
     return false;
   }
+}
+
+// --- Folio de expediente: [INICIALES]-[AÑO DE ALTA]-[CONSECUTIVO] ---------------------------------
+// El id interno (llave de todas las tablas) no cambia; el folio es solo el identificador visible.
+
+export function patientInitials(firstName: string, lastName: string): string {
+  const words = `${firstName || ''} ${lastName || ''}`
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .split(/\s+/).filter(w => /^[A-Za-z]/.test(w));
+  return words.map(w => w[0].toUpperCase()).join('') || 'XX';
+}
+
+function folioParts(folio?: string): { year: string; seq: number } | null {
+  const m = /^[A-Z]+-(\d{4})-(\d+)$/.exec(folio || '');
+  return m ? { year: m[1], seq: parseInt(m[2], 10) } : null;
+}
+
+// Siguiente consecutivo del año, mirando también los pacientes en papelera para no reutilizar folios.
+function nextFolioSeq(all: Patient[], year: string): number {
+  let max = 0;
+  for (const p of all) {
+    const f = folioParts(p.folio);
+    if (f && f.year === year && f.seq > max) max = f.seq;
+  }
+  return max + 1;
+}
+
+function buildFolio(p: Patient, year: string, seq: number): string {
+  return `${patientInitials(p.firstNameEncrypted, p.lastNameEncrypted)}-${year}-${String(seq).padStart(4, '0')}`;
+}
+
+// Folio para un paciente nuevo (año de alta = año actual).
+export async function folioForNewPatient(firstName: string, lastName: string): Promise<string> {
+  const year = String(new Date().getFullYear());
+  const seq = nextFolioSeq(await db.patients.toArray(), year);
+  return buildFolio({ firstNameEncrypted: firstName, lastNameEncrypted: lastName } as Patient, year, seq);
+}
+
+// Asigna folio a los expedientes que aún no lo tienen, en orden de alta (más antiguos primero).
+// Devuelve cuántos asignó. Los que ya tienen folio no se tocan.
+export async function assignMissingFolios(): Promise<number> {
+  const all = await db.patients.toArray();
+  const missing = all.filter(p => !p.folio).sort((a, b) =>
+    (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0) || a.id.localeCompare(b.id)
+  );
+  const next: Record<string, number> = {};
+  for (const p of missing) {
+    const ts = Date.parse(p.createdAt);
+    const year = String(isNaN(ts) ? new Date().getFullYear() : new Date(ts).getFullYear());
+    if (!(year in next)) next[year] = nextFolioSeq(all, year);
+    const folio = buildFolio(p, year, next[year]++);
+    await savePatient({ ...p, folio });
+  }
+  return missing.length;
 }
 
 // Guarda un paciente local y remotamente. Devuelve true si también quedó en Turso. La fecha de edición
@@ -1129,6 +1184,7 @@ async function seedTablesImpl(): Promise<void> {
         { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN signature_data TEXT` },
         { sql: `ALTER TABLE ${tblConsultations} ADD COLUMN deleted_at TEXT` },
         { sql: `ALTER TABLE ${tblPatients} ADD COLUMN deleted_at TEXT` },
+        { sql: `ALTER TABLE ${tblPatients} ADD COLUMN folio TEXT` },
         // Ensure all custom step columns exist
         { sql: `ALTER TABLE ${tblSteps} ADD COLUMN custom_product_name TEXT` },
         { sql: `ALTER TABLE ${tblSteps} ADD COLUMN custom_brand TEXT` },

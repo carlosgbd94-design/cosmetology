@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, localDataBelongsToActiveLicense, saveAnamnesis, findPatientWithEmailHash, newId, setPatientDeleted, setConsultationDeleted, recordTombstone, syncTombstones, DuplicateSkuError, generateUniqueSku, generateUniqueProductId, savePatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType, syncProductsWithRemote } from './db';
+import { db, executeQuery, executeBatch, seedTables, saveConsultationTransaction, saveProduct, saveProducts, localDataBelongsToActiveLicense, saveAnamnesis, findPatientWithEmailHash, newId, setPatientDeleted, setConsultationDeleted, recordTombstone, syncTombstones, DuplicateSkuError, generateUniqueSku, generateUniqueProductId, savePatient, assignMissingFolios, folioForNewPatient, restoreLegacyIndexedDBData, getTableName, MASTER_LICENSE_KEY, fetchCustomProductTypes, saveCustomProductType, syncProductsWithRemote } from './db';
 import { syncClinicalWithRemote } from './clinicalSync';
 import { markSettingChanged, syncSettings, onSettingsApplied, overrideSettingKey } from './syncedSettings';
 import { Patient, Anamnesis, Product, Consultation, ConsultationStep, Prescription, ConsultationState } from './types';
@@ -1041,10 +1041,12 @@ export default function App() {
 
   const memoizedFilteredPatients = useMemo(() => {
     const query = folderSearchQuery.toLowerCase().trim();
+    const byName = (p: Patient) => `${p.lastNameEncrypted} ${p.firstNameEncrypted}`;
     return patients.filter(pat => !pat.deletedAt).filter(pat => {
       const fullName = `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}`.toLowerCase();
       const phone = (pat.phoneEncrypted || '').toLowerCase();
-      const matchesSearch = !query || fullName.includes(query) || phone.includes(query);
+      const folio = (pat.folio || '').toLowerCase();
+      const matchesSearch = !query || fullName.includes(query) || phone.includes(query) || folio.includes(query);
 
       const patConsultations = memoizedGroupedRecords[pat.id] || [];
       const latestConsultation = patConsultations.slice().sort((a, b) => new Date(b.visitDate).getTime() - new Date(a.visitDate).getTime())[0];
@@ -1052,7 +1054,7 @@ export default function App() {
       const matchesBiotype = !folderBiotypeFilter || (latestConsultation && latestConsultation.skinBiotype === folderBiotypeFilter);
 
       return matchesSearch && matchesBiotype;
-    });
+    }).sort((a, b) => byName(a).localeCompare(byName(b), 'es', { sensitivity: 'base' }));
   }, [patients, folderSearchQuery, folderBiotypeFilter, memoizedGroupedRecords]);
 
   const deletedPatients = useMemo(() => patients.filter(p => p.deletedAt), [patients]);
@@ -1262,6 +1264,9 @@ export default function App() {
           console.error("Error syncing remote clinical databases:", err);
         }
       }
+
+      // Folio visible de los expedientes (INICIALES-AÑO-CONSECUTIVO): asigna los que aún no lo tienen.
+      try { await assignMissingFolios(); } catch (e) { console.warn('No se pudieron asignar folios:', e); }
 
       await loadMasterCatalogs();
       setSyncStatus(navigator.onLine ? 'online' : 'local');
@@ -2002,14 +2007,16 @@ export default function App() {
       }
 
       // Local Dexie Save for patient (savePatient también intenta el guardado remoto internamente)
+      const existingPatient = selectedPatientId ? await db.patients.get(selectedPatientId) : undefined;
       const localPatient: Patient = {
         id: patientId,
+        folio: existingPatient?.folio || await folioForNewPatient(patientForm.firstName, patientForm.lastName),
         firstNameEncrypted: patientForm.firstName, // Store decrypted locally for ease of UI display
         lastNameEncrypted: patientForm.lastName,
         dateOfBirth: patientForm.dateOfBirth || '2000-01-01',
         emailHashed: emailH,
         phoneEncrypted: patientForm.phone,
-        createdAt: new Date().toISOString(),
+        createdAt: existingPatient?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
       const patientSynced = await savePatient(localPatient);
@@ -6871,7 +6878,7 @@ export default function App() {
                 <Search className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Buscar paciente por nombre o teléfono..."
+                  placeholder="Buscar paciente por nombre, teléfono o folio..."
                   value={folderSearchQuery}
                   onChange={e => setFolderSearchQuery(e.target.value)}
                   className="smart-input w-full pl-10"
@@ -6965,7 +6972,7 @@ export default function App() {
                             <h3 className="font-outfit text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                               {pat.firstNameEncrypted} {pat.lastNameEncrypted}
                               <span className="text-[9px] bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded-full font-bold text-slate-400 tracking-wider">
-                                {pat.id}
+                                {pat.folio || pat.id}
                               </span>
                             </h3>
                             <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1 text-[11px] text-slate-500 dark:text-luxe-300">
@@ -7010,7 +7017,7 @@ export default function App() {
                                 </div>
                                 <div>
                                   <span className="block text-[9px] text-slate-400 uppercase">Identificador</span>
-                                  <span className="font-mono text-[10px] text-slate-500 dark:text-luxe-300">{pat.id}</span>
+                                  <span className="font-mono text-[10px] text-slate-500 dark:text-luxe-300">{pat.folio || pat.id}</span>
                                 </div>
                                 <div className="pt-2 border-t border-slate-200/50 dark:border-white/5">
                                   <span className="block text-[9px] text-slate-400 uppercase">Alergias Clínicas/Cosméticos</span>

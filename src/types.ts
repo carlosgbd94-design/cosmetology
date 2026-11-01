@@ -10,6 +10,7 @@ export interface Patient {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string; // Fecha de borrado suave (papelera); ausente/vacío = activo
+  folio?: string;     // Identificador visible [INICIALES]-[AÑO DE ALTA]-[CONSECUTIVO]; el id interno no cambia
 }
 
 export interface Anamnesis {
