@@ -1041,7 +1041,7 @@ export default function App() {
 
   const memoizedFilteredPatients = useMemo(() => {
     const query = folderSearchQuery.toLowerCase().trim();
-    const byName = (p: Patient) => `${p.lastNameEncrypted} ${p.firstNameEncrypted}`;
+    const byName = (p: Patient) => `${p.firstNameEncrypted} ${p.lastNameEncrypted}`.trim();
     return patients.filter(pat => !pat.deletedAt).filter(pat => {
       const fullName = `${pat.firstNameEncrypted} ${pat.lastNameEncrypted}`.toLowerCase();
       const phone = (pat.phoneEncrypted || '').toLowerCase();
